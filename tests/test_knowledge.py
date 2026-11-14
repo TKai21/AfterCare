@@ -2,6 +2,7 @@ import json
 import math
 import re
 import sqlite3
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -744,11 +745,74 @@ async def test_bm25_cache_notices_rebuild_by_another_store(tmp_path):
     assert "pegloticase" in [r["source_id"] for r in await live.retrieve("pegloticase", mode="hybrid")]
 
 
+class SwapOnRead(KnowledgeStore):
+    """Replaces the index file right after retrieve opens its connection, the
+    way `index_sources` in the CLI can land between the open and the read."""
+
+    swap = None  # a prebuilt index file to move over self.path
+
+    @contextmanager
+    def connect(self):
+        with super().connect() as db:
+            if self.swap is not None and not self._in_status:
+                self.swap.replace(self.path)
+                self.swap = None
+            yield db
+
+    _in_status = False
+
+    def status(self):
+        self._in_status = True
+        try:
+            return super().status()
+        finally:
+            self._in_status = False
+
+
+async def test_bm25_cache_notices_same_size_rebuild_even_mid_read(tmp_path):
+    """A rebuild with the same chunk count and ids but new text: only the file
+    identity (inode, mtime) tells the cache apart, including when the file is
+    swapped between the connection opening and the read."""
+    old_text = "Probenecid helps the kidneys remove uric acid."
+    new_text = "Febuxostat lowers uric acid when allopurinol is not tolerated."
+    vectors = {"febuxostat": unit(1.0), old_text: unit(0.3), new_text: unit(0.3)}
+    vectors |= {distractor(i): unit(0.9 - 0.02 * i) for i in range(19)}
+    llm = VectorLLM(vectors)
+    notes = [record(f"note-{i}", distractor(i)) for i in range(19)]
+
+    async def build(path, text):
+        await knowledge.index_sources(KnowledgeStore(path, llm), tmp_path,
+                                      extra_records=notes + [record("urate", text)])
+
+    def top(results):
+        return [r["source_id"] for r in results]
+
+    # Plain same-size rebuild by another store.
+    path = tmp_path / "index.sqlite3"
+    await build(path, old_text)
+    live = KnowledgeStore(path, llm, min_similarity=0.0)
+    assert top(await live.retrieve("febuxostat", limit=1, mode="hybrid")) == ["note-0"]
+    await build(path, new_text)
+    assert top(await live.retrieve("febuxostat", limit=1, mode="hybrid")) == ["urate"]
+
+    # Same-size rebuild that lands after the connection opened.
+    racy_path = tmp_path / "racy.sqlite3"
+    await build(racy_path, old_text)
+    rebuilt = tmp_path / "rebuilt.sqlite3"
+    await build(rebuilt, new_text)
+    racy = SwapOnRead(racy_path, llm, min_similarity=0.0)
+    racy.swap = rebuilt
+    assert top(await racy.retrieve("febuxostat", limit=1, mode="hybrid")) == ["note-0"]  # read the old file
+    assert racy.swap is None
+    assert top(await racy.retrieve("febuxostat", limit=1, mode="hybrid")) == ["urate"]
+
+
 async def test_default_mode_and_status_reflect_reranker(tmp_path):
     path = tmp_path / "index.sqlite3"
     plain = await gout_store(path, target_cosine=0.5)
     assert plain.status()["reranker"] == "off"
     assert plain.status()["reranker_note"] == "off: not configured"
+    assert KnowledgeStore(path, plain.llm, reranker=FakeReranker()).status()["reranker_note"] == "on"
     assert await plain.retrieve("allopurinol") == await plain.retrieve("allopurinol", mode="hybrid")
 
     reranker = FakeReranker({"Allopurinol": 5.0}, default=1.0)

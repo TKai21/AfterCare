@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -280,7 +281,7 @@ def _passage(title: str, content: str) -> str:
 
 class KnowledgeStore:
     def __init__(self, path, llm, min_similarity: float = 0.25, reranker=None,
-                 min_rerank: float = 0.0, reranker_note: str = "off: not configured"):
+                 min_rerank: float = 0.0, reranker_note: str | None = None):
         path = Path(path)
         self.path = path if path.is_absolute() else ROOT / path
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -289,6 +290,8 @@ class KnowledgeStore:
         self.min_similarity = min_similarity
         self.reranker = reranker  # anything with score(query, passages) -> list[float]
         self.min_rerank = min_rerank
+        if reranker_note is None:
+            reranker_note = "on" if reranker is not None else "off: not configured"
         self.reranker_note = reranker_note
         self._bm25: tuple[tuple, BM25] | None = None  # (fingerprint, index)
         self._reranker_warned = False
@@ -367,15 +370,15 @@ class KnowledgeStore:
                 "message": message, "reranker": "on" if self.reranker is not None else "off",
                 "reranker_note": self.reranker_note}
 
-    def _keyword_index(self, db: sqlite3.Connection) -> BM25:
+    def _keyword_index(self, db: sqlite3.Connection, stat: os.stat_result) -> BM25:
         """BM25 over every chunk of the current model, rebuilt when the index changes.
 
-        The file is stat-ed before the chunks are read, so a write that lands
-        during the read leaves a stale fingerprint and the next search rebuilds.
-        A rebuild by another process replaces the file (new inode); a write in
-        place moves the mtime, the row count or the highest chunk id.
+        `stat` must be taken before `db` was opened. Then a rebuild or write that
+        lands after it, even while `db` is open, leaves a stale fingerprint and
+        the next search rebuilds. A rebuild by another process replaces the file
+        (new inode); a write in place moves the mtime, the row count or the
+        highest chunk id.
         """
-        stat = self.path.stat()
         count, top = db.execute("SELECT count(*), max(id) FROM chunks").fetchone()
         fingerprint = (stat.st_ino, stat.st_mtime_ns, count, top)
         if self._bm25 is None or self._bm25[0] != fingerprint:
@@ -409,12 +412,13 @@ class KnowledgeStore:
         vector = np.asarray((await self.llm.embed([query]))[0], dtype=float)
         allowed = sorted(set(rxcuis))
         marks = ",".join("?" * len(allowed))
+        stat = self.path.stat()  # before the connection opens; see _keyword_index
         with self.connect() as db:
             rows = db.execute(f"""SELECT c.id, c.content, c.vector, d.id AS source_id, d.title, d.url, d.topic
                 FROM chunks c JOIN documents d ON c.document_id=d.id
                 WHERE c.model=? AND (d.rxcui IS NULL OR d.rxcui IN ({marks}))""",
                               (self.model, *allowed)).fetchall()
-            keyword = self._keyword_index(db) if rows and mode != "embedding" else None
+            keyword = self._keyword_index(db, stat) if rows and mode != "embedding" else None
         if not rows:
             return []
         matrix = np.asarray([json.loads(row["vector"]) for row in rows], dtype=float)
@@ -455,6 +459,7 @@ class KnowledgeStore:
 def _hit(row: sqlite3.Row, score: float) -> dict:
     return {"source_id": row["source_id"], "title": row["title"], "url": row["url"],
             "topic": row["topic"], "content": row["content"], "score": round(float(score), 4)}
+
 
 def load_sources(directory: Path = DATA) -> list[dict]:
     return [json.loads(p.read_text()) for p in sorted((Path(directory) / "sources").glob("*.json"))]
