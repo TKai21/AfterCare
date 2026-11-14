@@ -1,196 +1,92 @@
-# AfterCare
+# AfterCare document retrieval
 
-AfterCare is an English web app for patients who go home after a hospital stay. The patient uploads the discharge document their doctor wrote (family medicine), reviews and confirms what the app extracted from it, and then asks an agent lifestyle and medication questions such as "is almond butter OK, and how much?". Every answer carries citations, and the doctor's document is always the top authority: the agent explains and applies it, and never overrides it. A daily checklist generated from the confirmed document is a secondary feature. Questions the agent cannot answer from approved sources are saved to a Care team list the patient can take to the next appointment.
+Python 3.10+ component for PDF text extraction, section chunking, document indexing,
+source-linked retrieval and full-document export. Checklist generation is handled
+by a separate teammate's LLM service. No generative model or Ollama is included.
 
-AfterCare is a class project, not medical advice. In an emergency, call 911.
+## Files
 
-This is EE542 final project, Team 2, milestone 1. The "Status" section below lists plainly what is not built or not verified yet.
+- `document_processing.py`: Chunk data structure, PDF reader and section splitter.
+- `retriever.py`: BM25 baseline, optional CPU semantic retrieval, saved index,
+  retrieval CLI and source-bundle export.
+- `test_retriever.py`: 18 deterministic retrieval and integration tests.
+- `requirements.txt`: base dependencies (PyMuPDF and NumPy).
+- `requirements-semantic.txt`: optional Sentence Transformers encoder dependencies.
+- `sample/gout.pdf`: explicitly fictional test fixture. Required by one test and
+  the fixture-specific evaluation command.
 
-## Architecture
-
-| Part | What it is |
-|------|-----------|
-| Backend | FastAPI, async SQLAlchemy. MySQL 8 in production (`asyncmy`), SQLite (`aiosqlite`) for local dev and tests |
-| Auth | Sign up / log in with JWT; every query is scoped to the current user, another user's IDs return 404 |
-| Frontend | Plain HTML/CSS/JS in `frontend/`, served by FastAPI. No framework, no build step |
-| Models | Any OpenAI-compatible server: `/chat/completions` with standard `tools`/`tool_calls`, and `/embeddings` |
-| Education library | Curated, allowlisted official sources (MedlinePlus, NIDDK, CDC, DailyMed, kidney.org), chunked and embedded into a SQLite vector index, exact cosine search with NumPy |
-| Food table | `data/foods.json`: USDA FoodData Central nutrients plus oxalate categories from the UChicago oxalate table |
-| Grounding | The server validates every answer. Citations must exist in the evidence of that request, and every number in an answer must appear in the cited evidence. A rejected answer gets one repair attempt that tells the model what failed (never for an emergency); if that fails too, the user gets a safe fallback and the question is added to the Care team list automatically |
-| Safety | Local emergency-symptom detection (a static symptom list plus the document's own warning signs) shows an emergency banner above the answer. It never depends on the model: with no model configured, or when the model fails, an emergency message still gets the call-911 answer and banner |
-
-The app has four tabs: Instructions (upload, then review and confirm the extracted items), Today (daily checklist), Ask (the agent), Care team (questions the app could not answer).
-
-## Run the website
-
-1. Install Python 3.10+. MySQL 8+ is only needed for the production setup; for a quick local run use SQLite (below).
-2. Get the code. The project lives on the `aftercare` branch, and the repository root is the project root:
-
-   ```bash
-   git clone https://github.com/renny475/EE542-Labs.git
-   cd EE542-Labs
-   git checkout aftercare
-   ```
-
-3. From the project root:
-
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r backend/requirements.txt
-   cp .env.example .env
-   ```
-
-4. In `.env`, set a unique `JWT_SECRET` (startup fails if it is empty or still the placeholder). Keep `.env` private; it is gitignored.
-5. Choose a database.
-
-   Quick local run with SQLite - set this in `.env`:
-
-   ```
-   DATABASE_URL=sqlite+aiosqlite:///./aftercare-dev.sqlite3
-   ```
-
-   An existing local SQLite dev DB from an earlier version must be deleted and recreated after upgrading (the new guidance tables and columns are not migrated).
-
-   MySQL - edit the password in `sql/schema.sql`, run `mysql -u root -p < sql/schema.sql`, and put the same password in `DATABASE_URL`. The app also creates missing tables on startup. `schema.sql` uses `CREATE TABLE IF NOT EXISTS`, so a database created by an earlier version will not gain new columns (for example `discharge_documents.active_user_id`, or `care_team_questions.status`, `answer`, `answered_by` and `answered_at`, which replace the old `resolved` column). Drop and recreate it (upgrading a milestone 1 database).
-6. Start the app from the project root. A relative SQLite path in `DATABASE_URL` resolves against the current directory; `RAG_DB_PATH` (`knowledge/index.sqlite3`) and `FOODS_PATH` (`data/foods.json`) resolve against the project root wherever you start it:
-
-   ```bash
-   uvicorn --app-dir backend app:app --host 0.0.0.0 --port 8000
-   ```
-
-7. Open `http://localhost:8000`, create an account, and log in.
-
-## Model configuration
-
-All settings live in `.env` and are read by `backend/config.py`.
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `DATABASE_URL` | MySQL on localhost | SQLAlchemy async URL |
-| `JWT_SECRET` | none, required | Token signing secret |
-| `JWT_EXPIRE_MINUTES` | 43200 | Token lifetime |
-| `LLM_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
-| `LLM_MODEL` | empty | Chat model name, for example `gpt-4.1-mini` (see `.env.example`) |
-| `LLM_API_KEY` | empty | May stay empty for a self-hosted server |
-| `EMBEDDING_API_BASE` | `LLM_API_BASE` | Embeddings endpoint base |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name |
-| `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
-| `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
-| `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
-| `GUIDANCE_MIN_SIMILARITY` | 0.45 | Minimum cosine similarity for a doctor guidance entry |
-| `FOODS_PATH` | `data/foods.json` | Food table |
-
-Without `LLM_MODEL` the app still starts and you can sign up, but uploading a document (extraction) and Ask return a "not configured" error (HTTP 503). The one exception is an emergency message in Ask: it still gets the call-911 answer and banner. A temporary model failure returns HTTP 502 and the page asks the patient to try again.
-
-To use a self-hosted vLLM server, set `LLM_API_BASE` to its OpenAI-compatible URL (for example `http://host:8000/v1`) and `LLM_MODEL` to the served model name; `LLM_API_KEY` can be empty (no `Authorization` header is sent then, and `manage_knowledge.py index` only requires a key for `api.openai.com`). If you change `EMBEDDING_MODEL` or the embeddings endpoint, rebuild the index with `python backend/manage_knowledge.py index` (`status` shows whether the index matches the configured model).
-
-## Knowledge library
-
-`knowledge/manifest.json` lists the approved sources and `knowledge/sources/` holds one snapshot per source with its provenance. Only HTTPS sources on the allowlisted official hosts are accepted. Run from the project root:
+## Setup
 
 ```bash
-python backend/manage_knowledge.py status    # what is indexed, and whether it matches EMBEDDING_MODEL
-python backend/manage_knowledge.py collect   # fetch every manifest URL into knowledge/sources/ (network)
-python backend/manage_knowledge.py index     # embed reviewed snapshots and curated summaries (paid embedding calls)
+python3 -m venv "$HOME/.venvs/aftercare"
+source "$HOME/.venvs/aftercare/bin/activate"
+python -m pip install -r requirements.txt
 ```
 
-Collected snapshots are unreviewed; review each one and set `"reviewed": true` before indexing, as unreviewed snapshots are skipped.
+If that environment already exists, activate it; no need to create it again.
 
-The index `knowledge/index.sqlite3` is not built in this branch because no API key is configured. Without it the agent still answers from the patient's own document and the food table, but not from the education library.
-
-## Food data
-
-`data/foods.json` is generated by `data/build_foods.py` from USDA FoodData Central (SR Legacy items, patient-facing servings) and `data/oxalate.json`, whose category words are copied verbatim from the UChicago oxalate table. Foods missing from that table get oxalate "unknown" and the agent says it does not know rather than estimating.
+## Run the baseline
 
 ```bash
-FDC_API_KEY=... python data/build_foods.py [--cache DIR]      # from the FDC API
-python data/build_foods.py --sr-legacy-csv DIR                # offline, from the unzipped SR Legacy CSV download
+python retriever.py build sample/gout.pdf --index rag_index --backend bm25
+python retriever.py search --index rag_index --query "How often do I take colchicine?"
+python retriever.py eval-gout --index rag_index
+python retriever.py export --index rag_index --output source_bundle.json
+python -m unittest -v
 ```
 
-## Demo documents
+Use a fresh index/output path for each new run. Existing paths are not overwritten.
+On the supplied sheet, the expected section ranked first for all 15 development
+questions, and all 18 tests passed. This is a small same-document development
+benchmark, not generalization, medical correctness or live model validation.
 
-`demo/cases/*.json` holds eight fictional family-medicine discharge cases: pneumonia, cellulitis, uti, copd, heart_failure, diabetes_htn, kidney_stones, gout. `demo/out/` has the generated `.txt` and `.pdf` for each, marked "FICTIONAL - FOR DEMO". No real patient data is used anywhere.
+## Teammate integration
 
-Dates in the documents are relative to the day you generate them. Regenerate before a demo:
+```python
+from pathlib import Path
+from retriever import RetrievalIndex
+
+index = RetrievalIndex.load(Path("rag_index"))
+question_context = index.search("When is my repeat kidney blood test?", top_k=3)
+all_sources = index.export_all()
+```
+
+Search returns original passages, source IDs, page numbers, headings and ranking
+scores. Scores are not confidence probabilities. Send all source sections to the
+checklist extractor so it can inspect the whole sheet; a top-k subset can miss tasks.
+The receiving module should preserve citations, retain conditions, flag ambiguity
+and validate generated instructions. The export itself is not a checklist.
+
+## Optional semantic retrieval
 
 ```bash
-python demo/generate_demo.py --days-ago 2
+python -m pip install -r requirements-semantic.txt
+python retriever.py build sample/gout.pdf --index rag_semantic --backend semantic
+python retriever.py search --index rag_semantic --query "What footwear is suitable?"
 ```
 
-To see the Instructions review and Today screens without a model, `scripts/seed_demo.py` creates the user `demo` / `demo-password-1` in the database named by `DATABASE_URL`, with a fictional kidney-stones document waiting for review. It also seeds the doctor clone demo (see below). It is dev only and resets everything the demo users own when re-run.
+The first use downloads sentence-transformers/all-MiniLM-L6-v2 and dependencies.
+It is an embedding encoder running on CPU, not a checklist-generating LLM. This
+backend has not been tested with downloaded weights in the build environment.
+Evaluate it separately, including paraphrases and questions the sheet cannot answer.
+Nearest-neighbor matches alone do not establish that an answer exists. No reliable
+semantic score threshold is calibrated. Rebuild indexes when model weights change.
 
-```bash
-python scripts/seed_demo.py            # pending review
-python scripts/seed_demo.py --confirm  # confirmed, checklist generated
-```
+## Current limits
 
-## Doctor clone
+Text PDFs only. Scans, unusual headings, complex columns and cross-page instruction
+links need more handling. Sections over 4,500 characters stop processing rather
+than being silently cut. The optional encoder also checks its token limit.
+BM25 matches words and can miss synonyms or retrieve keyword overlap without a
+complete answer. Missing/conflicting instructions are not resolved by this module.
+Document-level source separation is implemented; application authentication and
+patient authorization are outside this local component.
 
-Accounts have a role: `patient` (sign up on the site) or `doctor`. A doctor cannot sign up; create one with `scripts/create_doctor.py`. There are three fictional doctors, each with an AI clone, and each doctor uses the doctor page at `/doctor`.
+Generated indexes, source bundles and local data are excluded by `.gitignore`.
+Only the explicitly fictional sample PDF is allowed by the PDF ignore exception.
 
-In the Ask tab the patient sees one tab per doctor. Each tab is its own conversation with that doctor's AI clone, and the clone's replies are labeled "AI clone". The clone answers only from the patient's discharge document, the education sources, and that doctor's own earlier advice (cited as "Dr. Name's advice"). A question the clone cannot answer goes to that doctor's queue, and the patient can also ask that doctor directly. Each answer a doctor gives becomes guidance for that doctor's clone and shows up in the patient's Care team tab.
+## References
 
-```bash
-python scripts/create_doctor.py USERNAME "Display Name"   # prompts for the password twice
-```
-
-`scripts/seed_demo.py` creates three doctors, all with the password `doctor-password-1`:
-
-| Username | Doctor |
-| --- | --- |
-| `dr.ting` | Dr. Ting Kai |
-| `dr.renny` | Dr. Aaron Renny |
-| `dr.patel` | Dr. Parin Patel |
-
-It also creates `demo` / `demo-password-1` (kidney stones) and `demo2` / `demo-password-2` (gout case, always confirmed). Each doctor has one general entry (Dr. Ting: colchicine timing; Dr. Renny: tamsulosin and stent discomfort; Dr. Patel: naproxen with food) and one open question in their queue; Dr. Ting also has a patient-specific entry for `demo2`. All seeded answers are invented for the demo. Embeddings need a configured model; without one the entries are saved unsearchable and can be retried from the doctor page.
-
-Upgrading from the single-doctor version: questions and messages now belong to a doctor, so recreate the dev database (delete `aftercare-dev.sqlite3`) and run `python scripts/seed_demo.py --confirm` again.
-
-On MySQL, the same upgrade adds the columns `chat_messages.doctor_id` and `care_team_questions.doctor_id`, which `schema.sql` (`CREATE TABLE IF NOT EXISTS`) does not add to existing tables. Drop and recreate the database with `sql/schema.sql`, then run the seed again.
-
-Demo walkthrough:
-
-1. Run `python scripts/seed_demo.py --confirm` so `demo`'s document is confirmed (asking needs a confirmed document).
-2. Log in as `demo`, open the Ask tab, and pick a doctor tab. Ask a question nobody has answered; it goes to that doctor's queue. You can also press "Ask Dr. Name directly" under a doctor tab, or use "Ask a doctor directly" in the Care team tab.
-3. Log in as that doctor (`dr.ting`, `dr.renny` or `dr.patel`, password `doctor-password-1`) at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
-4. Log in as `demo2`, pick the Dr. Ting Kai tab, and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The AI clone answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
-
-The gate: a general entry only reaches a patient whose discharge document or confirmed instructions mention every drug tag and at least one condition tag as whole words (alternative names such as "colchicine / Colcrys" match), and an untagged general answer is refused. Anything unclear fails closed, and a patient-specific entry is only ever used for that patient and document.
-
-The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine similarity for retrieving an entry that passes the gate.
-
-## Tests
-
-```bash
-pytest
-```
-
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 532 tests pass (`pytest -q -W error`).
-
-## Status: not done or not verified yet
-
-- No real-model run yet. Extraction and the agent have only been verified against a scripted fake model.
-- The education index (`knowledge/index.sqlite3`) is not built, so library citations are untested end to end.
-- The evaluation set and the end-to-end browser test are not written.
-- The MySQL path (`sql/schema.sql`, `asyncmy`) has not been run against a real MySQL server; local runs and tests use SQLite.
-- The Android TWA wrapper from the reference project is not ported.
-- Out of scope for this milestone: follow-up summary generation, OCR for scanned PDFs (they return "No readable text found. Scanned PDFs need OCR first."), and languages other than English.
-
-## Project layout
-
-```
-README.md  pytest.ini  .env.example
-backend/     FastAPI app: app.py (create_app), config.py, auth.py, models.py, db.py,
-             documents.py, extraction.py, checklist.py, agent.py, foods.py, safety.py,
-             knowledge.py, manage_knowledge.py, llm.py, routes_*.py, requirements.txt
-frontend/    index.html + login.js (login), app.html + app.css + api.js (shell),
-             review.js, today.js, ask.js, careteam.js (tabs)
-knowledge/   manifest.json, sources/*.json (index.sqlite3 is built locally)
-data/        foods.json, oxalate.json, build_foods.py
-demo/        generate_demo.py, cases/*.json, out/ (generated .txt and .pdf)
-scripts/     seed_demo.py
-sql/         schema.sql (MySQL)
-tests/       unit tests and the fake LLM
-docs/        design spec
-```
+- https://sbert.net/docs/sentence_transformer/usage/usage.html
+- https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+- https://pymupdf.readthedocs.io/en/latest/recipes-text.html
