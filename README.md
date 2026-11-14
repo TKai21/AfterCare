@@ -76,7 +76,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
-| `GUIDANCE_MIN_SIMILARITY` | 0.35 | Minimum cosine similarity for a doctor guidance entry |
+| `GUIDANCE_MIN_SIMILARITY` | 0.45 | Minimum cosine similarity for a doctor guidance entry |
 | `FOODS_PATH` | `data/foods.json` | Food table |
 
 Without `LLM_MODEL` the app still starts and you can sign up, but uploading a document (extraction) and Ask return a "not configured" error (HTTP 503). The one exception is an emergency message in Ask: it still gets the call-911 answer and banner. A temporary model failure returns HTTP 502 and the page asks the patient to try again.
@@ -116,12 +116,32 @@ Dates in the documents are relative to the day you generate them. Regenerate bef
 python demo/generate_demo.py --days-ago 2
 ```
 
-To see the Instructions review and Today screens without a model, `scripts/seed_demo.py` creates the user `demo` / `demo-password-1` in the database named by `DATABASE_URL`, with a fictional kidney-stones document waiting for review. It is dev only and resets everything that user owns when re-run.
+To see the Instructions review and Today screens without a model, `scripts/seed_demo.py` creates the user `demo` / `demo-password-1` in the database named by `DATABASE_URL`, with a fictional kidney-stones document waiting for review. It also seeds the doctor clone demo (see below). It is dev only and resets everything the demo users own when re-run.
 
 ```bash
 python scripts/seed_demo.py            # pending review
 python scripts/seed_demo.py --confirm  # confirmed, checklist generated
 ```
+
+## Doctor clone
+
+Accounts have a role: `patient` (sign up on the site) or `doctor`. A doctor cannot sign up; create one with `scripts/create_doctor.py`. The fictional doctor, Dr. Ting Kai, uses the doctor page at `/doctor`. Questions the agent cannot answer go to the doctor's queue. Each answer becomes guidance that the patient-facing agent later cites ("Dr. Ting Kai's advice") and that patients see in the Care team tab.
+
+```bash
+python scripts/create_doctor.py USERNAME "Display Name"   # prompts for the password twice
+```
+
+`scripts/seed_demo.py` creates `dr.ting` / `doctor-password-1`, `demo` / `demo-password-1` (kidney stones, one open question in the queue), and `demo2` / `demo-password-2` (gout case, always confirmed), plus a general colchicine-timing entry and a patient-specific entry for `demo2`. All seeded answers are invented for the demo. Embeddings need a configured model; without one the entries are saved unsearchable and can be retried from the doctor page.
+
+Demo walkthrough:
+
+1. Log in as `demo` and ask a question nobody has answered; it goes to Dr. Ting's queue.
+2. Log in as `dr.ting` at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
+3. Log in as `demo2` and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The agent answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
+
+The gate: a general entry only reaches a patient whose discharge document or confirmed instructions mention every drug tag and at least one condition tag as whole words (alternative names such as "colchicine / Colcrys" match), and an untagged general answer is refused. Anything unclear fails closed, and a patient-specific entry is only ever used for that patient and document.
+
+The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine similarity for retrieving an entry that passes the gate.
 
 ## Tests
 
@@ -129,7 +149,7 @@ python scripts/seed_demo.py --confirm  # confirmed, checklist generated
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 358 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 486 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

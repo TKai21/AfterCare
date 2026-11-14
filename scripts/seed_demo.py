@@ -3,7 +3,9 @@
 Creates, or resets, the user `demo` / `demo-password-1` in the database named by
 DATABASE_URL (from the project .env), with one PENDING fictional kidney-stones
 discharge document and its extracted items, so the review screen can be seen
-without a language model. Every source_quote is a verbatim substring of one
+without a language model. It also seeds the doctor clone demo: the doctor
+`dr.ting` / `doctor-password-1`, the patient `demo2` / `demo-password-2` (gout case,
+always confirmed), and a small guidance history (see seed_guidance). Every source_quote is a verbatim substring of one
 document paragraph; the script checks this before writing anything.
 
     .venv/bin/python scripts/seed_demo.py            # pending review
@@ -11,33 +13,59 @@ document paragraph; the script checks this before writing anything.
 
 --confirm runs the confirm route's own function, so the checklist is generated
 exactly as when the patient presses Confirm. Resetting deletes everything the
-demo user owns (documents, checklist, conversation, care-team questions).
+demo users own (documents, checklist, conversation, care-team questions) and the
+guidance tied to them, and leaves every other user alone.
 """
 import argparse
 import asyncio
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "demo"))
 
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import delete, or_, select  # noqa: E402
 
 from auth import hash_password  # noqa: E402
 from config import get_settings  # noqa: E402
+from guidance import embed_entry  # noqa: E402
+from llm import LLMClient  # noqa: E402
 from db import init_db, make_engine, make_session_factory  # noqa: E402
 from documents import paragraphs  # noqa: E402
 from models import (  # noqa: E402
     CareTeamQuestion, ChatMessage, ChecklistCompletion, ChecklistItem,
-    DischargeDocument, DocumentFile, ExtractedItem, User,
+    DischargeDocument, DoctorGuidance, DocumentFile, ExtractedItem, User,
 )
 import routes_documents  # noqa: E402
 from generate_demo import load_case, long_date, render_pdf, render_text  # noqa: E402
 
 USERNAME = "demo"
 PASSWORD = "demo-password-1"
+USERNAME2 = "demo2"
+PASSWORD2 = "demo-password-2"
+DOCTOR = "dr.ting"
+DOCTOR_PASSWORD = "doctor-password-1"
+DOCTOR_NAME = "Dr. Ting Kai"
+
+# Everything below is INVENTED for the demo. Dr. Ting Kai is fictional and none of
+# this is medical advice; the numbers are plausible but made up.
+GENERAL_QUESTION = "During a gout flare, when can I take more colchicine if my toe still hurts?"
+GENERAL_ANSWER = (
+    "If your toe is still very painful after your colchicine dose, you may take one extra "
+    "0.6 mg tablet after 1 hour, then no more that day. Do not take more than that, and "
+    "stop and call the clinic if you get diarrhea."
+)
+GENERAL_DRUG_TAGS = ["colchicine / Colcrys"]
+GENERAL_CONDITION_TAGS = ["gout"]
+PATIENT_QUESTION = "Can I take my naproxen on an empty stomach in the morning?"
+PATIENT_ANSWER = (
+    "No - take your naproxen with breakfast or a snack, every time. On an empty stomach it "
+    "can upset your stomach. If you still get stomach pain or black stools, call the clinic."
+)
+OPEN_QUESTION = "Is it normal to see a little blood in my urine while the stent is in?"
+OPEN_REASON = "The patient asked something the discharge document does not answer."
 
 
 def demo_text(discharge: date) -> str:
@@ -105,16 +133,53 @@ def build_items(discharge: date) -> list[tuple[str, str, str, dict]]:
     ]
 
 
+def build_gout_items() -> list[tuple[str, str, str, dict]]:
+    """Items for demo2's gout document (quotes are verbatim lines of the gout case)."""
+    return [
+        ("medication", "Take colchicine 0.6 mg by mouth twice a day for 10 days.",
+         "Colchicine 0.6 mg by mouth twice daily for 10 days.",
+         {"name": "Colchicine", "dose": "0.6 mg", "route": "by mouth",
+          "frequency_text": "twice daily", "times_of_day": [], "times_per_day": 2,
+          "interval_hours": None, "as_needed": False, "duration_days": 10,
+          "instructions": None}),
+        ("medication", "Take naproxen 500 mg with food, up to every 12 hours, only if you need it for pain.",
+         "Naproxen 500 mg by mouth every 12 hours as needed for pain.",
+         {"name": "Naproxen", "dose": "500 mg", "route": "by mouth",
+          "frequency_text": "every 12 hours as needed", "times_of_day": [],
+          "times_per_day": None, "interval_hours": 12, "as_needed": True,
+          "duration_days": None, "instructions": "with food"}),
+        ("diet", "Drink at least 2 liters of water a day.",
+         "You should drink at least 2 liters of water a day.", {}),
+        ("diet", "Avoid beer and liquor, and limit wine to one glass on any day.",
+         "Please avoid beer and liquor, and limit wine to one glass on any day.", {}),
+        ("activity", "Rest and raise your right foot when you can for the next 3 days.",
+         "Rest and raise your right foot when you can for the next 3 days.", {}),
+        ("warning_signs", "Call 911 or go to the ER for chest pain, trouble breathing, or fainting.",
+         "chest pain, trouble breathing, or fainting", {}),
+        ("warning_signs", "Call the clinic if you have diarrhea, vomiting, or black stools.",
+         "you have diarrhea, vomiting, or black stools", {}),
+    ]
+
+
 # Shown in the "could not be verified" list: the document never says this.
 UNVERIFIED = [{"category": "diet", "text": "Avoid all dairy products."}]
 
 
-async def reset_user(session) -> User:
-    user = await session.scalar(select(User).where(User.username == USERNAME))
+async def reset_user(session, username: str, password: str) -> User:
+    """Delete the named user with everything they own and the guidance tied to
+    them, then create them again. Other users are never touched."""
+    user = await session.scalar(select(User).where(User.username == username))
     if user is not None:
         # Explicit deletes: SQLite does not enforce ON DELETE CASCADE by default.
         doc_ids = select(DischargeDocument.id).where(DischargeDocument.user_id == user.id)
         item_ids = select(ChecklistItem.id).where(ChecklistItem.document_id.in_(doc_ids))
+        question_ids = select(CareTeamQuestion.id).where(CareTeamQuestion.user_id == user.id)
+        await session.execute(
+            delete(DoctorGuidance).where(or_(
+                DoctorGuidance.patient_id == user.id,
+                DoctorGuidance.source_question_id.in_(question_ids),
+            ))
+        )
         await session.execute(
             delete(ChecklistCompletion).where(ChecklistCompletion.checklist_item_id.in_(item_ids))
         )
@@ -126,59 +191,142 @@ async def reset_user(session) -> User:
         await session.execute(delete(DischargeDocument).where(DischargeDocument.user_id == user.id))
         await session.delete(user)
         await session.flush()
-    user = User(username=USERNAME, password_hash=hash_password(PASSWORD))
+    user = User(username=username, password_hash=hash_password(password))
     session.add(user)
     await session.flush()
     return user
 
 
-async def seed(confirm: bool) -> None:
+async def add_document(session, user: User, case: str, filename: str, text: str,
+                       discharge: date, items, unverified) -> DischargeDocument:
+    doc = DischargeDocument(
+        user_id=user.id,
+        active_user_id=user.id,
+        status="pending_review",
+        filename=filename,
+        text=text,
+        discharge_date=discharge,
+        unverified=unverified,
+    )
+    session.add(doc)
+    await session.flush()
+    session.add_all(
+        ExtractedItem(document_id=doc.id, category=c, text=t, source_quote=q,
+                      details=d, status="active")
+        for c, t, q, d in items
+    )
+    # The same document as a PDF, shown beside the instructions like an upload.
+    session.add(DocumentFile(document_id=doc.id, content_type="application/pdf",
+                             data=render_pdf(load_case(case), discharge)))
+    return doc
+
+
+async def ensure_doctor(session) -> User:
+    """The demo doctor, created if missing. An existing one keeps its history."""
+    doctor = await session.scalar(select(User).where(User.username == DOCTOR))
+    if doctor is None:
+        doctor = User(username=DOCTOR, password_hash=hash_password(DOCTOR_PASSWORD),
+                      role="doctor", display_name=DOCTOR_NAME)
+        session.add(doctor)
+    else:
+        doctor.password_hash = hash_password(DOCTOR_PASSWORD)
+        doctor.role = "doctor"
+        doctor.display_name = DOCTOR_NAME
+    await session.flush()
+    return doctor
+
+
+async def seed_guidance(session, llm, doctor: User, demo: User, demo2: User,
+                        doc2: DischargeDocument) -> bool:
+    """Dr. Ting's fictional history: one general entry (colchicine timing in a gout
+    flare), one patient-specific entry for demo2 with its answered question, and one
+    open question from `demo`. Returns True when every entry got an embedding."""
+    await session.execute(delete(DoctorGuidance).where(
+        DoctorGuidance.doctor_id == doctor.id,
+        DoctorGuidance.question == GENERAL_QUESTION,
+    ))
+    answered = CareTeamQuestion(
+        user_id=demo2.id, document_id=doc2.id, question=PATIENT_QUESTION,
+        reason="The patient asked the care team directly.", source="agent",
+        status="answered", answer=PATIENT_ANSWER, answered_by=doctor.id,
+        answered_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    session.add(answered)
+    session.add(CareTeamQuestion(
+        user_id=demo.id, question=OPEN_QUESTION, reason=OPEN_REASON, source="agent",
+    ))
+    await session.flush()
+    entries = [
+        DoctorGuidance(
+            doctor_id=doctor.id, question=GENERAL_QUESTION, answer=GENERAL_ANSWER,
+            scope="general", drug_tags=GENERAL_DRUG_TAGS, condition_tags=GENERAL_CONDITION_TAGS,
+        ),
+        DoctorGuidance(
+            doctor_id=doctor.id, question=PATIENT_QUESTION, answer=PATIENT_ANSWER,
+            scope="patient", patient_id=demo2.id, document_id=doc2.id,
+            source_question_id=answered.id,
+        ),
+    ]
+    session.add_all(entries)
+    await session.flush()
+    embedded = True
+    if llm is not None:
+        for entry in entries:
+            embedded = await embed_entry(llm, entry) and embedded
+    else:
+        embedded = False
+    return embedded
+
+
+async def run_seed(database_url: str, llm, confirm: bool) -> bool:
+    """Seed `database_url`. `llm` computes the guidance embeddings (None leaves the
+    entries unsearchable). Returns True when every entry was embedded."""
     discharge = date.today() - timedelta(days=2)
     text = demo_text(discharge)
-    paras = paragraphs(text)
-    items = build_items(discharge)
-    for _, _, quote, _ in items:
-        if not any(quote in p for p in paras):
-            raise SystemExit(f"Quote is not inside one paragraph: {quote!r}")
+    gout_text = render_text(load_case("gout"), discharge)
+    items, gout_items = build_items(discharge), build_gout_items()
+    for doc_text, doc_items in ((text, items), (gout_text, gout_items)):
+        paras = paragraphs(doc_text)
+        for _, _, quote, _ in doc_items:
+            if not any(quote in p for p in paras):
+                raise SystemExit(f"Quote is not inside one paragraph: {quote!r}")
 
-    engine = make_engine(get_settings().database_url)
+    engine = make_engine(database_url)
     try:
         await init_db(engine)
         async with make_session_factory(engine)() as session:
-            user = await reset_user(session)
-            doc = DischargeDocument(
-                user_id=user.id,
-                active_user_id=user.id,
-                status="pending_review",
-                filename="kidney_stones_demo.pdf",
-                text=text,
-                discharge_date=discharge,
-                unverified=UNVERIFIED,
-            )
-            session.add(doc)
-            await session.flush()
-            session.add_all(
-                ExtractedItem(document_id=doc.id, category=c, text=t, source_quote=q,
-                              details=d, status="active")
-                for c, t, q, d in items
-            )
-            # The same document as a PDF, shown beside the instructions like an upload.
-            session.add(DocumentFile(document_id=doc.id, content_type="application/pdf",
-                                     data=render_pdf(load_case("kidney_stones"), discharge)))
+            user = await reset_user(session, USERNAME, PASSWORD)
+            await add_document(session, user, "kidney_stones", "kidney_stones_demo.pdf",
+                               text, discharge, items, UNVERIFIED)
+            user2 = await reset_user(session, USERNAME2, PASSWORD2)
+            doc2 = await add_document(session, user2, "gout", "gout_demo.pdf",
+                                      gout_text, discharge, gout_items, [])
+            doctor = await ensure_doctor(session)
+            embedded = await seed_guidance(session, llm, doctor, user, user2, doc2)
             await session.commit()
             if confirm:
                 await routes_documents.confirm(user=user, session=session)
+            await routes_documents.confirm(user=user2, session=session)
         state = "confirmed" if confirm else "pending review"
-        print(f"Seeded user '{USERNAME}' with a {state} demo document ({len(items)} items).")
+        print(f"Seeded user '{USERNAME}' with a {state} kidney-stones document ({len(items)} items).")
+        print(f"Seeded user '{USERNAME2}' with a confirmed gout document ({len(gout_items)} items).")
+        print(f"Seeded doctor '{DOCTOR}' with 2 guidance entries and 1 open question from '{USERNAME}'.")
+        if not embedded:
+            print("The guidance entries are saved but not searchable (no embedding model "
+                  "answered). Log in at /doctor and use 'Retry embedding' on each entry.")
+        return embedded
     finally:
         await engine.dispose()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed the AfterCare demo user (dev only).")
+    parser = argparse.ArgumentParser(description="Seed the AfterCare demo users (dev only).")
     parser.add_argument("--confirm", action="store_true",
-                        help="also confirm the document, generating the checklist")
-    asyncio.run(seed(parser.parse_args().confirm))
+                        help="also confirm the kidney-stones document, generating the checklist")
+    confirm = parser.parse_args().confirm
+    settings = get_settings()
+    llm = LLMClient(settings) if settings.llm_model else None
+    asyncio.run(run_seed(settings.database_url, llm, confirm))
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ class Settings:
     embedding_api_key: str = ""
     rag_db_path: str = "knowledge/index.sqlite3"
     rag_min_similarity: float = 0.25
-    guidance_min_similarity: float = 0.35
+    guidance_min_similarity: float = 0.45
     foods_path: str = "data/foods.json"
 
     def __post_init__(self):
