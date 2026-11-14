@@ -4,9 +4,16 @@ Port of the reference store: 500-character chunks with 100-character overlap,
 SQLite for text, provenance and float vectors, and exact cosine search with
 NumPy. Vectors come from `llm.embed`, and every chunk records the embedding
 model name so a model change shows up as "not ready" until the index is rebuilt.
+
+Search fuses the embedding order with BM25 keyword scores (reciprocal rank
+fusion) and, when a local cross-encoder is configured, reranks the fused
+candidates with it.
 """
+import asyncio
 import hashlib
 import json
+import logging
+import math
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -20,6 +27,10 @@ import httpx
 import numpy as np
 from bs4 import BeautifulSoup
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from search import BM25, rrf
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "knowledge"
@@ -59,6 +70,10 @@ HEALTH_TERMS = (
 USER_AGENT = "AfterCare-ClassProject/1.0 (USC EE542 educational health source collection)"
 DAILYMED_SPL_XML = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{setid}.xml"
 HL7 = "{urn:hl7-org:v3}"
+
+MODES = ("embedding", "hybrid", "rerank")
+CANDIDATES = 20  # taken from each of the embedding and BM25 orders
+RERANK_CANDIDATES = 20  # most pairs sent to the reranker (about 180 ms on the dev laptop)
 
 
 class KnowledgeError(Exception):
@@ -258,14 +273,25 @@ async def collect_sources(directory: Path = DATA, transport: httpx.AsyncBaseTran
     return report
 
 
+def _passage(title: str, content: str) -> str:
+    """The text BM25 and the reranker see for one chunk."""
+    return title + "\n" + content
+
+
 class KnowledgeStore:
-    def __init__(self, path, llm, min_similarity: float = 0.25):
+    def __init__(self, path, llm, min_similarity: float = 0.25, reranker=None,
+                 min_rerank: float = 0.0, reranker_note: str = "off: not configured"):
         path = Path(path)
         self.path = path if path.is_absolute() else ROOT / path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.llm = llm
         self.model = llm.embedding_model
         self.min_similarity = min_similarity
+        self.reranker = reranker  # anything with score(query, passages) -> list[float]
+        self.min_rerank = min_rerank
+        self.reranker_note = reranker_note
+        self._bm25: tuple[tuple, BM25] | None = None  # (fingerprint, index)
+        self._reranker_warned = False
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS documents (
@@ -307,6 +333,7 @@ class KnowledgeStore:
             db.executemany("INSERT INTO chunks(document_id,page,content,vector,model) VALUES (?,?,?,?,?)",
                            [(record["id"], None, chunk, json.dumps(vector), self.model)
                             for chunk, vector in zip(chunks, vectors)])
+        self._bm25 = None
         return len(chunks)
 
     def prune_labels(self, keep: Collection[str]) -> list[str]:
@@ -318,6 +345,7 @@ class KnowledgeStore:
             ids = [row["id"] for row in db.execute(
                 f"SELECT id FROM documents WHERE rxcui IS NOT NULL AND rxcui NOT IN ({marks}) ORDER BY id", keep)]
             db.executemany("DELETE FROM documents WHERE id=?", [(i,) for i in ids])
+        self._bm25 = None
         return ids
 
     def status(self) -> dict:
@@ -336,13 +364,45 @@ class KnowledgeStore:
         return {"ready": ready, "documents": docs, "chunks": sum(d["chunks"] for d in docs),
                 "embedding_model": self.model, "topics": topics,
                 "missing_scenario_topics": [t for t in SCENARIO_TOPICS if t not in topics],
-                "message": message}
+                "message": message, "reranker": "on" if self.reranker is not None else "off",
+                "reranker_note": self.reranker_note}
 
-    async def retrieve(self, query: str, limit: int = 5, rxcuis: Collection[str] = ()) -> list[dict]:
+    def _keyword_index(self, db: sqlite3.Connection) -> BM25:
+        """BM25 over every chunk of the current model, rebuilt when the index changes.
+
+        The file is stat-ed before the chunks are read, so a write that lands
+        during the read leaves a stale fingerprint and the next search rebuilds.
+        A rebuild by another process replaces the file (new inode); a write in
+        place moves the mtime, the row count or the highest chunk id.
+        """
+        stat = self.path.stat()
+        count, top = db.execute("SELECT count(*), max(id) FROM chunks").fetchone()
+        fingerprint = (stat.st_ino, stat.st_mtime_ns, count, top)
+        if self._bm25 is None or self._bm25[0] != fingerprint:
+            docs = {row["id"]: _passage(row["title"], row["content"]) for row in db.execute(
+                """SELECT c.id, c.content, d.title FROM chunks c JOIN documents d ON c.document_id=d.id
+                   WHERE c.model=?""", (self.model,))}
+            self._bm25 = (fingerprint, BM25(docs))
+        return self._bm25[1]
+
+    async def retrieve(self, query: str, limit: int = 5, rxcuis: Collection[str] = (),
+                       mode: str | None = None) -> list[dict]:
         """Best passages for the query. Drug label documents (non-null rxcui) are
         eligible only when their RxCUI is in `rxcuis`; the default excludes them
         all. The filter runs in SQL, before scoring, so labels cannot crowd out
-        the patient's other sources."""
+        the patient's other sources and never reach BM25 or the reranker.
+
+        `mode`: "embedding" is cosine order above `min_similarity`; "hybrid"
+        fuses the embedding and BM25 orders, still above `min_similarity`;
+        "rerank" orders the fused candidates by the reranker, above
+        `min_rerank`. The default is "rerank" with a reranker, else "hybrid".
+        """
+        if mode is None:
+            mode = "rerank" if self.reranker is not None else "hybrid"
+        if mode not in MODES:
+            raise ValueError(f"Unknown search mode {mode!r}; use one of {', '.join(MODES)}.")
+        if mode == "rerank" and self.reranker is None:
+            raise ValueError("Rerank mode needs a reranker.")
         status = self.status()
         if not status["ready"]:
             raise KnowledgeError(status["message"])
@@ -350,10 +410,11 @@ class KnowledgeStore:
         allowed = sorted(set(rxcuis))
         marks = ",".join("?" * len(allowed))
         with self.connect() as db:
-            rows = db.execute(f"""SELECT c.content, c.vector, d.id AS source_id, d.title, d.url, d.topic
+            rows = db.execute(f"""SELECT c.id, c.content, c.vector, d.id AS source_id, d.title, d.url, d.topic
                 FROM chunks c JOIN documents d ON c.document_id=d.id
                 WHERE c.model=? AND (d.rxcui IS NULL OR d.rxcui IN ({marks}))""",
                               (self.model, *allowed)).fetchall()
+            keyword = self._keyword_index(db) if rows and mode != "embedding" else None
         if not rows:
             return []
         matrix = np.asarray([json.loads(row["vector"]) for row in rows], dtype=float)
@@ -361,12 +422,39 @@ class KnowledgeStore:
             raise KnowledgeError("Embedding dimensions changed. Rebuild the index.")
         scores = matrix @ vector / (np.linalg.norm(matrix, axis=1) * np.linalg.norm(vector))
         ranked = sorted(zip(rows, scores), key=lambda pair: pair[1], reverse=True)
-        return [
-            {"source_id": row["source_id"], "title": row["title"], "url": row["url"],
-             "topic": row["topic"], "content": row["content"], "score": round(float(score), 4)}
-            for row, score in ranked[:limit] if score >= self.min_similarity
-        ]
+        if mode == "embedding":
+            return [_hit(row, score) for row, score in ranked[:limit] if score >= self.min_similarity]
 
+        by_id = {row["id"]: (row, score) for row, score in ranked}
+        by_embedding = [row["id"] for row, _ in ranked[:CANDIDATES]]
+        keyword_scores = keyword.scores(query, by_id.keys())
+        by_keyword = sorted(keyword_scores, key=lambda i: (-keyword_scores[i], i))[:CANDIDATES]
+        fused = rrf(by_embedding, by_keyword)
+        hybrid = [_hit(*by_id[i]) for i in fused if by_id[i][1] >= self.min_similarity][:limit]
+        if mode == "hybrid":
+            return hybrid
+
+        candidates = [by_id[i][0] for i in fused[:RERANK_CANDIDATES]]
+        passages = [_passage(row["title"], row["content"]) for row in candidates]
+        try:
+            judged = await asyncio.to_thread(self.reranker.score, query, passages)
+            judged = [float(value) for value in judged]
+            if len(judged) != len(candidates):
+                raise ValueError(f"Reranker returned {len(judged)} scores for {len(candidates)} passages.")
+            if not all(math.isfinite(value) for value in judged):
+                raise ValueError("Reranker returned a non-finite score.")
+        except Exception as exc:  # a broken reranker must never fail the patient's search
+            if not self._reranker_warned:
+                self._reranker_warned = True
+                logger.warning("Reranker failed (%s); library search uses hybrid results.", type(exc).__name__)
+            return hybrid
+        reranked = sorted(zip(candidates, judged), key=lambda pair: pair[1], reverse=True)
+        return [_hit(row, value) for row, value in reranked if value >= self.min_rerank][:limit]
+
+
+def _hit(row: sqlite3.Row, score: float) -> dict:
+    return {"source_id": row["source_id"], "title": row["title"], "url": row["url"],
+            "topic": row["topic"], "content": row["content"], "score": round(float(score), 4)}
 
 def load_sources(directory: Path = DATA) -> list[dict]:
     return [json.loads(p.read_text()) for p in sorted((Path(directory) / "sources").glob("*.json"))]

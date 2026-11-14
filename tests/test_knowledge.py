@@ -1,4 +1,5 @@
 import json
+import math
 import re
 import sqlite3
 
@@ -541,3 +542,228 @@ def test_dailymed_sections_drops_bullet_and_figure_only_lines():
     </section></document>"""
     assert knowledge.dailymed_sections(xml, ["59845-8"]).splitlines() == [
         "Instructions for Use", "Shake the inhaler well.", "See Figure A for the parts."]
+
+
+# Hybrid and rerank modes. A VectorLLM places a passage anywhere in the
+# embedding order (bag-of-words hashing cannot make embeddings "miss" on
+# purpose); a FakeReranker scores passages by the words they contain.
+
+def unit(cosine):
+    """A vector whose cosine with the query vector unit(1.0) is exactly `cosine`."""
+    vector = [0.0] * FakeLLM.DIM
+    vector[0], vector[1] = cosine, math.sqrt(1 - cosine * cosine)
+    return vector
+
+
+class VectorLLM(FakeLLM):
+    def __init__(self, vectors):
+        super().__init__()
+        self.vectors = vectors
+
+    async def embed(self, texts):
+        return [self.vectors[t] if t in self.vectors else self._vector(t) for t in texts]
+
+
+class FakeReranker:
+    """Score = the highest score among the words of `scores` found in the passage."""
+
+    def __init__(self, scores=None, default=0.0):
+        self.scores = scores or {}
+        self.default = default
+        self.calls = []
+
+    def score(self, query, passages):
+        self.calls.append((query, list(passages)))
+        return [max((s for word, s in self.scores.items() if word in p), default=self.default)
+                for p in passages]
+
+
+class RaisingReranker(FakeReranker):
+    def score(self, query, passages):
+        super().score(query, passages)
+        raise RuntimeError("model crashed")
+
+
+class ShortReranker(FakeReranker):
+    def score(self, query, passages):
+        return super().score(query, passages)[:-1]
+
+
+class NanReranker(FakeReranker):
+    def score(self, query, passages):
+        return [math.nan for _ in super().score(query, passages)]
+
+
+ALLOPURINOL = "Allopurinol lowers uric acid to prevent gout attacks."
+
+
+def distractor(i):
+    return f"Gout diet note {i}: drink water and rest the joint."
+
+
+async def gout_store(path, target_cosine, distractors=10, reranker=None, min_similarity=0.25):
+    """Distractors with cosine 0.9 falling by 0.02, and the only "allopurinol" passage."""
+    vectors = {"allopurinol": unit(1.0), ALLOPURINOL: unit(target_cosine)}
+    vectors |= {distractor(i): unit(0.9 - 0.02 * i) for i in range(distractors)}
+    store = KnowledgeStore(path, VectorLLM(vectors), min_similarity=min_similarity, reranker=reranker)
+    for i in range(distractors):
+        await store.add(record(f"note-{i}", distractor(i), title=f"Diet note {i}"))
+    await store.add(record("urate", ALLOPURINOL, title="Gout medicine"))
+    return store
+
+
+async def test_hybrid_finds_exact_term_that_embeddings_miss(tmp_path):
+    # Embeddings put the allopurinol passage 11th; BM25 puts it first.
+    store = await gout_store(tmp_path / "a.sqlite3", target_cosine=0.5)
+    assert [r["source_id"] for r in await store.retrieve("allopurinol", limit=1, mode="embedding")] == ["note-0"]
+    [hit] = await store.retrieve("allopurinol", limit=1, mode="hybrid")
+    assert hit["source_id"] == "urate"
+    assert hit["score"] == 0.5  # hybrid reports the cosine
+
+    # Under the cosine floor: hybrid drops it, the reranker can still pick it.
+    reranker = FakeReranker({"Allopurinol": 5.0}, default=1.0)
+    low = await gout_store(tmp_path / "b.sqlite3", target_cosine=0.1, reranker=reranker)
+    assert "urate" not in [r["source_id"] for r in await low.retrieve("allopurinol", mode="hybrid")]
+    reranked = await low.retrieve("allopurinol", mode="rerank")
+    assert reranked[0]["source_id"] == "urate"
+    assert reranked[0]["score"] == 5.0
+
+
+async def test_embedding_mode_matches_previous_behaviour(tmp_path):
+    store = await gout_store(tmp_path / "index.sqlite3", target_cosine=0.51, distractors=25)
+    got = await store.retrieve("allopurinol", limit=5, mode="embedding")
+    assert got == [{"source_id": f"note-{i}", "title": f"Diet note {i}",
+                    "url": f"https://medlineplus.gov/note-{i}.html", "topic": "Kidney stones",
+                    "content": distractor(i), "score": round(0.9 - 0.02 * i, 4)} for i in range(5)]
+    # The floor still cuts: distractors 23.. have cosine under 0.45.
+    strict = KnowledgeStore(store.path, store.llm, min_similarity=0.45)
+    assert [r["source_id"] for r in await strict.retrieve("allopurinol", limit=100, mode="embedding")] == \
+        [f"note-{i}" for i in range(20)] + ["urate"] + [f"note-{i}" for i in range(20, 23)]
+
+
+async def test_rerank_orders_by_reranker_and_applies_min_rerank(tmp_path):
+    reranker = FakeReranker({"alpha": 2.123456, "bravo": 3.0, "charlie": 0.2})
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0,
+                           reranker=reranker, min_rerank=0.5)
+    for name in ("alpha", "bravo", "charlie"):
+        await store.add(record(name, f"Gout flare advice {name}: rest and ice the joint."))
+    got = await store.retrieve("gout flare advice", mode="rerank")
+    assert [r["source_id"] for r in got] == ["bravo", "alpha"]
+    assert [r["score"] for r in got] == [3.0, 2.1235]
+    assert set(got[0]) == {"source_id", "title", "url", "topic", "content", "score"}
+    [(query, passages)] = reranker.calls
+    assert query == "gout flare advice"
+    assert sorted(passages) == sorted(f"{name.title()}\nGout flare advice {name}: rest and ice the joint."
+                                      for name in ("alpha", "bravo", "charlie"))
+
+
+async def test_rerank_sends_at_most_twenty_candidates(tmp_path):
+    assert knowledge.CANDIDATES == 20 and knowledge.RERANK_CANDIDATES == 20
+    reranker = FakeReranker(default=1.0)
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0, reranker=reranker)
+    for i in range(30):
+        await store.add(record(f"gout-{i}", f"Gout flare tip number {i}: drink water."))
+    assert len(await store.retrieve("gout flare", limit=5)) == 5
+    [(_, passages)] = reranker.calls
+    assert len(passages) == 20
+
+
+@pytest.mark.parametrize("broken", [RaisingReranker, ShortReranker, NanReranker])
+async def test_reranker_failure_falls_back_to_hybrid_and_logs_once(tmp_path, caplog, broken):
+    reranker = broken({"Allopurinol": 5.0}, default=1.0)
+    store = await gout_store(tmp_path / "index.sqlite3", target_cosine=0.5, reranker=reranker)
+    hybrid = await store.retrieve("allopurinol", mode="hybrid")
+    assert hybrid
+    with caplog.at_level("WARNING", logger="knowledge"):
+        assert await store.retrieve("allopurinol") == hybrid
+        assert await store.retrieve("allopurinol", mode="rerank") == hybrid
+    warnings = [r for r in caplog.records if r.name == "knowledge" and r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    expected = "RuntimeError" if broken is RaisingReranker else "ValueError"
+    assert expected in warnings[0].getMessage()
+    assert len(reranker.calls) == 2
+
+
+async def test_label_outside_patient_set_never_returned_in_any_mode(tmp_path):
+    reranker = FakeReranker({"olchicine": 9.0}, default=0.1)
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0, reranker=reranker)
+    query = "colchicine gout flare dose"
+    await store.add(record("dailymed-rxcui-2683", "Colchicine gout flare dose: two tablets, then one.",
+                           url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc",
+                           topic="Medications", title="Colchicine label") | {"rxcui": "2683"})
+    await store.add(record("stones", STONES))
+    for mode in ("embedding", "hybrid", "rerank"):
+        assert "dailymed-rxcui-2683" not in [r["source_id"] for r in await store.retrieve(query, rxcuis=(), mode=mode)]
+        got = await store.retrieve(query, rxcuis={"2683"}, mode=mode)
+        assert got[0]["source_id"] == "dailymed-rxcui-2683", mode
+    # The label's text never reached the reranker for a patient without the drug.
+    first_call_passages = reranker.calls[0][1]
+    assert not any("olchicine" in p for p in first_call_passages)
+
+
+async def test_no_candidates_returns_empty_without_calling_reranker(tmp_path):
+    reranker = FakeReranker(default=1.0)
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0, reranker=reranker)
+    await store.add(record("dailymed-rxcui-2683", "Colchicine gout flare dose.", topic="Medications",
+                           url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc") | {"rxcui": "2683"})
+    for mode in ("embedding", "hybrid", "rerank"):
+        assert await store.retrieve("colchicine gout flare dose", rxcuis=(), mode=mode) == []
+    assert reranker.calls == []
+
+
+async def test_query_without_usable_words_still_returns_embedding_hits(tmp_path):
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.1)
+    await store.add(record("stones", STONES))
+    await store.add(record("inhaler", INHALER, topic="COPD"))
+    await store.add(record("water", "Drink the water of the spring."))
+    for query in ("the of ?", "?", "the and of"):
+        hybrid = await store.retrieve(query, mode="hybrid")
+        assert hybrid == await store.retrieve(query, mode="embedding")
+        assert all(r["score"] >= 0.1 for r in hybrid)
+    assert await store.retrieve("the of ?", mode="hybrid")  # "the" and "of" still embed
+
+
+async def test_bm25_cache_notices_rebuild_by_another_store(tmp_path):
+    """The CLI rebuilds the index file while the server's store keeps its BM25 cache."""
+    target = "Febuxostat lowers uric acid when allopurinol is not tolerated."
+    vectors = {"febuxostat": unit(1.0), target: unit(0.3)}
+    vectors |= {distractor(i): unit(0.9 - 0.02 * i) for i in range(19)}
+    llm = VectorLLM(vectors)
+    path = tmp_path / "index.sqlite3"
+    live = KnowledgeStore(path, llm, min_similarity=0.0)
+    await knowledge.index_sources(live, tmp_path, extra_records=[record("stones", STONES)])
+    assert (await live.retrieve("oxalate", mode="hybrid"))[0]["source_id"] == "stones"
+
+    # Embeddings put the new passage 20th; only BM25 can lift it to the top.
+    new = [record(f"note-{i}", distractor(i)) for i in range(19)] + [record("febuxostat", target)]
+    await knowledge.index_sources(KnowledgeStore(path, llm), tmp_path, extra_records=new)
+    assert [r["source_id"] for r in await live.retrieve("febuxostat", limit=1, mode="hybrid")] == ["febuxostat"]
+
+    # The store's own writes invalidate the cache too.
+    await live.add(record("pegloticase", "Pegloticase infusions treat chronic gout.", title="Infusion"))
+    assert "pegloticase" in [r["source_id"] for r in await live.retrieve("pegloticase", mode="hybrid")]
+
+
+async def test_default_mode_and_status_reflect_reranker(tmp_path):
+    path = tmp_path / "index.sqlite3"
+    plain = await gout_store(path, target_cosine=0.5)
+    assert plain.status()["reranker"] == "off"
+    assert plain.status()["reranker_note"] == "off: not configured"
+    assert await plain.retrieve("allopurinol") == await plain.retrieve("allopurinol", mode="hybrid")
+
+    reranker = FakeReranker({"Allopurinol": 5.0}, default=1.0)
+    ranked = KnowledgeStore(path, plain.llm, min_similarity=0.25, reranker=reranker, reranker_note="on: test model")
+    assert ranked.status()["reranker"] == "on"
+    assert ranked.status()["reranker_note"] == "on: test model"
+    got = await ranked.retrieve("allopurinol")
+    assert len(reranker.calls) == 1
+    assert got == await ranked.retrieve("allopurinol", mode="rerank")
+
+
+async def test_rerank_mode_without_reranker_raises_value_error(tmp_path):
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM())
+    await store.add(record("stones", STONES))
+    with pytest.raises(ValueError, match="reranker"):
+        await store.retrieve("oxalate", mode="rerank")
+    with pytest.raises(ValueError, match="mode"):
+        await store.retrieve("oxalate", mode="bm25")
