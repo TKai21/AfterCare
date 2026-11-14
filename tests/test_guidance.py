@@ -98,11 +98,11 @@ async def test_retrieve_scope_and_document(session):
         document_id=d1.id, question="Can I drink coffee?", answer="Yes, coffee is fine.",
     )
     q = "coffee"
-    got = await retrieve(session, llm, a, d1, [], q, 0.1)
+    got = await retrieve(session, llm, a, d1, [], q, 0.1, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [e.id]
     assert got[0][1] > 0.1
-    assert await retrieve(session, llm, b, d1, [], q, 0.1) == []
-    assert await retrieve(session, llm, a, d2, [], q, 0.1) == []
+    assert await retrieve(session, llm, b, d1, [], q, 0.1, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d2, [], q, 0.1, doctor_id=doc.id) == []
 
 
 async def test_retrieve_general_uses_gate_and_ranks(session):
@@ -112,9 +112,9 @@ async def test_retrieve_general_uses_gate_and_ranks(session):
                      question="colchicine diarrhea", answer="reduce dose")
     await add(session, llm, doctor_id=doc.id, drug_tags=["warfarin"],
               question="colchicine diarrhea", answer="reduce dose")
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [good.id]
-    assert await retrieve(session, llm, a, d1, [], "unrelated zebra", 0.5) == []
+    assert await retrieve(session, llm, a, d1, [], "unrelated zebra", 0.5, doctor_id=doc.id) == []
 
 
 async def test_retrieve_orders_best_first_and_limits(session):
@@ -124,10 +124,11 @@ async def test_retrieve_orders_best_first_and_limits(session):
                     question="colchicine diarrhea water", answer="more words here")
     near = await add(session, llm, doctor_id=doc.id, drug_tags=["colchicine"],
                      question="colchicine diarrhea", answer="")
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [near.id, far.id]
     assert got[0][1] >= got[1][1]
-    assert len(await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0, limit=1)) == 1
+    assert len(await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0,
+                              doctor_id=doc.id, limit=1)) == 1
 
 
 async def test_retrieve_skips_retired_unembedded_and_other_model(session):
@@ -140,7 +141,7 @@ async def test_retrieve_skips_retired_unembedded_and_other_model(session):
     old = await add(session, llm, **common)
     old.embedding_model = "old"
     await session.flush()
-    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0) == []
+    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
 
 
 async def test_retrieve_skips_mismatched_vector_length(session):
@@ -150,7 +151,7 @@ async def test_retrieve_skips_mismatched_vector_length(session):
                   document_id=d1.id, question="coffee", answer="coffee")
     e.embedding = [1.0, 0.0]
     await session.flush()
-    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0) == []
+    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
 
 
 class FailingLLM(FakeLLM):
@@ -177,4 +178,28 @@ async def test_failed_embedding_is_sql_null_and_skipped(session):
         text("select embedding is null from doctor_guidance where id = :i"), {"i": e.id}
     )).one()
     assert row[0] == 1
-    assert await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0) == []
+    assert await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
+
+
+async def test_retrieve_only_own_doctor(session):
+    llm = FakeLLM()
+    (doc, a, b), (d1, d2) = await seed(session)
+    other = User(username="other-doc", password_hash="x", role="doctor")
+    session.add(other)
+    await session.flush()
+    common = dict(drug_tags=["colchicine"], condition_tags=["gout"],
+                  question="colchicine diarrhea", answer="reduce dose")
+    mine = await add(session, llm, doctor_id=doc.id, **common)
+    theirs = await add(session, llm, doctor_id=other.id, **common)
+    own = await add(session, llm, doctor_id=other.id, scope="patient", patient_id=a.id,
+                    document_id=d1.id, question="colchicine diarrhea", answer="reduce dose")
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=doc.id)
+    assert [g.id for g, _ in got] == [mine.id]
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=other.id)
+    assert sorted(g.id for g, _ in got) == sorted([theirs.id, own.id])
+
+
+async def test_retrieve_requires_a_doctor_id(session):
+    (doc, a, b), (d1, d2) = await seed(session)
+    with pytest.raises(TypeError):
+        await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0)

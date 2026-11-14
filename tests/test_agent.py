@@ -205,7 +205,7 @@ async def test_nonexistent_citation_falls_back(store, foods, document, items):
 
 async def test_malformed_json_falls_back(store, foods, document, items):
     llm = FakeLLM()
-    llm.script({"content": "Almonds are fine [2]."}, {"content": "Almonds are fine [2]."})
+    llm.script(*[{"content": "Almonds are fine [2]."}] * 3)  # format retry, then repair
     assert_fallback(await ask(llm, store, foods, document, items))
 
 
@@ -629,9 +629,67 @@ async def test_invalid_final_message_gets_one_repair_round(store, foods, documen
 
 async def test_second_invalid_final_message_falls_back(store, foods, document, items):
     llm = FakeLLM()
-    llm.script({"content": "Almonds are fine [2]."}, {"content": "Still not JSON."})
+    bad = final("Almonds have 200 mg of oxalate per serving [2].", [2])
+    llm.script(bad, bad)
     assert_fallback(await ask(llm, store, foods, document, items))
     assert len(llm.calls) == 2
+
+
+async def test_prose_reply_gets_format_retry_then_repair(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        {"content": "Almonds are high in oxalate, so limit them."},
+        final("Almonds have 200 mg of oxalate per serving [2].", [2]),
+        final("Limit high-oxalate foods [2].", [2]),
+    )
+    result = await ask(llm, store, foods, document, items)
+    assert result.kind == "answer" and result.answer == "Limit high-oxalate foods [2]."
+    assert len(llm.calls) == 3
+    retry_messages, retry_tools, _ = llm.calls[1]
+    assert retry_tools is None
+    assert retry_messages[-2] == {"role": "assistant",
+                                  "content": "Almonds are high in oxalate, so limit them."}
+    assert retry_messages[-1] == {"role": "user", "content": agent.FORMAT_NUDGE}
+    assert agent.FORMAT_NUDGE == ("Reply again with only the final JSON object described in the "
+                                  "output contract, and no other text.")
+    repair_messages, repair_tools, _ = llm.calls[2]
+    assert repair_tools is None
+    assert repair_messages[-1]["content"].startswith("Your last reply was rejected: Numbers not")
+
+
+async def test_second_prose_reply_uses_repair_then_falls_back(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script({"content": "Almonds are fine."}, {"content": "Still not JSON."},
+               {"content": "[1, 2]"})
+    assert_fallback(await ask(llm, store, foods, document, items))
+    assert len(llm.calls) == 3
+    assert llm.calls[1][0][-1]["content"] == agent.FORMAT_NUDGE
+    assert llm.calls[2][0][-1]["content"].startswith("Your last reply was rejected: ")
+
+
+async def test_a_turn_makes_at_most_max_rounds_plus_3_model_calls(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        *[tool_call("lookup_food", {"name": "almonds"}, call_id=f"c{i}") for i in range(2)],
+        {"content": "No JSON here."},  # the forced final call
+        {"content": "Still none."},  # after the format retry
+        {"content": "Nothing."},  # after the repair
+    )
+    assert_fallback(await ask(llm, store, foods, document, items, max_rounds=2))
+    assert len(llm.calls) == 2 + 3
+    nudges = [m["content"] for m in llm.calls[-1][0] if m["role"] == "user"][-3:]
+    assert nudges[:2] == [agent.FINAL_NUDGE, agent.FORMAT_NUDGE]
+    assert nudges[2].startswith("Your last reply was rejected: The final message is not JSON.")
+
+
+def test_final_object_flags_a_missing_json_object():
+    for text in ("Almonds are fine.", "", "[1, 2]", "42", "{not json}"):
+        with pytest.raises(agent.FinalNotJSON):
+            agent._final_object(text)
+    # A JSON object that fails validation is a content error, not a format error.
+    with pytest.raises(ValueError) as exc:
+        validate(raw(kind="maybe"), {})
+    assert not isinstance(exc.value, agent.FinalNotJSON)
 
 
 async def test_emergency_failures_skip_the_repair_round(store, foods, document, items):
@@ -825,11 +883,13 @@ def test_medication_change_pattern_ignores_ordinary_instructions(text):
 def test_prompt_states_clone_rules():
     prompt = agent.SYSTEM_PROMPT
     assert "\u2014" not in prompt
-    for phrase in ('"Sources disagree"', "third person", "never as \"I\"",
+    for phrase in ('"Sources disagree"',
                    "unless a cited document paragraph or doctor's advice says so",
                    "Library passages and your own knowledge never justify it",
                    "does not apply", "search_doctor_guidance",
-                   "before search_education_library", "sent to {DOCTOR}"):
+                   "before search_education_library",
+                   "I couldn't answer this from your discharge document or my earlier advice, "
+                   "so I sent it to {DOCTOR}."):
         assert phrase in prompt, phrase
     rules = prompt.split("Authority rules:")[1].split("Food data:")[0]
     order = ["discharge document", "advice for this patient", "general advice",
@@ -838,7 +898,7 @@ def test_prompt_states_clone_rules():
     positions = [first_rule.find(name) for name in order]
     assert -1 not in positions and positions == sorted(positions), positions
     rule4 = rules.split("\n4.")[1].split("\n5.")[0]
-    assert "{DOCTOR}'s advice" in rule4 and "library passage" in rule4
+    assert "my earlier advice" in rule4 and "library passage" in rule4
     numbers = [int(n) for n in re.findall(r"^(\d+)\.", rules, re.MULTILINE)]
     assert numbers == list(range(1, len(numbers) + 1))
 
@@ -861,24 +921,111 @@ async def test_guidance_unavailable_tool_error(store, foods, document, items):
         assert tool_results(llm, 1) == [{"error": "Doctor guidance is not available right now."}]
 
 
-async def test_each_doctor_evidence_is_titled_with_its_own_doctor(store, foods, document, items):
-    mine = guidance(id=7)
-    other = guidance(id=8, answer="Take two tablets at once.")
-    other.doctor_id = 2
-    llm = FakeLLM()
-    llm.script(
-        tool_call("search_doctor_guidance", {"query": "colchicine"}),
-        final("Advice [5] and [6].", [5, 6]),
-    )
-    result = await ask(llm, store, foods, document, items, guidance_search=searching(mine, other),
-                       doctor_name="Dr. A", doctor_names={1: "Dr. A", 2: "Dr. B"})
-    assert [s.title for s in result.sources] == [
-        "Dr. A's advice, Nov 12, 2026", "Dr. B's advice, Nov 12, 2026"]
-    assert "Dr. A" in llm.calls[0][0][0]["content"]
-
-
 async def test_fallback_names_the_doctor(store, foods, document, items):
     llm = FakeLLM()
     llm.script(final("Nope [9].", [9]), final("Nope [9].", [9]))
     result = await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai")
     assert "sent it to Dr. Ting Kai" in result.answer
+
+
+def test_fallback_copy_first_person():
+    assert agent.fallback_answer("Dr. Ting Kai") == (
+        "I couldn't answer this from your discharge document or my earlier advice, "
+        "so I sent it to Dr. Ting Kai.")
+    assert FALLBACK == agent.fallback_answer("your doctor")
+
+
+def test_prompt_states_ai_clone_rule():
+    prompt = agent.system_prompt("Dr. Ting Kai")
+    assert (
+        "You are Dr. Ting Kai's AI clone. Speak in the first person as Dr. Ting Kai's AI clone "
+        "('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when "
+        "you introduce yourself, say you are Dr. Ting Kai's AI clone."
+    ) in prompt
+    assert "third person" not in prompt and 'never as "I"' not in prompt
+    assert "{DOCTOR}" not in prompt and "\u2014" not in prompt
+    rule6 = prompt.split("\n6.")[1].split("\n7.")[0]
+    assert agent.fallback_answer("Dr. Ting Kai") in rule6 and '"not_covered"' in rule6
+
+
+def user_message(llm, call_index=0):
+    return [m for m in llm.calls[call_index][0] if m["role"] == "user"][-1]["content"]
+
+
+async def test_prefetched_guidance_is_evidence_before_any_tool_call(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Based on my earlier advice, you may take one extra 0.6 mg tablet "
+                     "after 1 hour [5].", [5]))
+    result = await ask(llm, store, foods, document, items, question="Can I take more colchicine?",
+                       doctor_name="Dr. Ting Kai", prefetch=[guidance()])
+    assert len(llm.calls) == 1
+    content = user_message(llm)
+    assert "My earlier advice" in content and "[5]" in content
+    assert COLCHICINE_ADVICE in content
+    assert "Can I take another colchicine if it still hurts?" in content
+    # After the document, before the question.
+    assert content.index("</document-") < content.index(COLCHICINE_ADVICE) \
+        < content.index("Patient question:")
+    assert result.kind == "answer"
+    (source,) = result.sources
+    assert source.kind == "doctor" and source.number == 5 and source.guidance_id == 7
+    assert result.guidance_ids == [7]
+
+
+async def test_prefetch_lists_applies_to_and_says_when_nothing_matched(
+    store, foods, document, items
+):
+    llm = FakeLLM()
+    llm.script(final("Limit high-oxalate foods [2].", [2]))
+    await ask(llm, store, foods, document, items,
+              prefetch=[guidance(scope="patient", updated_at=None)])
+    content = user_message(llm)
+    assert "[5] My earlier advice (this patient)" in content
+    assert "Question it answered (context only, not evidence)" in content
+
+    empty = FakeLLM()
+    empty.script(final("Limit high-oxalate foods [2].", [2]))
+    await ask(empty, store, foods, document, items, prefetch=[])
+    assert "none matched this question" in user_message(empty)
+
+    absent = FakeLLM()
+    absent.script(final("Limit high-oxalate foods [2].", [2]))
+    await ask(absent, store, foods, document, items)
+    assert "My earlier advice" not in user_message(absent)
+
+
+async def test_prefetch_and_tool_share_numbers(store, foods, document, items):
+    first = guidance(id=7)
+    second = guidance(id=8, answer="Drink 2 liters of water a day.")
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_doctor_guidance", {"query": "colchicine"}),
+        final("Advice [5] and [6].", [5, 6]),
+    )
+    result = await ask(llm, store, foods, document, items, prefetch=[first],
+                       guidance_search=searching(second, first))
+    (hits,) = tool_results(llm, 1)
+    assert [e["evidence_number"] for e in hits["entries"]] == [6, 5]
+    assert [s.guidance_id for s in result.sources] == [7, 8]
+    assert result.guidance_ids == [7, 8]
+
+
+async def test_doctor_evidence_titles(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_doctor_guidance", {"query": "colchicine"}),
+        final("My earlier advice [5].", [5]),
+    )
+    result = await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai",
+                       prefetch=[guidance()], guidance_search=searching(guidance()))
+    assert "[5] My earlier advice, Nov 12, 2026 (general advice)" in user_message(llm)
+    (hits,) = tool_results(llm, 1)
+    assert hits["entries"][0]["title"] == "My earlier advice, Nov 12, 2026"
+    assert "Dr. Ting Kai's advice" not in json.dumps(llm.calls[1][0][1:])  # after the prompt
+    (source,) = result.sources
+    assert source.title == "Dr. Ting Kai's advice, Nov 12, 2026"
+
+
+def test_run_agent_takes_one_doctor():
+    import inspect
+    assert "doctor_names" not in inspect.signature(run_agent).parameters

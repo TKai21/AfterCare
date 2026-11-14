@@ -75,11 +75,17 @@ async def retrieve(
     items: list[ExtractedItem],
     query: str,
     min_similarity: float,
+    *,
+    doctor_id: int,
     limit: int = 5,
 ) -> list[tuple[DoctorGuidance, float]]:
+    """The best matching guidance entries of one doctor that may be used for
+    this patient and document. Only `doctor_id`'s entries are ever candidates:
+    a clone never sees another doctor's advice."""
     rows = (
         await session.scalars(
             select(DoctorGuidance).where(
+                DoctorGuidance.doctor_id == doctor_id,
                 DoctorGuidance.active.is_(True),
                 DoctorGuidance.embedding.is_not(None),
                 DoctorGuidance.embedding_model == llm.embedding_model,

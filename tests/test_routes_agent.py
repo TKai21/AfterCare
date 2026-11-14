@@ -371,7 +371,10 @@ async def test_ask_cites_eligible_doctor_advice(client, fake_llm):
     }]
     assert body["guidance_ids"] == [entry.id]
     assert body["doctor_name"] == "Dr. Ting Kai"
-    assert "sent to Dr. Ting Kai" in fake_llm.calls[-1][0][0]["content"]
+    assert "sent it to Dr. Ting Kai" in fake_llm.calls[-1][0][0]["content"]
+    # The entry was prefetched for the question, so the tool hit reuses its number.
+    first_user = [m for m in fake_llm.calls[-2][0] if m["role"] == "user"][-1]["content"]
+    assert f"[4] My earlier advice, {date} (general advice)" in first_user
     (hits,) = tool_results(fake_llm, -1)
     assert hits["entries"][0]["question_answered"] == "Can I take amoxicillin with milk?"
     async with client.app.state.session_factory() as session:
@@ -414,7 +417,7 @@ async def test_doctor_name_falls_back_to_username_then_your_doctor(client, fake_
     fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
     body = (await post_ask(client, h, "How much?")).json()
     assert body["doctor_name"] == "dr.b"  # the lowest id doctor; its display name is empty
-    assert "sent to dr.b" in fake_llm.calls[-1][0][0]["content"]
+    assert "sent it to dr.b" in fake_llm.calls[-1][0][0]["content"]
 
 
 async def test_sources_disagree_adds_one_open_question(client, fake_llm):
@@ -478,6 +481,7 @@ async def broken_retrieve(session, *args, **kwargs):
 
 async def test_guidance_database_error_keeps_the_emergency_answer(client, fake_llm, monkeypatch):
     h = await confirmed(client, fake_llm)
+    await make_doctor(client)
     monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
     fake_llm.script(
         tool("search_doctor_guidance", {"query": "amoxicillin chest pain"}),
@@ -497,6 +501,7 @@ async def test_guidance_database_error_is_a_tool_error_and_turn_completes(
     client, fake_llm, monkeypatch
 ):
     h = await confirmed(client, fake_llm)
+    await make_doctor(client)
     monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
     fake_llm.script(
         tool("search_doctor_guidance", {"query": "swimming"}),
@@ -510,16 +515,20 @@ async def test_guidance_database_error_is_a_tool_error_and_turn_completes(
     assert [q["question"] for q in await care_team(client, h)] == ["Can I swim?"]
 
 
-async def test_doctor_advice_is_titled_with_the_entrys_own_doctor(client, fake_llm):
+async def test_clone_never_sees_another_doctors_advice(client, fake_llm):
+    # Until the patient picks a doctor (Task 3), the clone is the lowest id doctor's.
     h = await confirmed(client, fake_llm)
     await make_doctor(client, username="dr.a", display_name="Dr. A")
     second = await make_doctor(client, username="dr.b", display_name="Dr. B")
     await seed_guidance(client, fake_llm, second)
     fake_llm.script(
         tool("search_doctor_guidance", {"query": "amoxicillin with milk"}),
-        answer("Dr. B advised that amoxicillin can be taken with milk [4].", [4]),
+        answer("I could not find this.", [], kind="not_covered"),
     )
     body = (await post_ask(client, h, "Can I take amoxicillin with milk?")).json()
-    (source,) = body["sources"]
-    assert source["title"].startswith("Dr. B's advice")
-    assert body["doctor_name"] == "Dr. A"  # generic copy keeps the lowest id doctor
+    first_user = [m for m in fake_llm.calls[-2][0] if m["role"] == "user"][-1]["content"]
+    assert MILK_ADVICE not in first_user and "none matched this question" in first_user
+    assert tool_results(fake_llm, -1) == [{
+        "query": "amoxicillin with milk", "entries": [], "result": "no matching advice",
+    }]
+    assert body["doctor_name"] == "Dr. A" and body["guidance_ids"] == []

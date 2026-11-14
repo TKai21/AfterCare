@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints
@@ -50,15 +50,16 @@ async def recent_history(session: AsyncSession, document_id: int) -> list[dict]:
     return [{"role": m.role, "content": m.content} for m in reversed(list(rows))]
 
 
-async def doctor_directory(session: AsyncSession) -> tuple[str, dict[int, str]]:
-    """The name used in generic copy (the lowest id doctor's display name, its
-    username if that is empty, or "your doctor") and every doctor's name by id,
-    which titles each piece of doctor advice."""
-    doctors = list(await session.scalars(
-        select(User).where(User.role == "doctor").order_by(User.id)
-    ))
-    names = {d.id: (d.display_name or "").strip() or d.username for d in doctors}
-    return (names[doctors[0].id] if doctors else DEFAULT_DOCTOR_NAME), names
+async def doctor_directory(session: AsyncSession) -> tuple[Optional[int], str]:
+    """The clone's doctor until the patient chooses one: the lowest id doctor's
+    id and name (its display name, its username if that is empty), or no id and
+    "your doctor" when there is no doctor account."""
+    doctor = await session.scalar(
+        select(User).where(User.role == "doctor").order_by(User.id).limit(1)
+    )
+    if doctor is None:
+        return None, DEFAULT_DOCTOR_NAME
+    return doctor.id, (doctor.display_name or "").strip() or doctor.username
 
 
 @router.post("/api/ask")
@@ -76,7 +77,7 @@ async def ask(
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
-    name, names = await doctor_directory(session)
+    doctor_id, name = await doctor_directory(session)
     llm = request.app.state.llm
     if llm is None:
         if not terms:
@@ -85,6 +86,11 @@ async def ask(
     else:
         history = await recent_history(session, doc_id)
         await session.commit()  # end the read transaction before the slow model calls
+        # A failed guidance search rolls the session back, which expires every
+        # object in it; detached, the user, document and items the turn reads
+        # stay loaded (the prefetch can fail before the agent has read them).
+        for loaded in (user, doc, *items):
+            session.expunge(loaded)
         min_similarity = request.app.state.settings.guidance_min_similarity
         memory_failed = False
 
@@ -95,7 +101,8 @@ async def ask(
             if memory_failed:
                 raise GuidanceUnavailable("The guidance memory failed earlier in this turn.")
             try:
-                hits = await retrieve(session, llm, user, doc, items, query, min_similarity)
+                hits = await retrieve(session, llm, user, doc, items, query, min_similarity,
+                                      doctor_id=doctor_id)
                 await session.commit()  # no read transaction held across model calls
             except LLMError:
                 await session.commit()
@@ -110,11 +117,19 @@ async def ask(
                 raise GuidanceUnavailable(str(exc)) from exc
             return [entry for entry, _score in hits]
 
+        search = guidance_search if doctor_id is not None else None
+        prefetch = None
+        if search is not None:
+            try:
+                prefetch = await search(body.question)
+            except (LLMError, GuidanceUnavailable):
+                prefetch = None  # the turn goes on without it, as the tool does
+
         try:
             result = await run_agent(
                 llm, request.app.state.store, request.app.state.foods,
                 doc, items, history, body.question, terms,
-                guidance_search=guidance_search, doctor_name=name, doctor_names=names,
+                guidance_search=search, doctor_name=name, prefetch=prefetch,
             )
         except LLMError as exc:
             if not terms:
