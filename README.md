@@ -269,13 +269,19 @@ The tables `guidance_rules` and `guidance_conflicts` are created on startup; the
 
 To see a conflict: log in as `dr.ting`, answer the open question with "General advice" ticked and tags `colchicine / Colcrys` and `gout`, for example "In a flare you can repeat 0.6 mg of colchicine every 2 hours until the pain eases." With a model configured, both this entry and the seeded colchicine entry show the conflict.
 
+### Clone drafts
+
+On each open question in the doctor's inbox, "Draft with my clone" asks the model for a reply in the doctor's voice (design: `docs/superpowers/specs/2026-11-14-clone-drafts-design.md`). Its evidence is the patient's document, the doctor's own rules that pass the same gate as the patient's clone, and library or approved label passages. Every sentence lists its sources; a sentence with no source, or with a number its sources do not state, is highlighted for the doctor to check. The draft fills an empty answer box, and nothing reaches the patient until the doctor sends.
+
+When the doctor sends, the app records how much of the draft was kept (a word-level similarity) and whether it was sent unchanged. The inbox shows these numbers, and the doctor's three most recent corrected drafts (what the clone wrote and what the doctor sent instead) are given to the model as examples for the next drafts, so the clone picks up the doctor's corrections without retraining.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 693 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 700 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

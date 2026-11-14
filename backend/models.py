@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text,
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
@@ -219,6 +219,28 @@ class GuidanceConflict(Base):
     # open | dismissed
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AnswerDraft(Base):
+    """The clone's draft answer to an inbox question, for the doctor to edit.
+    Filled on send with what the doctor actually sent and how much was kept."""
+    __tablename__ = "answer_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("care_team_questions.id", ondelete="CASCADE"), index=True
+    )
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # [{text, sources: [number], supported, problem}]
+    sentences: Mapped[list] = mapped_column(JSON)
+    # [{number, kind, title, quote}]
+    evidence: Mapped[list] = mapped_column(JSON)
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    sent_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    kept: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sent_unchanged: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class DrugLabel(Base):

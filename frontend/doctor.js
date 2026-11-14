@@ -18,6 +18,7 @@ const state = {
   guidanceError: '',
   filters: {scope: 'all', status: 'active'},
   drafts: new Map(),    // open question id -> answer draft
+  draftStats: null,     // /api/doctor/draft-stats
   answeredOpen: false,
   openPanels: new Set(), // expanded context panels, keyed id:kind
   editing: new Map(),   // guidance id -> edit draft
@@ -80,6 +81,7 @@ function draftFor(q) {
       answer: '', general: false, savedQuestion: q.question,
       drugs: [], conditions: [], tagError: '', suggesting: false,
       pending: {drugs: '', conditions: ''}, sending: false, error: '', lastSuggested: null, timer: null, seq: 0,
+      clone: q.draft || null, drafting: false, draftError: '',
     });
   }
   return state.drafts.get(q.id);
@@ -139,6 +141,42 @@ function metaLabelsHtml(q) {
   return labels.map(l => ` &middot; <span class="doctor-meta-label">${esc(l)}</span>`).join('');
 }
 
+const SPARK_ICON = '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.75l1.6 4.65L18.25 10l-4.65 1.6L12 16.25l-1.6-4.65L5.75 10l4.65-1.6z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>';
+
+const PROBLEM_TEXT = {
+  no_source: 'Not in your sources',
+  number: 'A number is not in the cited source',
+};
+
+function cloneDraftHtml(q, d) {
+  const c = d.clone;
+  const button = `<button type="button" class="btn btn-secondary btn-small clone-draft-btn" data-action="draft" ${d.drafting ? 'disabled' : ''}>
+      ${d.drafting ? '<span class="spinner" aria-hidden="true"></span>Drafting...' : `${SPARK_ICON}${c ? 'Redraft' : 'Draft with my clone'}`}</button>`;
+  const error = d.draftError ? `<p class="form-error" role="alert">${esc(d.draftError)}</p>` : '';
+  if (!c) return `<div class="clone-draft-bar">${button}</div>${error}`;
+  const flagged = c.sentences.filter(x => !x.supported).length;
+  const sentences = c.sentences.map(x => x.supported
+    ? `<span class="draft-sentence">${esc(x.text)}${x.sources.map(n => `<sup class="draft-ref">${n}</sup>`).join('')}</span>`
+    : `<mark class="draft-sentence is-flagged">${esc(x.text)}<span class="draft-flag">${esc(PROBLEM_TEXT[x.problem] || 'Check this')}</span></mark>`).join(' ');
+  const sources = c.evidence.length ? `
+      <ol class="draft-sources">${c.evidence.map(e => `
+        <li><span class="draft-source-num">${e.number}</span><span class="draft-source-body"><span class="draft-source-title">${esc(e.title)}</span>
+          <span class="draft-source-quote">${esc(e.quote)}</span></span></li>`).join('')}</ol>` : '';
+  return `
+    <section class="clone-draft" aria-label="Your AI clone's draft">
+      <div class="clone-draft-head">
+        <p class="clone-draft-title">${SPARK_ICON}Your clone's draft</p>
+        <p class="clone-draft-sum">${flagged ? `<strong>${flagged}</strong> to check` : 'Every sentence has a source'}</p>
+      </div>
+      <p class="clone-draft-text">${sentences}</p>
+      ${sources}
+      <div class="form-actions clone-draft-actions">
+        ${button}
+        <button type="button" class="btn btn-secondary btn-small" data-action="use-draft" ${d.drafting ? 'disabled' : ''}>Use draft</button>
+      </div>
+    </section>${error}`;
+}
+
 function openCardHtml(q) {
   const d = draftFor(q);
   return `
@@ -147,6 +185,7 @@ function openCardHtml(q) {
       <p class="doctor-question">${esc(q.question)}</p>
       ${q.reason && q.source !== 'patient' ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
+      <div class="clone-draft-slot">${cloneDraftHtml(q, d)}</div>
       <div class="field">
         <label for="answer-${q.id}">Your answer</label>
         <textarea id="answer-${q.id}" class="doctor-answer-box" maxlength="4000" placeholder="Your answer...">${esc(d.answer)}</textarea>
@@ -173,6 +212,21 @@ function answeredCardHtml(q) {
     </li>`;
 }
 
+function draftStatsHtml() {
+  const st = state.draftStats;
+  if (!st || !st.sent) return '';
+  const pct = Math.round(st.mean_kept * 100);
+  return `
+    <section class="draft-stats" aria-label="Your clone's drafts">
+      <p class="draft-stats-title">Your clone's drafts</p>
+      <dl class="draft-stats-grid">
+        <div><dt>Sent</dt><dd>${st.sent}</dd></div>
+        <div><dt>Unchanged</dt><dd>${st.unchanged}</dd></div>
+        <div><dt>Avg. kept</dt><dd>${pct}<span class="draft-stats-unit">%</span></dd></div>
+      </dl>
+    </section>`;
+}
+
 function renderQuestions() {
   const cards = state.open.length
     ? `<ul class="item-list doctor-list">${state.open.map(openCardHtml).join('')}</ul>`
@@ -183,6 +237,7 @@ function renderQuestions() {
     <div class="split-aside">
     <div class="page-head"><p class="eyebrow">Inbox</p><h1 class="page-title">Patient <em>questions</em></h1>
       <p class="lead">Your answer goes to the patient. Mark it general and your AI clone can use it for others too.</p></div>
+    ${draftStatsHtml()}
     </div>
     <div class="split-main">
     <p class="doctor-notice" role="status">${esc(state.notice)}</p>
@@ -227,6 +282,49 @@ function rerenderGeneral(id) {
     fields.querySelector('.doctor-suggest-status').innerHTML = suggestStatusHtml(d);
   }
   updateSend(id);
+}
+
+function rerenderDraft(id) {
+  const q = state.open.find(x => x.id === id);
+  const card = cardEl(id);
+  if (!q || !card) return;
+  const d = state.drafts.get(id);
+  card.querySelector('.clone-draft-slot').innerHTML = cloneDraftHtml(q, d);
+  const box = card.querySelector('.doctor-answer-box');
+  if (box.value !== d.answer) box.value = d.answer;
+  updateSend(id);
+}
+
+async function requestDraft(q) {
+  const d = draftFor(q);
+  if (d.drafting) return;
+  d.drafting = true;
+  d.draftError = '';
+  rerenderDraft(q.id);
+  try {
+    d.clone = await api(`/api/doctor/questions/${q.id}/draft`, {method: 'POST'});
+    if (!d.answer.trim()) d.answer = d.clone.text;
+  } catch (error) {
+    d.draftError = error.message;
+  }
+  d.drafting = false;
+  rerenderDraft(q.id);
+}
+
+async function useDraft(q) {
+  const d = draftFor(q);
+  if (!d.clone) return;
+  if (d.answer.trim() && d.answer.trim() !== d.clone.text) {
+    const ok = await confirmDialog({
+      title: 'Replace your answer?',
+      body: 'Your answer box will be replaced with the clone\'s draft.',
+      confirmLabel: 'Replace',
+    });
+    if (!ok) return;
+  }
+  d.answer = d.clone.text;
+  rerenderDraft(q.id);
+  scheduleSuggest(q, d);
 }
 
 function rerenderCard(id) {
@@ -306,6 +404,7 @@ async function sendAnswer(q) {
         saved_question: d.general ? (d.savedQuestion.trim() || null) : null,
         drug_tags: d.general ? d.drugs : [],
         condition_tags: d.general ? d.conditions : [],
+        draft_id: d.clone ? d.clone.id : null,
       },
     });
     state.open = state.open.filter(x => x.id !== q.id);
@@ -313,6 +412,7 @@ async function sendAnswer(q) {
     state.drafts.delete(q.id);
     state.guidance = null;
     state.notice = 'Answer sent.';
+    loadDraftStats();
     renderTabs();
     renderQuestions();
   } catch (error) {
@@ -649,6 +749,8 @@ function bindShared() {
       const id = Number(qcard.dataset.id);
       const d = state.drafts.get(id);
       if (action === 'send') sendAnswer(state.open.find(x => x.id === id));
+      else if (action === 'draft') requestDraft(state.open.find(x => x.id === id));
+      else if (action === 'use-draft') useDraft(state.open.find(x => x.id === id));
       else if (action === 'remove-tag') {
         const field = kind === 'drugs' ? 'drugs' : 'conditions';
         d[field].splice(Number(button.dataset.index), 1);
@@ -718,6 +820,21 @@ function setLabelCount(count) {
   renderTabs();
 }
 
+async function loadDraftStats() {
+  try {
+    state.draftStats = await api('/api/doctor/draft-stats');
+  } catch (error) {
+    return;  // the numbers are a nicety; the queue shows its own errors
+  }
+  if (state.tab === 'questions') {
+    const aside = main.querySelector('.split-aside');
+    const old = aside && aside.querySelector('.draft-stats');
+    const html = draftStatsHtml();
+    if (old) old.outerHTML = html;
+    else if (aside && html) aside.insertAdjacentHTML('beforeend', html);
+  }
+}
+
 async function loadQueue() {
   try {
     const data = await api('/api/doctor/questions');
@@ -780,6 +897,7 @@ async function boot() {
   // The badge only (the tab shows its own errors); a count the tab reported wins.
   countPendingLabels().then(count => { if (!state.labelCountFromTab) setLabelCount(count); }, () => {});
   loadGuidance();  // for the conflict badge; the tab reloads it when opened
+  loadDraftStats();
   await loadQueue();
   route();
 }

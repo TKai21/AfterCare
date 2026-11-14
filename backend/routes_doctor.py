@@ -11,11 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import current_doctor
 from db import get_session
-from doctors import doctor_labels
+from doctors import doctor_label, doctor_labels
 from documents import paragraphs
+from drafts import build_context, draft_view, record_send, stats, write_draft
+from druglabels import patient_rxcuis
 from extraction import normalize
 from llm import LLMError
 from models import (
+    AnswerDraft,
     CareTeamQuestion,
     ChatMessage,
     DischargeDocument,
@@ -43,6 +46,7 @@ class AnswerBody(BaseModel):
     saved_question: Optional[Text] = None
     drug_tags: list[str] = Field(default_factory=list, max_length=20)
     condition_tags: list[str] = Field(default_factory=list, max_length=20)
+    draft_id: Optional[int] = None  # the clone draft the answer started from
 
 
 class SuggestBody(BaseModel):
@@ -134,9 +138,21 @@ async def list_questions(
         if key not in contexts:
             contexts[key] = await document_context(session, q.document_id, q.doctor_id)
 
+    drafts = {
+        d.question_id: d for d in await session.scalars(
+            select(AnswerDraft).where(
+                AnswerDraft.question_id.in_([q.id for q in open_rows]),
+                AnswerDraft.doctor_id == user.id,
+                AnswerDraft.sent_answer.is_(None),
+            ).order_by(AnswerDraft.id)
+        )
+    } if open_rows else {}
+
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
         view = question_view(q, names)
+        if q.answer is None:
+            view["draft"] = draft_view(drafts.get(q.id))
         view["patient"] = {"id": patient.id, "username": patient.username}
         view["context"] = contexts[(q.document_id, q.doctor_id)]
         return view
@@ -315,6 +331,11 @@ async def answer_question(
     if result.rowcount != 1:
         await session.rollback()
         raise HTTPException(status_code=409, detail="This question already has an answer.")
+    if body.draft_id is not None:
+        draft = await session.get(AnswerDraft, body.draft_id)
+        if (draft is not None and draft.question_id == q.id and draft.doctor_id == doctor.id
+                and draft.sent_answer is None):
+            record_send(draft, body.answer, utcnow())
     entry = DoctorGuidance(
         doctor_id=doctor.id,
         question=(body.saved_question or q.question) if body.general else q.question,
@@ -493,3 +514,42 @@ async def dismiss_conflict(
     conflict.status = "dismissed"
     await session.commit()
     return {"id": conflict.id, "status": conflict.status}
+
+
+@router.post("/api/doctor/questions/{question_id}/draft")
+async def draft_answer(
+    question_id: int,
+    request: Request,
+    doctor: User = Depends(current_doctor),
+    session: AsyncSession = Depends(get_session),
+):
+    llm = _llm(request)
+    q = await session.get(CareTeamQuestion, question_id)
+    if q is None or q.doctor_id not in (None, doctor.id):
+        raise HTTPException(status_code=404, detail="Question not found")
+    if q.answer is not None:
+        raise HTTPException(status_code=409, detail="This question already has an answer.")
+    if llm is None:
+        raise HTTPException(status_code=503, detail="No model is configured.")
+    name = doctor_label(doctor)
+    try:
+        ctx = await build_context(
+            session, llm, request.app.state.store, q, doctor, name,
+            request.app.state.settings.guidance_min_similarity,
+            await patient_rxcuis(session, q.document_id),
+        )
+        draft = await write_draft(session, llm, q, doctor, name, ctx)
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail="The model service failed.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="The model returned an unusable draft.") from exc
+    await session.commit()
+    await session.refresh(draft)
+    return draft_view(draft)
+
+
+@router.get("/api/doctor/draft-stats")
+async def draft_stats(
+    doctor: User = Depends(current_doctor), session: AsyncSession = Depends(get_session)
+):
+    return await stats(session, doctor.id)

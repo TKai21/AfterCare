@@ -43,6 +43,7 @@ from db import init_db, make_engine, make_session_factory  # noqa: E402
 from documents import paragraphs  # noqa: E402
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport, resolve_document  # noqa: E402
 from models import (  # noqa: E402
+    AnswerDraft,
     CareTeamQuestion, ChatMessage, ChecklistCompletion, ChecklistItem,
     DischargeDocument, DoctorGuidance, DocumentDrug, DocumentFile, DrugLabel, ExtractedItem, User,
 )
@@ -225,6 +226,7 @@ async def reset_user(session, username: str, password: str) -> User:
         await session.execute(delete(ExtractedItem).where(ExtractedItem.document_id.in_(doc_ids)))
         await session.execute(delete(ChatMessage).where(ChatMessage.document_id.in_(doc_ids)))
         await session.execute(delete(DocumentFile).where(DocumentFile.document_id.in_(doc_ids)))
+        await session.execute(delete(AnswerDraft).where(AnswerDraft.question_id.in_(question_ids)))
         await session.execute(delete(CareTeamQuestion).where(CareTeamQuestion.user_id == user.id))
         await session.execute(delete(DischargeDocument).where(DischargeDocument.user_id == user.id))
         await session.delete(user)

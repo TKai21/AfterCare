@@ -186,6 +186,25 @@ CREATE TABLE IF NOT EXISTS guidance_conflicts (
   FOREIGN KEY (other_rule_id) REFERENCES guidance_rules (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS answer_drafts (
+  id INT NOT NULL AUTO_INCREMENT,
+  question_id INT NOT NULL,
+  doctor_id INT NOT NULL,
+  sentences JSON NOT NULL,                                -- [{text, sources, supported, problem}]
+  evidence JSON NOT NULL,                                 -- [{number, kind, title, quote}]
+  text TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_answer TEXT NULL,
+  kept DOUBLE NULL,                                       -- 0..1, share of the draft kept
+  sent_unchanged TINYINT(1) NULL,
+  sent_at DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY ix_answer_drafts_question_id (question_id),
+  KEY ix_answer_drafts_doctor_id (doctor_id),
+  FOREIGN KEY (question_id) REFERENCES care_team_questions (id) ON DELETE CASCADE,
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS drug_labels (
   id INT NOT NULL AUTO_INCREMENT,
   rxcui VARCHAR(20) NOT NULL,
