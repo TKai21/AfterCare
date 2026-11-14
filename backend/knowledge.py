@@ -29,6 +29,7 @@ import numpy as np
 from bs4 import BeautifulSoup
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from reranker import load_reranker
 from search import BM25, rrf
 
 logger = logging.getLogger(__name__)
@@ -454,6 +455,14 @@ class KnowledgeStore:
             return hybrid
         reranked = sorted(zip(candidates, judged), key=lambda pair: pair[1], reverse=True)
         return [_hit(row, value) for row, value in reranked if value >= self.min_rerank][:limit]
+
+
+def open_store(settings, llm) -> KnowledgeStore:
+    """The library store the settings describe, with its reranker if the model
+    files are present. Never downloads and never raises over a missing model."""
+    reranker, note = load_reranker(settings)
+    return KnowledgeStore(settings.rag_db_path, llm, settings.rag_min_similarity, reranker=reranker,
+                          min_rerank=settings.rag_min_rerank, reranker_note=note)
 
 
 def _hit(row: sqlite3.Row, score: float) -> dict:

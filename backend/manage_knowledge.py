@@ -18,7 +18,7 @@ from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 from config import Settings, get_settings
 from druglabels import approved_label_records
-from knowledge import DATA, KnowledgeError, KnowledgeStore, UnknownSourceError, collect_sources, index_sources
+from knowledge import DATA, KnowledgeError, UnknownSourceError, collect_sources, index_sources, open_store
 import reranker
 from llm import LLMClient, LLMError
 
@@ -76,7 +76,7 @@ def run(argv: list[str], settings: Settings | None = None) -> int:
         if args.command == "index" and needs_key(settings) and not settings.embedding_api_key:
             print("Set EMBEDDING_API_KEY (or LLM_API_KEY) in the project .env before indexing.", file=sys.stderr)
             return 2
-        store = KnowledgeStore(settings.rag_db_path, llm, settings.rag_min_similarity)
+        store = open_store(settings, llm)
         if args.command == "index":
             try:
                 labels = asyncio.run(approved_label_records(settings.database_url))

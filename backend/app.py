@@ -18,12 +18,17 @@ from config import PROJECT_DIR, Settings, get_settings
 from druglabels import DEMO_LABELS, LabelClient, approved_rxcuis, fixture_transport, mark_interrupted
 from db import init_db, make_engine, make_session_factory
 from foods import FoodTable
-from knowledge import KnowledgeStore
+from knowledge import open_store
 from llm import LLMClient
 
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
 logger = logging.getLogger(__name__)
+# uvicorn configures only its own loggers, so without this the INFO startup line
+# (the reranker is on) would be dropped. Only this module's logger is raised.
+logger.setLevel(logging.INFO)
+if not logging.getLogger().handlers:
+    logger.addHandler(logging.StreamHandler())
 
 # The frontend is unbundled files with stable names, so a browser must check
 # back (a cheap 304 via ETag) every time, or it keeps running an old version.
@@ -47,7 +52,7 @@ def create_app(
     if llm is None and settings.llm_model:
         llm = LLMClient(settings)  # no API key required, so a self-hosted server works
     if store is None and llm is not None:
-        store = KnowledgeStore(settings.rag_db_path, llm, settings.rag_min_similarity)
+        store = open_store(settings, llm)
     if foods is None:
         foods_path = Path(settings.foods_path)
         foods = FoodTable.load(foods_path if foods_path.is_absolute() else PROJECT_DIR / foods_path)
@@ -70,6 +75,9 @@ def create_app(
             if removed:
                 logger.warning("Removed drug labels that are not approved from the library: %s",
                                ", ".join(removed))
+            note = app.state.store.reranker_note
+            (logger.info if app.state.store.reranker is not None else logger.warning)(
+                "Library reranker: %s", note)
         yield
         await label_client.aclose()
         await engine.dispose()
@@ -80,6 +88,7 @@ def create_app(
     app.state.session_factory = make_session_factory(engine)
     app.state.llm = llm
     app.state.store = store
+    app.state.reranker = store.reranker if store is not None else None
     app.state.foods = foods
     app.state.label_client = label_client
 
