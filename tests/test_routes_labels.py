@@ -25,12 +25,18 @@ async def label_by_ingredient(client, name):
     return next(l for l in await rows(client, DrugLabel) if l.ingredient == name)
 
 
+async def review(client, label, action, headers, setid=None):
+    """Approve or reject `label`, naming the label text the doctor saw (its setid)."""
+    return await client.post(f"/api/doctor/labels/{label.id}/{action}",
+                             json={"setid": setid or label.setid}, headers=headers)
+
+
 async def test_patient_gets_403(client, fake_llm):
     _, patient, _ = await setup(client, fake_llm)
     for method, path, body in [
         ("get", "/api/doctor/labels", None),
-        ("post", "/api/doctor/labels/1/approve", None),
-        ("post", "/api/doctor/labels/1/reject", None),
+        ("post", "/api/doctor/labels/1/approve", {"setid": COLCHICINE_SETID}),
+        ("post", "/api/doctor/labels/1/reject", {"setid": COLCHICINE_SETID}),
         ("post", "/api/doctor/labels/1/candidate", {"setid": COLCHICINE_SETID}),
         ("post", "/api/doctor/labels/1/retry", None),
         ("post", "/api/doctor/document-drugs/1/retry", None),
@@ -42,8 +48,8 @@ async def test_patient_gets_403(client, fake_llm):
 async def test_unknown_id_404(client, fake_llm):
     doctor = await doctor_headers(client)
     for path, body in [
-        ("/api/doctor/labels/999/approve", None),
-        ("/api/doctor/labels/999/reject", None),
+        ("/api/doctor/labels/999/approve", {"setid": "x"}),
+        ("/api/doctor/labels/999/reject", {"setid": "x"}),
         ("/api/doctor/labels/999/candidate", {"setid": "x"}),
         ("/api/doctor/labels/999/retry", None),
         ("/api/doctor/document-drugs/999/retry", None),
@@ -58,9 +64,10 @@ async def test_list_shows_pending_with_sources(client, fake_llm):
     assert data["unresolved"] == []
     colchicine = next(l for l in data["labels"] if l["ingredient"] == "colchicine")
     assert set(colchicine) == {
-        "id", "rxcui", "ingredient", "status", "title", "url", "labeler", "published", "text", "error",
+        "id", "rxcui", "ingredient", "status", "setid", "title", "url", "labeler", "published", "text", "error",
         "candidates", "sources", "reviewed_by_name", "reviewed_at"}
     assert colchicine["status"] == "pending" and colchicine["rxcui"] == "2683"
+    assert colchicine["setid"] == COLCHICINE_SETID
     assert colchicine["sources"] == [{"medication": "Take Colchicine 0.6 mg", "username": "gout-patient"}]
     assert colchicine["text"] and colchicine["candidates"] and colchicine["reviewed_by_name"] is None
 
@@ -110,7 +117,7 @@ async def test_approve_adds_to_store_and_is_retrievable_for_patient_only(client,
     doc_id, gout_patient, doctor = await setup(client, fake_llm)
     stone_doc, stone_patient = await confirm_meds(client, fake_llm, "stone-patient", med("Tamsulosin", "0.4 mg"))
     colchicine = await label_by_ingredient(client, "colchicine")
-    resp = await client.post(f"/api/doctor/labels/{colchicine.id}/approve", headers=doctor)
+    resp = await review(client, colchicine, "approve", doctor)
     assert resp.status_code == 200, resp.text
     view = resp.json()
     assert view["status"] == "approved" and view["reviewed_by_name"] == "Dr. Ting Kai" and view["reviewed_at"]
@@ -129,7 +136,7 @@ async def test_approve_embedding_failure_stays_pending(client, fake_llm):
     async def broken(texts):
         raise LLMError("embedding down")
     fake_llm.embed = broken
-    resp = await client.post(f"/api/doctor/labels/{colchicine.id}/approve", headers=doctor)
+    resp = await review(client, colchicine, "approve", doctor)
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Could not add the label to the library. Try again."
     label = await label_by_ingredient(client, "colchicine")
@@ -141,7 +148,7 @@ async def test_approve_without_store_503(client, fake_llm):
     _, _, doctor = await setup(client, fake_llm)
     client.app.state.store = None
     colchicine = await label_by_ingredient(client, "colchicine")
-    resp = await client.post(f"/api/doctor/labels/{colchicine.id}/approve", headers=doctor)
+    resp = await review(client, colchicine, "approve", doctor)
     assert (resp.status_code, resp.json()["detail"]) == (503, "The education library is not available right now.")
     assert (await label_by_ingredient(client, "colchicine")).status == "pending"
 
@@ -149,19 +156,17 @@ async def test_approve_without_store_503(client, fake_llm):
 async def test_approve_and_reject_need_pending(client, fake_llm):
     _, _, doctor = await setup(client, fake_llm)
     colchicine = await label_by_ingredient(client, "colchicine")
-    path = f"/api/doctor/labels/{colchicine.id}"
-    assert (await client.post(f"{path}/reject", headers=doctor)).json()["status"] == "rejected"
-    assert (await client.post(f"{path}/reject", headers=doctor)).status_code == 409
-    assert (await client.post(f"{path}/approve", headers=doctor)).status_code == 409
+    assert (await review(client, colchicine, "reject", doctor)).json()["status"] == "rejected"
+    assert (await review(client, colchicine, "reject", doctor)).status_code == 409
+    assert (await review(client, colchicine, "approve", doctor)).status_code == 409
     assert client.app.state.store.status()["documents"] == []
 
 
 async def test_concurrent_approve_and_reject_one_wins_409(file_client, fake_llm):
     _, _, doctor = await setup(file_client, fake_llm)
     colchicine = await label_by_ingredient(file_client, "colchicine")
-    path = f"/api/doctor/labels/{colchicine.id}"
     approve, reject = await asyncio.gather(
-        file_client.post(f"{path}/approve", headers=doctor), file_client.post(f"{path}/reject", headers=doctor))
+        review(file_client, colchicine, "approve", doctor), review(file_client, colchicine, "reject", doctor))
     assert sorted([approve.status_code, reject.status_code]) == [200, 409]
     final = (await label_by_ingredient(file_client, "colchicine")).status
     in_store = [d["id"] for d in file_client.app.state.store.status()["documents"]]
@@ -172,7 +177,6 @@ async def test_concurrent_approve_and_reject_one_wins_409(file_client, fake_llm)
 async def test_reject_during_slow_add_cannot_win(file_client, fake_llm):
     _, _, doctor = await setup(file_client, fake_llm)
     colchicine = await label_by_ingredient(file_client, "colchicine")
-    path = f"/api/doctor/labels/{colchicine.id}"
     entered, release = asyncio.Event(), asyncio.Event()
     real_embed = fake_llm.embed
 
@@ -181,9 +185,9 @@ async def test_reject_during_slow_add_cannot_win(file_client, fake_llm):
         await release.wait()
         return await real_embed(texts)
     fake_llm.embed = slow
-    approving = asyncio.create_task(file_client.post(f"{path}/approve", headers=doctor))
+    approving = asyncio.create_task(review(file_client, colchicine, "approve", doctor))
     await entered.wait()
-    assert (await file_client.post(f"{path}/reject", headers=doctor)).status_code == 409
+    assert (await review(file_client, colchicine, "reject", doctor)).status_code == 409
     release.set()
     assert (await approving).status_code == 200
     assert (await label_by_ingredient(file_client, "colchicine")).status == "approved"
@@ -196,7 +200,7 @@ async def test_pick_candidate_on_rejected_refetches(client, fake_llm):
     path = f"/api/doctor/labels/{colchicine.id}"
     other = next(c for c in colchicine.candidates if c["setid"] == HIKMA_SETID)
     assert other["setid"] != colchicine.setid
-    await client.post(f"{path}/reject", headers=doctor)
+    await review(client, colchicine, "reject", doctor)
     resp = await client.post(f"{path}/candidate", json={"setid": HIKMA_SETID}, headers=doctor)
     assert resp.status_code == 200, resp.text
     view = resp.json()
@@ -222,7 +226,7 @@ async def test_pick_candidate_on_approved_409(client, fake_llm):
     _, _, doctor = await setup(client, fake_llm)
     colchicine = await label_by_ingredient(client, "colchicine")
     path = f"/api/doctor/labels/{colchicine.id}"
-    assert (await client.post(f"{path}/approve", headers=doctor)).status_code == 200
+    assert (await review(client, colchicine, "approve", doctor)).status_code == 200
     resp = await client.post(f"{path}/candidate", json={"setid": colchicine.candidates[0]["setid"]}, headers=doctor)
     assert resp.status_code == 409
     assert (await label_by_ingredient(client, "colchicine")).status == "approved"
@@ -283,3 +287,31 @@ async def test_retry_document_drug_that_turns_unresolved_shows_it(client, fake_l
     assert resp.status_code == 200, resp.text
     (entry,) = resp.json()["unresolved"]
     assert (entry["status"], entry["error"]) == ("unresolved", None)
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+async def test_review_of_label_text_since_replaced_409(client, fake_llm, action):
+    """A doctor reviews the text they saw: after another doctor picks another
+    candidate, a stale approve or reject (old setid) changes nothing."""
+    _, _, doctor = await setup(client, fake_llm)
+    seen = await label_by_ingredient(client, "colchicine")
+    assert seen.setid == COLCHICINE_SETID
+    other_doctor = await doctor_headers(client, "dr.renny", "Dr. Aaron Renny")
+    picked = await client.post(f"/api/doctor/labels/{seen.id}/candidate",
+                               json={"setid": HIKMA_SETID}, headers=other_doctor)
+    assert picked.status_code == 200 and picked.json()["status"] == "pending"
+    resp = await review(client, seen, action, doctor, setid=COLCHICINE_SETID)
+    assert (resp.status_code, resp.json()["detail"]) == (409, "This label changed. Review it again.")
+    now = await label_by_ingredient(client, "colchicine")
+    assert (now.status, now.setid, now.reviewed_by) == ("pending", HIKMA_SETID, None)
+    assert client.app.state.store.status()["documents"] == []
+    assert (await review(client, now, action, doctor)).status_code == 200
+
+
+async def test_review_needs_the_setid(client, fake_llm):
+    _, _, doctor = await setup(client, fake_llm)
+    colchicine = await label_by_ingredient(client, "colchicine")
+    for action in ("approve", "reject"):
+        resp = await client.post(f"/api/doctor/labels/{colchicine.id}/{action}", headers=doctor)
+        assert resp.status_code == 422
+    assert (await label_by_ingredient(client, "colchicine")).status == "pending"

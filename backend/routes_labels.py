@@ -26,6 +26,12 @@ class CandidateBody(BaseModel):
     setid: str
 
 
+class ReviewBody(BaseModel):
+    """The setid of the label text the doctor read, so a review never applies to
+    text that replaced it in the meantime (another doctor picked another candidate)."""
+    setid: str
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -60,6 +66,7 @@ async def label_views(session: AsyncSession, labels: list[DrugLabel]) -> list[di
             "rxcui": label.rxcui,
             "ingredient": label.ingredient,
             "status": label.status,
+            "setid": label.setid,
             "title": label.title,
             "url": label.url,
             "labeler": next(
@@ -123,9 +130,22 @@ async def list_labels(doctor: User = Depends(current_doctor), session: AsyncSess
     return {"labels": await label_views(session, labels), "unresolved": unresolved}
 
 
+NOT_WAITING = "This label is not waiting for review."
+CHANGED = "This label changed. Review it again."
+
+
+async def _review_conflict(session: AsyncSession, label_id: int, setid: str) -> HTTPException:
+    """The 409 for a review whose conditional update matched no row."""
+    await session.rollback()
+    label = await session.get(DrugLabel, label_id, populate_existing=True)
+    changed = label is not None and label.status == "pending" and label.setid != setid
+    return HTTPException(status_code=409, detail=CHANGED if changed else NOT_WAITING)
+
+
 @router.post("/api/doctor/labels/{label_id}/approve")
 async def approve_label(
     label_id: int,
+    body: ReviewBody,
     request: Request,
     doctor: User = Depends(current_doctor),
     session: AsyncSession = Depends(get_session),
@@ -138,13 +158,13 @@ async def approve_label(
     # Approve first, conditionally, so a concurrent reject loses before any text
     # reaches the library. A failed add is undone below.
     result = await session.execute(
-        update(DrugLabel).where(DrugLabel.id == label_id, DrugLabel.status == "pending")
+        update(DrugLabel)
+        .where(DrugLabel.id == label_id, DrugLabel.status == "pending", DrugLabel.setid == body.setid)
         .values(status="approved", reviewed_by=doctor_id, reviewed_at=utcnow())
         .execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="This label is not waiting for review.")
+        raise await _review_conflict(session, label_id, body.setid)
     await session.commit()
     await session.refresh(label)
     try:
@@ -164,18 +184,19 @@ async def approve_label(
 @router.post("/api/doctor/labels/{label_id}/reject")
 async def reject_label(
     label_id: int,
+    body: ReviewBody,
     doctor: User = Depends(current_doctor),
     session: AsyncSession = Depends(get_session),
 ):
     await _get_label(session, label_id)
     result = await session.execute(
-        update(DrugLabel).where(DrugLabel.id == label_id, DrugLabel.status == "pending")
+        update(DrugLabel)
+        .where(DrugLabel.id == label_id, DrugLabel.status == "pending", DrugLabel.setid == body.setid)
         .values(status="rejected", reviewed_by=doctor.id, reviewed_at=utcnow())
         .execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="This label is not waiting for review.")
+        raise await _review_conflict(session, label_id, body.setid)
     await session.commit()
     return await _fresh_view(session, label_id)
 

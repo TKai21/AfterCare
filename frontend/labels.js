@@ -97,8 +97,7 @@ function textHtml(label) {
 }
 
 function pickHtml(label, busy) {
-  // The view has no setid; the shown label is the candidate its DailyMed URL names.
-  const options = (label.candidates || []).filter(c => !(label.url && label.url.endsWith('setid=' + c.setid)));
+  const options = (label.candidates || []).filter(c => c.setid !== label.setid);
   if (!options.length) return '';
   const chosen = state.picks.get(label.id);
   const selected = options.some(c => c.setid === chosen) ? chosen : options[0].setid;
@@ -315,7 +314,13 @@ async function runAction(main, key, action, request) {
 function labelAction(main, id, action) {
   const key = labelKey(id);
   const url = `/api/doctor/labels/${id}/`;
-  if (action === 'approve' || action === 'reject' || action === 'retry') {
+  if (action === 'approve' || action === 'reject') {
+    // Name the label text on screen, so a review never applies to text that
+    // replaced it meanwhile (the server answers 409 and the list reloads).
+    const label = state.data && state.data.labels.find(l => l.id === id);
+    if (!label) return;
+    runAction(main, key, action, () => api(url + action, {method: 'POST', json: {setid: label.setid}}));
+  } else if (action === 'retry') {
     runAction(main, key, action, () => api(url + action, {method: 'POST'}));
   } else if (action === 'pick') {
     const select = main.querySelector(`[data-label-pick="${id}"]`);
