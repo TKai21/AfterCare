@@ -682,8 +682,8 @@ async def test_reranker_failure_falls_back_to_embedding_and_logs_once(tmp_path, 
         assert await store.retrieve("allopurinol", mode="rerank") == embedding
     warnings = [r for r in caplog.records if r.name == "knowledge" and r.levelname == "WARNING"]
     assert len(warnings) == 1
-    expected = "RuntimeError" if broken is RaisingReranker else "ValueError"
-    assert expected in warnings[0].getMessage()
+    expected = RuntimeError if broken is RaisingReranker else ValueError
+    assert warnings[0].exc_info[0] is expected
     assert len(reranker.calls) == 2
     assert store.reranker_failures == 2  # every fallback is counted, only the first is logged
 
@@ -838,3 +838,52 @@ async def test_rerank_mode_without_reranker_raises_value_error(tmp_path):
         await store.retrieve("oxalate", mode="rerank")
     with pytest.raises(ValueError, match="mode"):
         await store.retrieve("oxalate", mode="bm25")
+
+
+async def test_status_reports_reranker_failures_and_the_fallback_note(tmp_path):
+    reranker = RaisingReranker({}, default=1.0)
+    store = await gout_store(tmp_path / "index.sqlite3", target_cosine=0.5, reranker=reranker)
+    before = store.status()
+    assert before["reranker_failures"] == 0 and before["reranker_note"] == "on"
+    await store.retrieve("allopurinol")
+    after = store.status()
+    assert after["reranker_failures"] == 1
+    assert after["reranker"] == "on"
+    assert after["reranker_note"] == "on (falling back: 1 failures)"
+
+
+async def test_reranker_failure_warning_carries_the_traceback(tmp_path, caplog):
+    store = await gout_store(tmp_path / "index.sqlite3", target_cosine=0.5,
+                             reranker=RaisingReranker({}, default=1.0))
+    with caplog.at_level("WARNING", logger="knowledge"):
+        await store.retrieve("allopurinol")
+    [warning] = [r for r in caplog.records if r.name == "knowledge" and r.levelname == "WARNING"]
+    assert warning.exc_info is not None and warning.exc_info[0] is RuntimeError
+    assert "allopurinol" not in warning.getMessage()
+
+
+def test_resolve_index_path_anchors_relative_paths_at_the_project_root(tmp_path):
+    assert knowledge.resolve_index_path("data/x.sqlite3") == knowledge.ROOT / "data" / "x.sqlite3"
+    assert knowledge.resolve_index_path(tmp_path / "x.sqlite3") == tmp_path / "x.sqlite3"
+    assert KnowledgeStore(tmp_path / "x.sqlite3", FakeLLM()).path == tmp_path / "x.sqlite3"
+
+
+def test_cli_index_does_not_load_the_reranker(tmp_path, monkeypatch, capsys):
+    def boom(settings):
+        raise AssertionError("index must not load the reranker")
+
+    async def fake_index(store, data, extra_records=()):
+        assert store.reranker is None
+        return {"indexed": {}, "skipped": []}
+
+    async def fake_labels(database_url):
+        return []
+
+    monkeypatch.setattr(knowledge, "load_reranker", boom)
+    monkeypatch.setattr(manage_knowledge, "index_sources", fake_index)
+    monkeypatch.setattr(manage_knowledge, "approved_label_records", fake_labels)
+    settings = Settings(
+        rag_db_path=str(tmp_path / "index.sqlite3"), llm_api_base="http://gpu-box:8000/v1",
+        llm_model="served-model", llm_api_key="", embedding_api_key="", rerank_enabled=True,
+    )
+    assert manage_knowledge.run(["index"], settings) == 0, capsys.readouterr().err

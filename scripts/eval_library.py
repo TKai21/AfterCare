@@ -206,6 +206,17 @@ async def measure(store, timed: TimedReranker, split: str) -> None:
         print(_row(mode, metrics([_ids(h) for h in hits], expected), latency))
 
 
+def existing_index_path(configured) -> Path:
+    """The configured index file, which must already exist. Opens nothing."""
+    from knowledge import resolve_index_path
+
+    path = resolve_index_path(configured)
+    if not path.is_file():
+        raise SystemExit(f"The library index {path} does not exist. "
+                         "Build it first: python backend/manage_knowledge.py index")
+    return path
+
+
 async def run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--split", choices=("tune", "test", "all"), default="all")
@@ -226,7 +237,7 @@ async def run(argv: list[str] | None) -> int:
     with tempfile.TemporaryDirectory() as scratch:
         if args.labels:
             # The real index is only read; the labels go into a copy that is deleted afterwards.
-            source = KnowledgeStore(settings.rag_db_path, llm).path
+            source = existing_index_path(settings.rag_db_path)
             copy = Path(scratch) / "index.sqlite3"
             copy_index(source, copy)
             settings = replace(settings, rag_db_path=str(copy))

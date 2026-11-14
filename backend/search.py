@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from collections.abc import Collection, Sequence
 
-_TOKEN = re.compile(r"\d+(?:\.\d+)?|[a-z]+")
+_TOKEN = re.compile(r"\d{1,3}(?:,\d{3})+(?!\d)(?:\.\d+)?|\d+(?:\.\d+)?|[a-z]+")
 _NUMBER = re.compile(r"\d")
 _UNITS = frozenset("mg mcg g kg ml l mmol meq iu units unit oz lb mmhg".split())
 _STOPWORDS = frozenset(
@@ -14,8 +14,8 @@ _STOPWORDS = frozenset(
 
 
 def tokenize(text: str) -> list[str]:
-    """Lowercase word tokens without stopwords. "0.6 mg" also yields "0.6mg"."""
-    raw = _TOKEN.findall(text.lower())
+    """Lowercase word tokens without stopwords. "0.6 mg" also yields "0.6mg", and "1,000 mg" reads as "1000 mg"."""
+    raw = [tok.replace(",", "") for tok in _TOKEN.findall(text.lower())]
     out: list[str] = []
     for i, tok in enumerate(raw):
         if tok in _STOPWORDS:

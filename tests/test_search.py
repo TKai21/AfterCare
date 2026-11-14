@@ -35,3 +35,13 @@ def test_bm25_allows_zero_length_document():
 def test_rrf_merges_and_dedupes():
     assert rrf([1, 2, 3], [3, 4]) == [3, 1, 2, 4]
     assert rrf([], [5]) == [5]
+
+
+def test_tokenize_handles_thousands_separators():
+    assert tokenize("1,000 mg") == ["1000", "mg", "1000mg"]
+    assert tokenize("1000 mg") == ["1000", "mg", "1000mg"]
+    assert tokenize("1,000,000 units") == ["1000000", "units", "1000000units"]
+    assert tokenize("0.6 mg") == ["0.6", "mg", "0.6mg"]
+    assert tokenize("take 1, 2 tablets") == ["take", "1", "2", "tablets"]
+    assert tokenize("1,5") == ["1", "5"]
+    assert tokenize("1,0000 mg") == ["1", "0000", "mg", "0000mg"]

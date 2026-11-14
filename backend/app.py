@@ -87,6 +87,7 @@ def create_app(
     app.state.session_factory = make_session_factory(engine)
     app.state.llm = llm
     app.state.store = store
+    # store.reranker is the source of truth; this is a convenience alias for the spec.
     app.state.reranker = store.reranker if store is not None else None
     app.state.foods = foods
     app.state.label_client = label_client

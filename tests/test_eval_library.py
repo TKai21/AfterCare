@@ -141,3 +141,15 @@ async def test_search_passes_each_question_its_own_drug_set_and_detects_fallback
     assert store.calls == [("a", ["2683"], "embedding"), ("b", [], "embedding")]
     with pytest.raises(DegradedRerankError, match="2 of 2"):
         await search(store, questions, "rerank")
+
+
+def test_eval_index_path_resolves_without_creating_anything(tmp_path):
+    from eval_library import existing_index_path
+    missing = tmp_path / "sub" / "index.sqlite3"
+    with pytest.raises(SystemExit) as exc:
+        existing_index_path(str(missing))
+    assert "does not exist" in str(exc.value) and str(missing) in str(exc.value)
+    assert not missing.parent.exists()
+    present = tmp_path / "index.sqlite3"
+    present.write_bytes(b"")
+    assert existing_index_path(str(present)) == present

@@ -175,3 +175,11 @@ def test_real_reranker_truncates_long_query(real):
 @needs_model
 def test_real_reranker_empty_list(real):
     assert real.score("anything", []) == []
+
+
+async def test_fetch_default_dest_follows_a_patched_models_dir(tmp_path, monkeypatch):
+    monkeypatch.setitem(reranker.RERANKERS, "fake", fake_entry())
+    monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path)
+    folder = await fetch_reranker("fake", transport=serve(MODEL_BYTES, []))
+    assert folder == tmp_path / "fake"
+    assert (folder / "model.onnx").read_bytes() == MODEL_BYTES

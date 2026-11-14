@@ -280,11 +280,16 @@ def _passage(title: str, content: str) -> str:
     return title + "\n" + content
 
 
+def resolve_index_path(path) -> Path:
+    """The index file a configured path names; relative paths are under the project root."""
+    path = Path(path)
+    return path if path.is_absolute() else ROOT / path
+
+
 class KnowledgeStore:
     def __init__(self, path, llm, min_similarity: float = 0.25, reranker=None,
                  min_rerank: float = 0.0, reranker_note: str | None = None):
-        path = Path(path)
-        self.path = path if path.is_absolute() else ROOT / path
+        self.path = resolve_index_path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.llm = llm
         self.model = llm.embedding_model
@@ -360,6 +365,9 @@ class KnowledgeStore:
             models = [row[0] for row in db.execute("SELECT DISTINCT model FROM chunks")]
         ready = bool(docs) and models == [self.model]
         topics = sorted({d["topic"] for d in docs})
+        note = self.reranker_note
+        if self.reranker is not None and self.reranker_failures:
+            note = f"on (falling back: {self.reranker_failures} failures)"
         if ready:
             message = "Ready"
         elif docs:
@@ -370,7 +378,7 @@ class KnowledgeStore:
                 "embedding_model": self.model, "topics": topics,
                 "missing_scenario_topics": [t for t in SCENARIO_TOPICS if t not in topics],
                 "message": message, "reranker": "on" if self.reranker is not None else "off",
-                "reranker_note": self.reranker_note}
+                "reranker_note": note, "reranker_failures": self.reranker_failures}
 
     def _keyword_index(self, db: sqlite3.Connection, stat: os.stat_result) -> BM25:
         """BM25 over every chunk of the current model, rebuilt when the index changes.
@@ -456,8 +464,8 @@ class KnowledgeStore:
             self.reranker_failures += 1
             if not self._reranker_warned:
                 self._reranker_warned = True
-                logger.warning("Reranker failed (%s); library search uses embedding results.",
-                               type(exc).__name__)
+                logger.warning("Reranker failed; library search uses embedding results "
+                               "(later failures are counted, not logged).", exc_info=True)
             return embedding
         reranked = sorted(zip(candidates, judged), key=lambda pair: pair[1], reverse=True)
         return [_hit(row, value) for row, value in reranked if value >= self.min_rerank][:limit]

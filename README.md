@@ -172,7 +172,7 @@ Limits of this evaluation:
 
 - The builder wrote the questions and labels; the team has not reviewed them yet. Some patient wording is borrowed from the teammate's 15 gout questions, which are about a discharge PDF that AfterCare does not search.
 - 42 answerable test questions are still few: one question moves hit@5 by 0.024, and that one question decides the ship rule. The split limits overfitting of `RAG_MIN_RERANK` but does not remove it, since the same person wrote both halves.
-- Near-miss no-answer questions are hard for every mode. Embedding and hybrid return passages for all 20 no-answer questions. Rerank at -6.5 still returns passages for 11 of them, for example other drugs' labels for "What should I do if I miss a colchicine dose?" from a patient without colchicine (best score -0.05). In the end-to-end check, run before this round, the agent correctly answered `not_covered` for that question and sent it to the doctor.
+- Near-miss no-answer questions are hard for every mode. Embedding and hybrid return passages for all 20 no-answer questions. Rerank at -6.5 still returns passages for 11 of them, for example other drugs' labels for "What should I do if I miss a colchicine dose?" from a patient without colchicine. In the end-to-end check, run before this round, the agent correctly answered `not_covered` for that question and sent it to the doctor.
 - The worst reranker time (358 ms over all questions, 378 ms on the test split) is above the 300 ms budget; the median is about 240 ms.
 - The doctor guidance memory (`GUIDANCE_MIN_SIMILARITY`) is out of scope; it is unchanged and not evaluated here.
 

@@ -96,8 +96,10 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-async def fetch_reranker(name: str, dest: Path = MODELS_DIR, transport=None) -> Path:
-    """Download the pinned files into dest/<name>, each verified before it is kept."""
+async def fetch_reranker(name: str, dest: Path | None = None, transport=None) -> Path:
+    """Download the pinned files into dest/<name> (default: the current MODELS_DIR),
+    each verified before it is kept."""
+    dest = MODELS_DIR if dest is None else dest
     spec = RERANKERS.get(name)
     if spec is None:
         raise RerankerError(f"unknown RERANK_MODEL {name}")
