@@ -41,7 +41,7 @@ def make_token(request: Request, user: User) -> str:
     settings = request.app.state.settings
     expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     return jwt.encode(
-        {"sub": str(user.id), "username": user.username, "exp": expiry},
+        {"sub": str(user.id), "username": user.username, "role": user.role, "exp": expiry},
         settings.jwt_secret,
         algorithm="HS256",
     )
@@ -66,6 +66,35 @@ async def current_user(
     return user
 
 
+async def current_patient(user: User = Depends(current_user)) -> User:
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="This page is for patients.")
+    return user
+
+
+async def current_doctor(user: User = Depends(current_user)) -> User:
+    if user.role != "doctor":
+        raise HTTPException(status_code=403, detail="This page is for doctors.")
+    return user
+
+
+async def create_doctor(
+    session: AsyncSession, username: str, password: str, display_name: str
+) -> User:
+    if await session.scalar(select(User).where(User.username == username)):
+        raise ValueError(f"Username {username!r} is already taken")
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        role="doctor",
+        display_name=display_name,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 @router.post("/api/signup")
 async def signup(
     data: Credentials, request: Request, session: AsyncSession = Depends(get_session)
@@ -79,7 +108,7 @@ async def signup(
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    return {"token": make_token(request, user), "username": user.username}
+    return {"token": make_token(request, user), "username": user.username, "role": user.role}
 
 
 @router.post("/api/login")
@@ -89,9 +118,15 @@ async def login(
     user = await session.scalar(select(User).where(User.username == data.username.strip()))
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
-    return {"token": make_token(request, user), "username": user.username}
+    return {"token": make_token(request, user), "username": user.username, "role": user.role}
 
 
 @router.get("/api/me")
 async def me(user: User = Depends(current_user)):
-    return {"username": user.username}
+    return {"username": user.username, "role": user.role, "display_name": user.display_name}
+
+
+# Throwaway: proves the doctor guard end to end; removed once real doctor routes exist.
+@router.get("/api/doctor/ping")
+async def doctor_ping(user: User = Depends(current_doctor)):
+    return {"ok": True}

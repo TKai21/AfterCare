@@ -9,7 +9,7 @@ async def test_signup_then_login_returns_token(client):
     assert r.status_code == 200
     token = r.json()["token"]
     me = await client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 200 and me.json() == {"username": "demo"}
+    assert me.status_code == 200 and me.json() == {"username": "demo", "role": "patient", "display_name": None}
 
 
 async def test_duplicate_username_409(client):
@@ -38,4 +38,4 @@ async def test_protected_route_without_token_401(client):
 async def test_protected_route_with_token(client):
     headers = await auth_headers(client, "bob")
     r = await client.get("/api/me", headers=headers)
-    assert r.json() == {"username": "bob"}
+    assert r.json() == {"username": "bob", "role": "patient", "display_name": None}

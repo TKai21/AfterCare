@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import current_user
+from auth import current_patient
 from db import get_session
 from models import CareTeamQuestion, User
 
@@ -44,7 +44,7 @@ async def add_question(
 
 @router.get("/api/care-team")
 async def list_questions(
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     rows = await session.scalars(
         select(CareTeamQuestion)
@@ -57,7 +57,7 @@ async def list_questions(
 @router.post("/api/care-team/{question_id}/resolve")
 async def resolve_question(
     question_id: int,
-    user: User = Depends(current_user),
+    user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
 ):
     row = await session.scalar(

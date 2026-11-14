@@ -4,6 +4,7 @@ import pytest_asyncio
 from config import Settings
 from app import create_app
 from fake_llm import FakeLLM
+from auth import create_doctor
 from knowledge import KnowledgeStore
 
 
@@ -23,12 +24,23 @@ async def client(fake_llm, tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            c.app = app
             yield c
 
 
 async def auth_headers(client, username="alice"):
     resp = await client.post(
         "/api/signup", json={"username": username, "password": "password123"}
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['token']}"}
+
+
+async def doctor_headers(client, username="dr.ting", display_name="Dr. Ting Kai"):
+    async with client.app.state.session_factory() as session:
+        await create_doctor(session, username, "doctor-password-1", display_name)
+    resp = await client.post(
+        "/api/login", json={"username": username, "password": "doctor-password-1"}
     )
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['token']}"}
@@ -47,4 +59,5 @@ async def file_client(fake_llm, tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            c.app = app
             yield c

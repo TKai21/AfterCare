@@ -18,6 +18,10 @@ function validate() {
   return null;
 }
 
+function homeFor(role) {
+  return role === 'doctor' ? '/doctor' : '/app';
+}
+
 async function authenticate(signup) {
   if (busy) return;
   const problem = validate();
@@ -38,8 +42,8 @@ async function authenticate(signup) {
       method: 'POST',
       json: {username: $('username').value.trim(), password: $('password').value},
     });
-    saveSession(data.token, data.username);
-    window.location.href = '/app';
+    saveSession(data.token, data.username, data.role);
+    window.location.href = homeFor(data.role);
   } catch (error) {
     showError(error.message);
     $('password').value = '';
@@ -61,7 +65,7 @@ $('signupBtn').addEventListener('click', () => authenticate(true));
 // token logs out; a network error or a server error keeps the session.
 if (getToken()) {
   api('/api/me')
-    .then(() => { window.location.href = '/app'; })
+    .then(me => { window.location.href = homeFor(me.role); })
     .catch(error => { if (error.status === 401) clearSession(); });
 }
 $('username').focus();

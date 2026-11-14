@@ -6,7 +6,7 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import current_user
+from auth import current_patient
 from checklist import SLOT_ORDER
 from db import get_session
 from models import ChecklistCompletion, ChecklistItem, DischargeDocument, ExtractedItem, User
@@ -31,7 +31,7 @@ def scheduled_on(day: date):
 
 @router.get("/api/checklist")
 async def get_checklist(
-    date: date, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    date: date, user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     day = date
     doc = await confirmed_document(session, user)
@@ -76,7 +76,7 @@ async def get_checklist(
 async def set_completion(
     item_id: int,
     body: CompletionBody,
-    user: User = Depends(current_user),
+    user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
 ):
     # Only items of the user's current confirmed document exist for this endpoint.

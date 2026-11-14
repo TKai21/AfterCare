@@ -7,7 +7,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import current_user
+from auth import current_patient
 from db import get_session
 from documents import file_suffix, normalize_text, paragraphs, read_upload
 from extraction import extract
@@ -68,7 +68,7 @@ async def view(session: AsyncSession, doc: DischargeDocument) -> dict:
 
 async def lock_user(session: AsyncSession, user: User) -> None:
     """Serialize this user's document mutations (row lock on MySQL; SQLite ignores it).
-    Ends the transaction opened by current_user first, so that under MySQL
+    Ends the transaction opened by current_patient first, so that under MySQL
     REPEATABLE READ the reads after the lock see a fresh snapshot."""
     await session.commit()
     await session.execute(select(User.id).where(User.id == user.id).with_for_update())
@@ -155,7 +155,7 @@ async def upload_document(
     request: Request,
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
-    user: User = Depends(current_user),
+    user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
 ):
     has_file = file is not None and bool(file.filename)
@@ -215,14 +215,14 @@ async def upload_document(
 
 
 @router.get("/api/documents/active")
-async def get_active(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)):
+async def get_active(user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)):
     doc = await active_document(session, user)
     return await view(session, doc)
 
 
 @router.get("/api/documents/{document_id}/file")
 async def get_file(
-    document_id: int, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    document_id: int, user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     """The uploaded PDF of one of the patient's own documents (any status)."""
     row = await session.execute(
@@ -246,7 +246,7 @@ async def get_file(
 
 @router.post("/api/documents/active/items/{item_id}/reject")
 async def reject_item(
-    item_id: int, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    item_id: int, user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     await lock_user(session, user)
     doc = await pending_document(session, user)
@@ -276,7 +276,7 @@ async def reject_item(
 
 @router.post("/api/documents/active/re-extract")
 async def re_extract(
-    request: Request, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    request: Request, user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     doc = await pending_document(session, user)
     doc_id = doc.id
@@ -328,7 +328,7 @@ def confirmation_date(local_date: Any, utc_today: date) -> date:
 @router.post("/api/documents/active/confirm")
 async def confirm(
     body: Optional[dict] = Body(None),
-    user: User = Depends(current_user),
+    user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
 ):
     await lock_user(session, user)

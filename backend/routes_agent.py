@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import HISTORY_LIMIT, emergency_result, run_agent
-from auth import current_user
+from auth import current_patient
 from db import get_session
 from llm import LLMError
 from models import ChatMessage, User
@@ -48,7 +48,7 @@ async def recent_history(session: AsyncSession, document_id: int) -> list[dict]:
 async def ask(
     body: AskBody,
     request: Request,
-    user: User = Depends(current_user),
+    user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
 ):
     doc = await confirmed_document(session, user)
@@ -103,7 +103,7 @@ async def ask(
 
 @router.get("/api/conversation")
 async def conversation(
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     try:
         doc = await active_document(session, user)
