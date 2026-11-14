@@ -76,6 +76,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
+| `GUIDANCE_MIN_SIMILARITY` | 0.35 | Minimum cosine similarity for a doctor guidance entry |
 | `FOODS_PATH` | `data/foods.json` | Food table |
 
 Without `LLM_MODEL` the app still starts and you can sign up, but uploading a document (extraction) and Ask return a "not configured" error (HTTP 503). The one exception is an emergency message in Ask: it still gets the call-911 answer and banner. A temporary model failure returns HTTP 502 and the page asks the patient to try again.

@@ -115,3 +115,28 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   FOREIGN KEY (answered_by) REFERENCES users (id) ON DELETE SET NULL,
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS doctor_guidance (
+  id INT NOT NULL AUTO_INCREMENT,
+  doctor_id INT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  scope VARCHAR(20) NOT NULL,                             -- general | patient
+  patient_id INT NULL,
+  document_id INT NULL,
+  source_question_id INT NULL,
+  drug_tags JSON NOT NULL,
+  condition_tags JSON NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  embedding JSON NULL,
+  embedding_model VARCHAR(100) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_doctor_guidance_doctor_id (doctor_id),
+  KEY ix_doctor_guidance_patient_id (patient_id),
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (patient_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL,
+  FOREIGN KEY (source_question_id) REFERENCES care_team_questions (id) ON DELETE SET NULL
+);

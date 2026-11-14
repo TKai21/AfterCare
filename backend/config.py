@@ -22,6 +22,7 @@ class Settings:
     embedding_api_key: str = ""
     rag_db_path: str = "knowledge/index.sqlite3"
     rag_min_similarity: float = 0.25
+    guidance_min_similarity: float = 0.35
     foods_path: str = "data/foods.json"
 
     def __post_init__(self):
@@ -54,5 +55,8 @@ def get_settings() -> Settings:
         embedding_api_key=env.get("EMBEDDING_API_KEY", env.get("LLM_API_KEY", "")),
         rag_db_path=env.get("RAG_DB_PATH", defaults.rag_db_path),
         rag_min_similarity=float(env.get("RAG_MIN_SIMILARITY", defaults.rag_min_similarity)),
+        guidance_min_similarity=float(
+            env.get("GUIDANCE_MIN_SIMILARITY", defaults.guidance_min_similarity)
+        ),
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
     )

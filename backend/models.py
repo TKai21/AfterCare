@@ -137,3 +137,32 @@ class CareTeamQuestion(Base):
     )
     answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class DoctorGuidance(Base):
+    __tablename__ = "doctor_guidance"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    # general | patient
+    scope: Mapped[str] = mapped_column(String(20))
+    patient_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("discharge_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    source_question_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("care_team_questions.id", ondelete="SET NULL"), nullable=True
+    )
+    drug_tags: Mapped[list] = mapped_column(JSON, default=list)
+    condition_tags: Mapped[list] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    embedding: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
