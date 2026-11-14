@@ -26,6 +26,7 @@ from models import (
 from routes_agent import recent_history
 from routes_care_team import question_view
 from routes_documents import load_items
+from voice import voice_views
 
 router = APIRouter()
 
@@ -125,6 +126,7 @@ async def list_questions(
         for u in await session.scalars(select(User).where(User.id.in_({q.user_id for q in rows})))
     } if rows else {}
     names = await doctor_names(session, rows)
+    voices = await voice_views(session, [q.id for q in rows])
     # The conversation shown is the one with the question's own doctor's clone.
     contexts: dict[tuple[int | None, int | None], dict] = {}
     for q in rows:
@@ -134,7 +136,7 @@ async def list_questions(
 
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
-        view = question_view(q, names)
+        view = question_view(q, names, voices)
         view["patient"] = {"id": patient.id, "username": patient.username}
         view["context"] = contexts[(q.document_id, q.doctor_id)]
         return view
@@ -224,6 +226,8 @@ async def answer_question(
     q = await session.get(CareTeamQuestion, question_id)
     if q is None or q.doctor_id not in (None, doctor.id):
         raise HTTPException(status_code=404, detail="Question not found")
+    if q.source == "patient_voice":
+        raise HTTPException(status_code=409, detail="Reply to this voice question with a voice clip.")
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
     if body.general and not drug_tags and not condition_tags:
         raise HTTPException(status_code=422, detail=GENERAL_TAG_ERROR)

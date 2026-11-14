@@ -147,6 +147,23 @@ class CareTeamQuestion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class VoiceClip(Base):
+    """Private audio attachment. No transcript or AI embedding is stored."""
+    __tablename__ = "voice_clips"
+    __table_args__ = (UniqueConstraint("question_id", "kind", name="uq_voice_question_kind"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("care_team_questions.id", ondelete="CASCADE"), index=True
+    )
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(20))  # question | answer
+    storage_key: Mapped[str] = mapped_column(String(40), unique=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class DoctorGuidance(Base):
     __tablename__ = "doctor_guidance"
 

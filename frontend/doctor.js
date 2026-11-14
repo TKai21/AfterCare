@@ -1,6 +1,7 @@
 // Doctor page (/doctor): the question queue and "My guidance".
 import {api, clearSession, confirmDialog, escapeHtml} from '/static/api.js';
 import {enter, initials, syncTabs} from '/static/shell.js';
+import {attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 
 const esc = escapeHtml;
 const SUGGEST_DELAY_MS = 800;
@@ -126,7 +127,7 @@ function generalHtml(q, d) {
 // never shows "Unassigned".
 function metaLabelsHtml(q) {
   const labels = [];
-  if (q.source === 'patient') labels.push('Asked by the patient');
+  if (q.source === 'patient' || q.source === 'patient_voice') labels.push('Asked by the patient');
   if (q.doctor_id == null) labels.push('Unassigned');
   return labels.map(l => ` &middot; <span class="doctor-meta-label">${esc(l)}</span>`).join('');
 }
@@ -137,9 +138,10 @@ function openCardHtml(q) {
     <li class="card doctor-card" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
       <p class="doctor-question">${esc(q.question)}</p>
+      ${voicePlayerHtml(q.voice?.question, 'patient question')}
       ${q.reason && q.source !== 'patient' ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
-      <div class="field">
+      ${q.source === 'patient_voice' ? '' : `<div class="field">
         <label for="answer-${q.id}">Your answer</label>
         <textarea id="answer-${q.id}" class="doctor-answer-box" maxlength="4000" placeholder="Your answer...">${esc(d.answer)}</textarea>
         <span class="field-hint">Your AI clone follows the discharge document over this answer if they conflict.</span>
@@ -152,7 +154,8 @@ function openCardHtml(q) {
       <div class="doctor-error">${d.error ? `<p class="form-error" role="alert">${esc(d.error)}</p>` : ''}</div>
       <div class="form-actions">
         <button type="button" class="btn btn-primary doctor-send" data-action="send">${d.sending ? 'Sending...' : 'Send answer'}</button>
-      </div>
+      </div>`}
+      <div data-doctor-voice="${q.id}"></div>
     </li>`;
 }
 
@@ -161,11 +164,14 @@ function answeredCardHtml(q) {
     <li class="card doctor-card doctor-card-answered">
       <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
       <p class="doctor-question">${esc(q.question)}</p>
+      ${voicePlayerHtml(q.voice?.question, 'patient question')}
       <p class="doctor-reason"><span class="doctor-reason-label">${esc(q.answered_by_name || 'Doctor')} answered ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
+      ${voicePlayerHtml(q.voice?.answer, 'your reply')}
     </li>`;
 }
 
 function renderQuestions() {
+  clearVoice(main);
   const cards = state.open.length
     ? `<ul class="item-list doctor-list">${state.open.map(openCardHtml).join('')}</ul>`
     : `<div class="card empty-inline"><p class="section-title">No open questions</p>
@@ -188,6 +194,42 @@ function renderQuestions() {
     </div>
     </div>`;
   state.open.forEach(q => updateSend(q.id));
+  mountDoctorVoice(main);
+}
+
+function mountDoctorVoice(root) {
+  mountVoicePlayers(root);
+  root.querySelectorAll('[data-doctor-voice]').forEach(element => {
+    if (element.dataset.voiceComposerBound) return;
+    const id = Number(element.dataset.doctorVoice);
+    attachVoiceComposer(element, {
+      label: 'Reply with a voice clip (not saved as AI guidance)',
+      context: () => id,
+      onBusy: busy => {
+        const card = cardEl(id);
+        if (!card) return;
+        const draft = state.drafts.get(id);
+        if (busy && draft) { clearTimeout(draft.timer); draft.seq++; draft.suggesting = false; }
+        card.dataset.voiceBusy = busy ? 'true' : 'false';
+        card.querySelectorAll('.doctor-answer-box, .doctor-general-check, .doctor-saved-question, .doctor-tag-input, [data-action="add-tag"], [data-action="remove-tag"]').forEach(input => { input.disabled = busy; });
+        updateSend(id);
+      },
+      onSend: async (blob, filename) => {
+        const form = new FormData();
+        form.append('file', blob, filename);
+        const out = await api(`/api/voice/questions/${id}/reply`, {method: 'POST', form});
+        const old = state.open.find(q => q.id === id);
+        const draft = state.drafts.get(id);
+        if (draft) { clearTimeout(draft.timer); draft.seq++; }
+        state.open = state.open.filter(q => q.id !== id);
+        state.answered = [{...old, ...out.question}, ...state.answered];
+        state.drafts.delete(id);
+        state.notice = 'Voice reply sent.';
+        renderTabs();
+        if (state.tab === 'questions') renderQuestions();
+      },
+    });
+  });
 }
 
 const cardEl = id => main.querySelector(`.doctor-card[data-id="${id}"]`);
@@ -197,7 +239,8 @@ function updateSend(id) {
   const d = state.drafts.get(id);
   if (!card || !d) return;
   const noTags = d.general && !d.drugs.length && !d.conditions.length;
-  card.querySelector('.doctor-send').disabled = d.sending || !d.answer.trim() || noTags;
+  const button = card.querySelector('.doctor-send');
+  if (button) button.disabled = card.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim() || noTags;
 }
 
 function rerenderGeneral(id) {
@@ -227,8 +270,10 @@ function rerenderCard(id) {
   if (!q || !card) return;
   const tmp = document.createElement('div');
   tmp.innerHTML = openCardHtml(q);
+  clearVoice(card);
   card.replaceWith(tmp.firstElementChild);
   updateSend(id);
+  mountDoctorVoice(cardEl(id));
 }
 
 async function suggestTags(q, d) {
@@ -281,12 +326,13 @@ function addTag(id, kind, input) {
 
 async function sendAnswer(q) {
   const d = state.drafts.get(q.id);
-  if (d.sending || !d.answer.trim()) return;
+  if (cardEl(q.id)?.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim()) return;
   clearTimeout(d.timer);
   d.seq++;  // drops an in-flight tag suggestion
   d.suggesting = false;
   d.sending = true;
   d.error = '';
+  clearVoice(cardEl(q.id));
   cardEl(q.id).querySelector('.doctor-send').textContent = 'Sending...';
   updateSend(q.id);
   try {
@@ -417,6 +463,7 @@ function rowHtml(e) {
 }
 
 function renderGuidance() {
+  clearVoice(main);
   let body;
   if (state.guidanceError && !state.guidance) {
     body = `<p class="form-error" role="alert">${esc(state.guidanceError)}</p>`;

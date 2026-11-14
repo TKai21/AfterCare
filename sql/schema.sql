@@ -182,3 +182,21 @@ CREATE TABLE IF NOT EXISTS document_drugs (
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE CASCADE,
   FOREIGN KEY (extracted_item_id) REFERENCES extracted_items (id) ON DELETE CASCADE
 );
+
+-- New attachment table only: existing question/document tables are not altered.
+CREATE TABLE IF NOT EXISTS voice_clips (
+  id INT NOT NULL AUTO_INCREMENT,
+  question_id INT NOT NULL,
+  sender_id INT NOT NULL,
+  kind VARCHAR(20) NOT NULL,
+  storage_key VARCHAR(40) NOT NULL,
+  duration_ms INT NOT NULL,
+  byte_size INT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_voice_question_kind (question_id, kind),
+  UNIQUE KEY uq_voice_storage_key (storage_key),
+  KEY ix_voice_clips_question_id (question_id),
+  FOREIGN KEY (question_id) REFERENCES care_team_questions (id) ON DELETE CASCADE,
+  FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE
+);
