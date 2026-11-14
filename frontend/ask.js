@@ -1,5 +1,6 @@
 // Ask tab: the cited Q&A conversation about the confirmed discharge document.
 import {api, escapeHtml, registerTab} from '/static/api.js';
+import {refreshCareTeam} from '/static/careteam.js';
 
 const esc = escapeHtml;
 
@@ -88,6 +89,7 @@ async function ask(question) {
     view.messages.push({role: 'assistant', content: payload.answer, payload});
     view.busy = false;
     update();
+    refreshCareTeam();
     announce('Answer received.');
     scrollToLatest('smooth');
   } catch (error) {
@@ -133,7 +135,21 @@ function sourceLabel(source) {
   if (source.kind === 'document') return 'Your discharge document';
   if (source.kind === 'library') return 'Education library: ' + (source.title || 'Untitled');
   if (source.kind === 'food') return 'Food data: ' + (source.title || 'Untitled');
+  if (source.kind === 'doctor') return doctorLabel(source.title);
   return source.title || 'Source';
+}
+
+// "Dr. Ting Kai's advice, Nov 12, 2026" -> "Dr. Ting Kai's advice (Nov 12, 2026)".
+function doctorLabel(title) {
+  const text = String(title || '');
+  const match = /^(.+?), ([A-Z][a-z]{2} \d{1,2}, \d{4})$/.exec(text);
+  return match ? `${match[1]} (${match[2]})` : (text || 'Doctor advice');
+}
+
+function doctorNote(payload, sources) {
+  if (!sources.some(s => s.kind === 'doctor')) return '';
+  const name = payload.doctor_name || 'your doctor';
+  return `<p class="doctor-note">The AfterCare assistant answered using ${esc(name)}'s earlier advice.</p>`;
 }
 
 const EXTERNAL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -209,7 +225,8 @@ function assistantHtml(message, index) {
       ${emergency ? emergencyHtml() : ''}
       <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AfterCare answer">
         <div class="answer-text">${answerTextHtml(payload.answer, numbers)}</div>
-        ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}Added to your care-team questions</a>` : ''}
+        ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
+        ${doctorNote(payload, sources)}
         ${sourcesHtml(index, sources)}
       </article>
     </li>`;

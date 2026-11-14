@@ -49,7 +49,7 @@
     import '/static/review.js';
     import '/static/today.js';
     import '/static/ask.js';
-    import '/static/careteam.js';
+    import {onCareTeamChange, refreshCareTeam, unseenAnswerCount} from '/static/careteam.js';
 
     const LOCKED_HINT = 'Confirm your instructions first';
     const TAB_IDS = ['instructions', 'today', 'ask', 'careteam'];
@@ -90,6 +90,26 @@
         throw error;
       }
     }
+
+    // Small count on the Care team tab for answers this browser has not seen yet.
+    function renderBadge() {
+      const tab = document.querySelector('.tab[data-tab="careteam"]');
+      let badge = tab.querySelector('.tab-badge');
+      const count = unseenAnswerCount();
+      if (!count) {
+        if (badge) badge.remove();
+        return;
+      }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'tab-badge';
+        tab.append(badge);
+      }
+      badge.textContent = String(count);
+      badge.setAttribute('role', 'img');
+      badge.setAttribute('aria-label', count === 1 ? '1 new answer' : `${count} new answers`);
+    }
+    onCareTeamChange(renderBadge);
 
     function renderTabs(active) {
       document.querySelectorAll('.tab').forEach(tab => {
@@ -163,6 +183,7 @@
       state.document = await loadDocument();
       state.ready = true;
       render();
+      refreshCareTeam();
     } catch (error) {
       if (error.status !== 401) renderFatal(error.message);
     }

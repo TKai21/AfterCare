@@ -18,20 +18,75 @@ const view = {
 };
 
 function show(panel) {
+  markAnswersSeen();
   render(panel);
   load(panel);
 }
 
 registerTab('careteam', {show});
 
-async function load(panel) {
+// ---------- new-answers badge support ----------
+
+const SEEN_KEY = 'aftercare.seenAnswers';
+const listeners = new Set();
+
+function readSeen() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw : []);
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function writeSeen(ids) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...ids]));
+  } catch (error) {
+    // Storage unavailable: the badge simply reappears next visit.
+  }
+}
+
+const answeredIds = () =>
+  (view.questions || []).filter(q => q.status === 'answered').map(q => q.id);
+
+// Count of answered questions this browser has not shown yet.
+export function unseenAnswerCount() {
+  const seen = readSeen();
+  return answeredIds().filter(id => !seen.has(id)).length;
+}
+
+// Marks everything answered so far as seen (only call while the tab is shown).
+function markAnswersSeen() {
+  const ids = answeredIds();
+  if (ids.length) writeSeen(new Set([...readSeen(), ...ids]));
+  notify();
+}
+
+// onCareTeamChange(fn): fn runs whenever the question list or seen-set changes.
+export function onCareTeamChange(fn) {
+  listeners.add(fn);
+}
+
+function notify() {
+  listeners.forEach(fn => fn());
+}
+
+// Fetches the list without rendering; used at boot and after Ask answers.
+export async function refreshCareTeam() {
   try {
     const data = await api('/api/care-team');
     view.questions = data.questions;
     view.error = null;
   } catch (error) {
-    view.error = error.message;
+    if (!view.questions) view.error = error.message;
   }
+  notify();
+}
+
+async function load(panel) {
+  await refreshCareTeam();
+  if (!panel.hidden) markAnswersSeen();
   render(panel);
 }
 
@@ -81,12 +136,38 @@ function openHtml(q) {
     </li>`;
 }
 
+function shortDate(iso) {
+  return formatDate(iso).replace(/,\s*\d{4}$/, '');
+}
+
+function answeredHtml(q) {
+  const busy = view.busy === q.id;
+  const error = view.itemError && view.itemError.id === q.id
+    ? `<p class="form-error" role="alert">${esc(view.itemError.text)}</p>` : '';
+  const who = q.answered_by_name ? `${q.answered_by_name} replied` : 'Your doctor replied';
+  const date = shortDate(q.answered_at);
+  return `
+    <li class="item question" data-id="${q.id}">
+      ${metaHtml(q)}
+      <p class="question-text">${esc(q.question)}</p>
+      <section class="doctor-answer" aria-labelledby="answer-head-${q.id}">
+        <h2 class="doctor-answer-head" id="answer-head-${q.id}">${esc(who)}${date ? ` &middot; ${esc(date)}` : ''}</h2>
+        <p class="doctor-answer-text">${esc(q.answer)}</p>
+      </section>
+      ${error}
+      <div class="question-actions">
+        <button type="button" class="btn btn-secondary btn-small resolve-btn" data-id="${q.id}" ${view.busy ? 'disabled' : ''}>${busy ? 'Saving...' : 'Mark resolved'}</button>
+      </div>
+    </li>`;
+}
+
 function resolvedHtml(q) {
   return `
     <li class="item question is-resolved">
       ${metaHtml(q)}
       <p class="question-text">${esc(q.question)}</p>
       ${q.reason ? `<p class="question-reason"><span class="question-reason-label">Why:</span> ${esc(q.reason)}</p>` : ''}
+      ${q.answer ? `<p class="question-reason"><span class="question-reason-label">${esc(q.answered_by_name || 'Your doctor')} replied:</span> ${esc(q.answer)}</p>` : ''}
     </li>`;
 }
 
@@ -98,15 +179,17 @@ function render(panel) {
   } else if (!view.questions) {
     body = '<p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Loading your questions...</p>';
   } else {
-    const open = view.questions.filter(q => q.status !== 'resolved');
+    const open = view.questions.filter(q => q.status === 'open');
+    const answered = view.questions.filter(q => q.status === 'answered');
     const resolved = view.questions.filter(q => q.status === 'resolved');
     body = `
       ${open.length
         ? `<ul class="item-list">${open.map(openHtml).join('')}</ul>`
-        : `<div class="card empty-inline">
+        : answered.length ? '' : `<div class="card empty-inline">
              <p class="section-title">${resolved.length ? 'No open questions' : 'No questions yet'}</p>
              <p class="section-text">Questions the assistant cannot answer from your sources, and instructions you mark as not matching your document, are added here.</p>
            </div>`}
+      ${answered.length ? `<ul class="item-list answered-list">${answered.map(answeredHtml).join('')}</ul>` : ''}
       ${resolved.length ? `
         <details class="resolved" ${view.resolvedOpen ? 'open' : ''}>
           <summary class="resolved-summary">Resolved <span class="count">${resolved.length}</span></summary>
