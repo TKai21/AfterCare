@@ -1064,3 +1064,47 @@ async def test_doctor_evidence_titles(store, foods, document, items):
 def test_run_agent_takes_one_doctor():
     import inspect
     assert "doctor_names" not in inspect.signature(run_agent).parameters
+
+
+class RecordingStore:
+    def __init__(self, passages=()):
+        self.calls = []
+        self.passages = list(passages)
+
+    async def retrieve(self, query, limit=5, rxcuis=()):
+        self.calls.append(rxcuis)
+        return self.passages
+
+
+async def test_search_library_passes_patient_rxcuis(foods, document, items):
+    stub = RecordingStore()
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_education_library", {"query": "colchicine"}),
+        final("Your document says to limit high-oxalate foods [2].", [2]),
+    )
+    await ask(llm, stub, foods, document, items, library_rxcuis=frozenset({"2683"}))
+    assert stub.calls == [frozenset({"2683"})]
+    other = RecordingStore()
+    llm.script(
+        tool_call("search_education_library", {"query": "colchicine"}),
+        final("Your document says to limit high-oxalate foods [2].", [2]),
+    )
+    await ask(llm, other, foods, document, items)
+    assert other.calls == [frozenset()]
+
+
+async def test_label_passage_numbers_are_checked(foods, document, items):
+    label = {"source_id": "dailymed-rxcui-2683", "title": "DailyMed label: colchicine (Colcrys)",
+             "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc",
+             "topic": "Medications", "content": "The usual dose is 0.6 mg once or twice daily.",
+             "score": 0.9}
+    stub = RecordingStore([label])
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_education_library", {"query": "colchicine dose"}),
+        final("The usual dose is 1.2 mg once or twice daily [5].", [5]),
+        final("The usual dose is 1.2 mg once or twice daily [5].", [5]),  # the repair call
+    )
+    result = await ask(llm, stub, foods, document, items, library_rxcuis=frozenset({"2683"}))
+    assert_fallback(result, "Can I eat almonds?")

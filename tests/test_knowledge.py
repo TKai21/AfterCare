@@ -1,5 +1,6 @@
 import json
 import re
+import sqlite3
 
 import httpx
 import pytest
@@ -227,6 +228,59 @@ async def test_index_sources_indexes_reviewed_and_curated_only(tmp_path):
     assert not path.with_suffix(".staging.sqlite3").exists()
 
 
+async def test_index_sources_keeps_extra_records(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "stones.json").write_text(json.dumps(record("stones", STONES) | {"reviewed": True}))
+    label = record("dailymed-rxcui-2683", "Colchicine tablets treat gout flares.",
+                   url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc",
+                   topic="Medications") | {"rxcui": "2683"}
+    path = tmp_path / "index.sqlite3"
+    result = await knowledge.index_sources(KnowledgeStore(path, FakeLLM()), tmp_path, extra_records=[label])
+    assert result["indexed"] == {"stones": 1, "dailymed-rxcui-2683": 1}
+    store = KnowledgeStore(path, FakeLLM(), min_similarity=0.0)
+    with store.connect() as db:
+        assert db.execute("SELECT rxcui FROM documents WHERE id='dailymed-rxcui-2683'").fetchone()[0] == "2683"
+        assert db.execute("SELECT rxcui FROM documents WHERE id='stones'").fetchone()[0] is None
+    assert {r["source_id"] for r in await store.retrieve("colchicine gout", rxcuis={"2683"})} >= {"dailymed-rxcui-2683"}
+
+
+async def test_store_adds_rxcui_column_to_old_index(tmp_path):
+    path = tmp_path / "old.sqlite3"
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL,
+            topic TEXT NOT NULL, collected_at TEXT NOT NULL, sha256 TEXT NOT NULL);
+        CREATE TABLE chunks (id INTEGER PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            page INTEGER, content TEXT NOT NULL, vector TEXT NOT NULL, model TEXT NOT NULL);
+    """)
+    llm = FakeLLM()
+    db.execute("INSERT INTO documents VALUES ('stones','Stones','https://medlineplus.gov/s.html','Kidney stones','2026-11-07','0')")
+    vector = (await llm.embed([STONES]))[0]
+    db.execute("INSERT INTO chunks(document_id,page,content,vector,model) VALUES ('stones',NULL,?,?,?)",
+               (STONES, json.dumps(vector), llm.embedding_model))
+    db.commit()
+    db.close()
+    store = KnowledgeStore(path, llm, min_similarity=0.0)
+    with store.connect() as conn:
+        assert "rxcui" in [row["name"] for row in conn.execute("PRAGMA table_info(documents)")]
+    assert (await store.retrieve("oxalate kidney stones"))[0]["source_id"] == "stones"
+
+
+async def test_retrieve_filters_labels_before_ranking(tmp_path):
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0)
+    label_text = "\n".join(f"colchicine gout flare dose {i} " * 12 for i in range(6))
+    assert await store.add(record("dailymed-rxcui-2683", label_text, topic="Medications",
+                                  url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc")
+                           | {"rxcui": "2683"}) >= 6
+    await store.add(record("stones", STONES))
+    query = "colchicine gout flare dose"
+    assert [r["source_id"] for r in await store.retrieve(query, limit=5, rxcuis=())] == ["stones"]
+    assert [r["source_id"] for r in await store.retrieve(query, limit=5, rxcuis={"9999"})] == ["stones"]
+    got = await store.retrieve(query, rxcuis={"2683"})
+    assert got[0]["source_id"] == "dailymed-rxcui-2683"
+
+
 async def test_index_sources_failure_keeps_previous_index(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir()
@@ -257,17 +311,22 @@ def test_cli_index_without_api_key_fails_clearly(tmp_path, capsys):
 def test_cli_index_keyless_self_hosted_embeddings_allowed(tmp_path, capsys, monkeypatch):
     calls = []
 
-    async def fake_index(store, data):
-        calls.append(store.path)
-        return {"indexed": {}, "skipped": []}
+    async def fake_index(store, data, extra_records=()):
+        calls.append((store.path, [r["id"] for r in extra_records]))
+        return {"indexed": {r["id"]: 1 for r in extra_records}, "skipped": []}
+
+    async def fake_labels(database_url):
+        return [record("dailymed-rxcui-2683", "Colchicine label text.") | {"rxcui": "2683"}]
 
     monkeypatch.setattr(manage_knowledge, "index_sources", fake_index)
+    monkeypatch.setattr(manage_knowledge, "approved_label_records", fake_labels)
     settings = Settings(
         rag_db_path=str(tmp_path / "index.sqlite3"), llm_api_base="http://gpu-box:8000/v1",
         llm_model="served-model", llm_api_key="", embedding_api_key="",
     )
     assert manage_knowledge.run(["index"], settings) == 0, capsys.readouterr().err
-    assert calls == [tmp_path / "index.sqlite3"]
+    assert calls == [(tmp_path / "index.sqlite3", ["dailymed-rxcui-2683"])]
+    assert "dailymed-rxcui-2683: 1 chunks" in capsys.readouterr().out
 
 
 def test_cli_status_reports_json(tmp_path, capsys):

@@ -11,6 +11,7 @@ import sys
 from urllib.parse import urlparse
 
 from config import Settings, get_settings
+from druglabels import approved_label_records
 from knowledge import DATA, KnowledgeError, KnowledgeStore, collect_sources, index_sources
 from llm import LLMClient, LLMError
 
@@ -44,7 +45,8 @@ def run(argv: list[str], settings: Settings | None = None) -> int:
             return 2
         store = KnowledgeStore(settings.rag_db_path, llm, settings.rag_min_similarity)
         if args.command == "index":
-            result = asyncio.run(index_sources(store, DATA))
+            labels = asyncio.run(approved_label_records(settings.database_url))
+            result = asyncio.run(index_sources(store, DATA, extra_records=labels))
             for source_id, chunks in result["indexed"].items():
                 print(f"{source_id}: {chunks} chunks")
             if result["skipped"]:

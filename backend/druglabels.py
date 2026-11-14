@@ -16,6 +16,7 @@ import httpx
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from db import make_engine, make_session_factory
 from knowledge import DAILYMED_SPL_XML, USER_AGENT, dailymed_sections
 from models import DischargeDocument, DocumentDrug, DrugLabel, ExtractedItem
 
@@ -403,3 +404,33 @@ async def patient_rxcuis(session, document_id: int | None) -> frozenset[str]:
                DocumentDrug.rxcui.is_not(None))
     )
     return frozenset(rows)
+
+
+LABEL_TOPIC = "Medications"
+LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
+
+
+def label_record(label: DrugLabel) -> dict:
+    """The education library record of an approved label."""
+    return {
+        "id": f"dailymed-rxcui-{label.rxcui}",
+        "title": f"DailyMed label: {label.ingredient} ({label.title})",
+        "url": LABEL_URL.format(setid=label.setid),
+        "topic": LABEL_TOPIC,
+        "text": label.text,
+        "sha256": label.sha256,
+        "collected_at": label.collected_at.isoformat() if label.collected_at else None,
+        "rxcui": label.rxcui,
+    }
+
+
+async def approved_label_records(database_url: str) -> list[dict]:
+    """Library records of every approved label, for a full index rebuild."""
+    engine = make_engine(database_url)
+    try:
+        async with make_session_factory(engine)() as session:
+            rows = await session.scalars(
+                select(DrugLabel).where(DrugLabel.status == "approved").order_by(DrugLabel.id))
+            return [label_record(row) for row in rows]
+    finally:
+        await engine.dispose()

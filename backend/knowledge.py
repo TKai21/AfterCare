@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
+from collections.abc import Collection, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -261,6 +262,10 @@ class KnowledgeStore:
                     id INTEGER PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                     page INTEGER, content TEXT NOT NULL, vector TEXT NOT NULL, model TEXT NOT NULL);
             """)
+            # Drug label documents carry the RxCUI they describe; an index built
+            # before labels existed gets the column added in place.
+            if "rxcui" not in {row["name"] for row in db.execute("PRAGMA table_info(documents)")}:
+                db.execute("ALTER TABLE documents ADD COLUMN rxcui TEXT")
 
     @contextmanager
     def connect(self):
@@ -283,8 +288,9 @@ class KnowledgeStore:
             raise KnowledgeError("Embedding service returned the wrong number of vectors.")
         with self.connect() as db:
             db.execute("DELETE FROM documents WHERE id=?", (record["id"],))
-            db.execute("INSERT INTO documents VALUES (?,?,?,?,?,?)",
-                       tuple(record[k] for k in ["id", "title", "url", "topic", "collected_at", "sha256"]))
+            db.execute("INSERT INTO documents(id,title,url,topic,collected_at,sha256,rxcui) VALUES (?,?,?,?,?,?,?)",
+                       tuple(record.get(k) for k in
+                             ["id", "title", "url", "topic", "collected_at", "sha256", "rxcui"]))
             db.executemany("INSERT INTO chunks(document_id,page,content,vector,model) VALUES (?,?,?,?,?)",
                            [(record["id"], None, chunk, json.dumps(vector), self.model)
                             for chunk, vector in zip(chunks, vectors)])
@@ -308,14 +314,24 @@ class KnowledgeStore:
                 "missing_scenario_topics": [t for t in SCENARIO_TOPICS if t not in topics],
                 "message": message}
 
-    async def retrieve(self, query: str, limit: int = 5) -> list[dict]:
+    async def retrieve(self, query: str, limit: int = 5, rxcuis: Collection[str] = ()) -> list[dict]:
+        """Best passages for the query. Drug label documents (non-null rxcui) are
+        eligible only when their RxCUI is in `rxcuis`; the default excludes them
+        all. The filter runs in SQL, before scoring, so labels cannot crowd out
+        the patient's other sources."""
         status = self.status()
         if not status["ready"]:
             raise KnowledgeError(status["message"])
         vector = np.asarray((await self.llm.embed([query]))[0], dtype=float)
+        allowed = sorted(set(rxcuis))
+        marks = ",".join("?" * len(allowed))
         with self.connect() as db:
-            rows = db.execute("""SELECT c.content, c.vector, d.id AS source_id, d.title, d.url, d.topic
-                FROM chunks c JOIN documents d ON c.document_id=d.id WHERE c.model=?""", (self.model,)).fetchall()
+            rows = db.execute(f"""SELECT c.content, c.vector, d.id AS source_id, d.title, d.url, d.topic
+                FROM chunks c JOIN documents d ON c.document_id=d.id
+                WHERE c.model=? AND (d.rxcui IS NULL OR d.rxcui IN ({marks}))""",
+                              (self.model, *allowed)).fetchall()
+        if not rows:
+            return []
         matrix = np.asarray([json.loads(row["vector"]) for row in rows], dtype=float)
         if matrix.shape[1] != len(vector):
             raise KnowledgeError("Embedding dimensions changed. Rebuild the index.")
@@ -332,14 +348,15 @@ def load_sources(directory: Path = DATA) -> list[dict]:
     return [json.loads(p.read_text()) for p in sorted((Path(directory) / "sources").glob("*.json"))]
 
 
-async def index_sources(store: KnowledgeStore, directory: Path = DATA) -> dict:
+async def index_sources(store: KnowledgeStore, directory: Path = DATA,
+                        extra_records: Sequence[dict] = ()) -> dict:
     """Rebuild the whole index from reviewed snapshots and curated summaries.
 
     A complete replacement is staged next to the index so a failed run cannot
     leave a mix of old and new snapshots or embedding models.
     """
     records = load_sources(directory)
-    reviewed = [r for r in records if r.get("reviewed") is True]
+    reviewed = [r for r in records if r.get("reviewed") is True] + list(extra_records)
     skipped = [r["id"] for r in records if r.get("reviewed") is not True]
     if not reviewed:
         raise KnowledgeError("No reviewed sources. Review the snapshots and set reviewed: true first.")

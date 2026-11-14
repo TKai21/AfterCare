@@ -10,6 +10,7 @@ from agent import HISTORY_LIMIT, GuidanceUnavailable, emergency_result, run_agen
 from auth import current_patient
 from db import get_session
 from doctors import doctor_label, require_doctor
+from druglabels import patient_rxcuis
 from guidance import retrieve
 from llm import LLMError
 from models import ChatMessage, DoctorGuidance, User
@@ -89,6 +90,8 @@ async def ask(
     # Plain values: a failed guidance search rolls the session back, which
     # expires the ORM objects, and expired objects cannot be reloaded here.
     user_id, doc_id = user.id, doc.id
+    # Read here, before the transaction ends: only these drugs' labels may be quoted.
+    library_rxcuis = await patient_rxcuis(session, doc_id)
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
@@ -152,6 +155,7 @@ async def ask(
                 llm, request.app.state.store, request.app.state.foods,
                 doc, items, history, body.question, terms,
                 guidance_search=search, doctor_name=name, prefetch=prefetch,
+                library_rxcuis=library_rxcuis,
             )
         except LLMError as exc:
             if not terms:

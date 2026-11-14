@@ -274,3 +274,31 @@ async def test_missing_name_is_unresolved_without_lookup(client, fake_llm):
     await confirm_meds(client, fake_llm, "alice", unnamed)
     (drug,) = await rows(client, DocumentDrug)
     assert (drug.status, drug.rxcui, drug.error) == ("unresolved", None, None)
+
+
+async def test_approved_label_records_build_library_records(tmp_path):
+    from datetime import datetime
+    from db import init_db, make_engine, make_session_factory
+    from druglabels import approved_label_records
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'labels.db'}"
+    engine = make_engine(url)
+    await init_db(engine)
+    async with make_session_factory(engine)() as session:
+        session.add_all([
+            DrugLabel(rxcui="2683", ingredient="colchicine", status="approved", setid="abc-1",
+                      title="Colcrys tablet", text="Label text.", sha256="1" * 64,
+                      collected_at=datetime(2026, 11, 14, 1, 2, 3)),
+            DrugLabel(rxcui="7258", ingredient="naproxen", status="pending", setid="def-2",
+                      title="Naprosyn", text="Other.", sha256="2" * 64),
+        ])
+        await session.commit()
+    await engine.dispose()
+    records = await approved_label_records(url)
+    assert records == [{
+        "id": "dailymed-rxcui-2683",
+        "title": "DailyMed label: colchicine (Colcrys tablet)",
+        "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc-1",
+        "topic": "Medications", "text": "Label text.", "sha256": "1" * 64,
+        "collected_at": "2026-11-14T01:02:03", "rxcui": "2683",
+    }]

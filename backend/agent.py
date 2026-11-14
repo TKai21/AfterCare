@@ -572,8 +572,10 @@ class _Turn:
 
     def __init__(self, store, foods, document: DischargeDocument,
                  guidance_search: Optional[GuidanceSearch] = None,
-                 doctor_name: str = DEFAULT_DOCTOR_NAME):
+                 doctor_name: str = DEFAULT_DOCTOR_NAME,
+                 library_rxcuis: frozenset[str] = frozenset()):
         self.store = store
+        self.library_rxcuis = library_rxcuis
         self.foods = foods
         self.guidance_search = guidance_search
         self.doctor_name = doctor_name
@@ -628,7 +630,7 @@ class _Turn:
         if self.store is None:
             return {"error": LIBRARY_UNAVAILABLE}
         try:
-            passages = await self.store.retrieve(query)
+            passages = await self.store.retrieve(query, rxcuis=self.library_rxcuis)
         except (KnowledgeError, LLMError):
             return {"error": LIBRARY_UNAVAILABLE}
         out = []
@@ -733,6 +735,7 @@ async def run_agent(
     guidance_search: Optional[GuidanceSearch] = None,
     doctor_name: str = DEFAULT_DOCTOR_NAME,
     prefetch: Optional[list[DoctorGuidance]] = None,
+    library_rxcuis: frozenset[str] = frozenset(),
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -754,8 +757,9 @@ async def run_agent(
     the first message. `guidance_search(query)` returns that doctor's entries
     that may be used for this patient, or raises LLMError or GuidanceUnavailable
     (the tool then reports guidance unavailable, as it does when the search is
-    None). An entry found both ways keeps one evidence number."""
-    turn = _Turn(store, foods, document, guidance_search, doctor_name)
+    None). An entry found both ways keeps one evidence number. `library_rxcuis` are
+    the patient's drug RxCUIs: only they unlock drug label passages in the library."""
+    turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
     user_content = _document_context(turn.paragraphs, items)
     if prefetch is not None:
         user_content += "\n\n" + _prefetch_context([turn.doctor_entry(e) for e in prefetch])

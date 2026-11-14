@@ -739,3 +739,42 @@ async def test_payload_names_the_doctor(client, fake_llm):
     assert (body["doctor_id"], body["doctor_name"]) == (b, "Dr. B")
     saved = (await get_conversation(client, h, b)).json()["messages"][1]
     assert saved["payload"]["doctor_id"] == b
+
+
+class RecordingStore:
+    def __init__(self):
+        self.calls = []
+
+    async def retrieve(self, query, limit=5, rxcuis=()):
+        self.calls.append(frozenset(rxcuis))
+        return []
+
+
+async def test_ask_uses_active_document_rxcuis(client, fake_llm):
+    stub = RecordingStore()
+    client.app.state.store = stub
+    # A confirmed document whose drug did not resolve unlocks no labels.
+    h = await confirmed(client, fake_llm)
+    fake_llm.script(
+        tool("search_education_library", {"query": "amoxicillin"}),
+        answer("Take amoxicillin 500 mg three times daily [2].", [2]),
+    )
+    assert (await post_ask(client, h, "What is amoxicillin?")).status_code == 200
+    assert stub.calls == [frozenset()]
+    stub.calls.clear()
+
+    colchicine = {"category": "medication", "text": "Take colchicine 0.6 mg",
+                  "source_quote": "Take colchicine 0.6 mg", "details": {"name": "Colchicine",
+                                                                            "dose": "0.6 mg"}}
+    fake_llm.script({"content": json.dumps({"discharge_date": "2026-03-02", "items": [colchicine]})})
+    h2 = await auth_headers(client, "gout-patient")
+    up = await client.post("/api/documents", data={"text": "Discharge date: 2026-03-02\n\nTake colchicine 0.6 mg"},
+                           headers=h2)
+    assert up.status_code == 200, up.text
+    assert (await client.post("/api/documents/active/confirm", json={}, headers=h2)).status_code == 200
+    fake_llm.script(
+        tool("search_education_library", {"query": "colchicine"}),
+        answer("Take colchicine 0.6 mg [2].", [2]),
+    )
+    assert (await post_ask(client, h2, "What is colchicine?")).status_code == 200
+    assert stub.calls == [frozenset({"2683"})]
