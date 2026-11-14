@@ -15,7 +15,7 @@ import routes_doctor
 import routes_labels
 import routes_documents
 from config import PROJECT_DIR, Settings, get_settings
-from druglabels import LabelClient, approved_rxcuis, mark_interrupted
+from druglabels import DEMO_LABELS, LabelClient, approved_rxcuis, fixture_transport, mark_interrupted
 from db import init_db, make_engine, make_session_factory
 from foods import FoodTable
 from knowledge import KnowledgeStore
@@ -52,13 +52,16 @@ def create_app(
         foods_path = Path(settings.foods_path)
         foods = FoodTable.load(foods_path if foods_path.is_absolute() else PROJECT_DIR / foods_path)
     if label_client is None:
-        label_client = LabelClient()
+        # LABEL_FIXTURES=1 (dev only) answers from the recorded demo labels, offline.
+        label_client = LabelClient(fixture_transport(DEMO_LABELS) if settings.label_fixtures else None)
     engine = make_engine(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Tables are created automatically; sql/schema.sql is the manual alternative.
         await init_db(engine)
+        # Assumes one server process: a row another process is still fetching
+        # would be marked failed here.
         await mark_interrupted(app.state.session_factory)
         if app.state.store is not None:
             # Only approved labels may be in the library; anything else (a restored

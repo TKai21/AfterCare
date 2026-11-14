@@ -24,6 +24,8 @@ class Settings:
     rag_min_similarity: float = 0.25
     guidance_min_similarity: float = 0.45
     foods_path: str = "data/foods.json"
+    # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.
+    label_fixtures: bool = False
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -59,4 +61,5 @@ def get_settings() -> Settings:
             env.get("GUIDANCE_MIN_SIMILARITY", defaults.guidance_min_similarity)
         ),
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
+        label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
     )

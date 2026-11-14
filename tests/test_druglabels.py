@@ -447,3 +447,27 @@ async def test_strength_candidates_fall_back_to_the_ingredient(client, fake_llm,
     (label,) = await rows(client, DrugLabel)
     assert (label.status, label.setid) == ("pending", setid)
     assert transport.asked == asked
+
+
+async def test_label_fixtures_switch_is_off_by_default(monkeypatch):
+    """LABEL_FIXTURES=1 serves demo/labels instead of the real services, for a
+    local browser check; production defaults never do."""
+    import config
+    from app import create_app
+    from config import Settings
+
+    assert Settings().label_fixtures is False
+    for value, expected in (("1", True), ("", False)):
+        monkeypatch.setenv("LABEL_FIXTURES", value)
+        config.get_settings.cache_clear()
+        try:
+            assert config.get_settings().label_fixtures is expected
+        finally:
+            config.get_settings.cache_clear()
+
+    for fixtures in (False, True):
+        app = create_app(Settings(database_url="sqlite+aiosqlite:///:memory:",
+                                  jwt_secret="test-secret-not-for-production", label_fixtures=fixtures))
+        transport = app.state.label_client._client._transport
+        await app.state.label_client.aclose()
+        assert isinstance(transport, httpx.MockTransport) is fixtures
