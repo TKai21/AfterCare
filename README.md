@@ -80,6 +80,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
 | `GUIDANCE_MIN_SIMILARITY` | 0.45 | Minimum cosine similarity for a doctor guidance entry |
 | `FOODS_PATH` | `data/foods.json` | Food table |
+| `LABEL_FIXTURES` | empty | Dev only: `1` answers RxNav and DailyMed from the recorded `demo/labels` fixtures (offline). Leave it unset in production |
 
 Without `LLM_MODEL` the app still starts and you can sign up, but uploading a document (extraction) and Ask return a "not configured" error (HTTP 503). The one exception is an emergency message in Ask: it still gets the call-911 answer and banner. A temporary model failure returns HTTP 502 and the page asks the patient to try again.
 
@@ -97,23 +98,25 @@ python backend/manage_knowledge.py index     # embed reviewed snapshots and cura
 
 Collected snapshots are unreviewed; review each one and set `"reviewed": true` before indexing, as unreviewed snapshots are skipped.
 
-The index `knowledge/index.sqlite3` is not built in this branch because no API key is configured. Without it the agent still answers from the patient's own document and the food table, but not from the education library.
+The index `knowledge/index.sqlite3` is not in git: build it locally with `index`, which needs a working embeddings endpoint. Without it the agent still answers from the patient's own document and the food table, but not from the education library.
 
 ## Drug labels
 
-When a patient confirms a document, each medication is resolved to its active ingredient (RxNav) and the current FDA label for that ingredient is fetched from DailyMed. A label starts as `pending`. A doctor reviews it on the Labels tab of the doctor page (`/doctor#labels`), can switch to another candidate label, and approves or rejects it. Only approved labels are used by the library. Approving a label adds it to the index at once, with no rebuild. A full rebuild with `python backend/manage_knowledge.py index` re-adds every approved label; it reads them from `DATABASE_URL` and fails loudly if it cannot.
+When a patient confirms a document, each medication is resolved to its active ingredient (RxNav) and the current FDA label for that ingredient is fetched from DailyMed. A label starts as `pending`. A doctor reviews it on the "Drug labels" tab of the doctor page (`/doctor#labels`), can switch to another candidate label, and approves or rejects it. Only approved labels are used by the library. Approving a label adds it to the index at once, with no rebuild. When the server starts, it removes from the index any label that is not approved in the database. A full rebuild with `python backend/manage_knowledge.py index` re-adds every approved label; it reads them from `DATABASE_URL` and fails loudly if it cannot.
 
 A label is shared by all patients but is used only for a patient whose confirmed document includes that drug. An approved colchicine label never reaches a patient who is not taking colchicine.
 
 UpToDate and Micromedex are not used. Their licence terms do not allow reuse of the content in this way, and their APIs are sold to hospitals and EHR vendors, not to a project like this. DailyMed labels are public FDA text.
 
-`scripts/seed_demo.py` resolves the demo drugs from recorded fixtures in `demo/labels`, so seeding needs no network. `demo2` gets colchicine and naproxen, and `demo` (with `--confirm`) gets tamsulosin and ibuprofen. All of them start `pending`. The gout education pages (`medlineplus-gout`, `niams-gout`) are in the knowledge manifest. To collect only some sources, run `python backend/manage_knowledge.py collect --only ID [ID ...]`; collecting without `--only` re-fetches every source and marks every snapshot unreviewed.
+`scripts/seed_demo.py` resolves the demo drugs from recorded fixtures in `demo/labels`, so seeding needs no network. `demo2` gets colchicine and naproxen, and `demo` (with `--confirm`) gets tamsulosin and ibuprofen. All of them start `pending`, and every run of the seed resets them to `pending` again (also removing them from the index). The gout education pages (`medlineplus-gout`, `niams-gout`) are in the knowledge manifest. The NIAMS snapshot covers only the overview and causes of gout; treatment comes from the MedlinePlus page. To collect only some sources, run `python backend/manage_knowledge.py collect --only ID [ID ...]`; collecting without `--only` re-fetches every source and marks every snapshot unreviewed.
 
 Demo walkthrough:
 
 1. Run `python scripts/seed_demo.py --confirm`.
 2. Log in as `dr.ting` (password `doctor-password-1`), open `/doctor#labels`, and approve colchicine.
 3. Log in as `demo2` and ask "I forgot my colchicine this morning, what should I do?". The answer can cite the colchicine label.
+
+To try the "Drug labels" tab without the network, start the server with `LABEL_FIXTURES=1`; lookups then come from `demo/labels`, which covers only the four demo drugs.
 
 ## Food data
 
