@@ -160,7 +160,7 @@ class DoctorGuidance(Base):
     drug_tags: Mapped[list] = mapped_column(JSON, default=list)
     condition_tags: Mapped[list] = mapped_column(JSON, default=list)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
-    embedding: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    embedding: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

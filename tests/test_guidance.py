@@ -1,5 +1,6 @@
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 
 from db import init_db, make_engine, make_session_factory
 from fake_llm import FakeLLM
@@ -163,3 +164,17 @@ async def test_embed_entry_failure_returns_false():
     assert e.embedding is None
     assert await embed_entry(FakeLLM(), e) is True
     assert e.embedding and e.embedding_model == FakeLLM().embedding_model
+
+
+async def test_failed_embedding_is_sql_null_and_skipped(session):
+    (doc, a, b), (d1, d2) = await seed(session)
+    e = entry(doctor_id=doc.id, scope="patient", patient_id=a.id, document_id=d1.id,
+              question="coffee", answer="coffee")
+    assert await embed_entry(FailingLLM(), e) is False
+    session.add(e)
+    await session.flush()
+    row = (await session.execute(
+        text("select embedding is null from doctor_guidance where id = :i"), {"i": e.id}
+    )).one()
+    assert row[0] == 1
+    assert await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0) == []

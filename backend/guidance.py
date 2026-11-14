@@ -47,6 +47,9 @@ def eligible(entry: DoctorGuidance, patient_text: str) -> bool:
 
 
 def patient_text(document: DischargeDocument, items: list[ExtractedItem]) -> str:
+    """Document text plus the text of non-rejected items. Rejected items' names
+    may still appear in the document text itself, so rejecting an item does not
+    keep its terms out of the gate."""
     parts = [document.text or ""]
     parts.extend(item.text for item in items if item.status != "rejected")
     return "\n".join(parts)
