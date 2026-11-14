@@ -56,10 +56,10 @@ PASSWORD2 = "demo-password-2"
 DOCTOR = "dr.ting"
 DOCTOR_PASSWORD = "doctor-password-1"
 DOCTOR_NAME = "Dr. Ting Kai"
-DOCTORS = [  # (username, display name); all share DOCTOR_PASSWORD
-    (DOCTOR, DOCTOR_NAME),
-    ("dr.renny", "Dr. Aaron Renny"),
-    ("dr.patel", "Dr. Parin Patel"),
+DOCTORS = [  # (username, display name, specialty); all share DOCTOR_PASSWORD
+    (DOCTOR, DOCTOR_NAME, "Rheumatology"),
+    ("dr.renny", "Dr. Aaron Renny", "Nephrology"),
+    ("dr.patel", "Dr. Parin Patel", "Internal Medicine"),
 ]
 
 # Ingredient RxCUIs of the demo medications (colchicine, naproxen, tamsulosin,
@@ -284,16 +284,17 @@ async def ensure_doctors(session) -> dict[str, User]:
     """The three demo doctors by username, created if missing. Existing ones keep
     their history."""
     doctors = {}
-    for username, name in DOCTORS:
+    for username, name, specialty in DOCTORS:
         doctor = await session.scalar(select(User).where(User.username == username))
         if doctor is None:
             doctor = User(username=username, password_hash=hash_password(DOCTOR_PASSWORD),
-                          role="doctor", display_name=name)
+                          role="doctor", display_name=name, specialty=specialty)
             session.add(doctor)
         else:
             doctor.password_hash = hash_password(DOCTOR_PASSWORD)
             doctor.role = "doctor"
             doctor.display_name = name
+            doctor.specialty = specialty
         doctors[username] = doctor
     await session.flush()
     return doctors
@@ -407,7 +408,7 @@ async def run_seed(database_url: str, llm, confirm: bool, label_client: LabelCli
         state = "confirmed" if confirm else "pending review"
         print(f"Seeded user '{USERNAME}' with a {state} kidney-stones document ({len(items)} items).")
         print(f"Seeded user '{USERNAME2}' with a confirmed gout document ({len(gout_items)} items).")
-        print("Seeded doctors " + ", ".join(f"'{u}'" for u, _ in DOCTORS)
+        print("Seeded doctors " + ", ".join(f"'{u}'" for u, _, _ in DOCTORS)
               + " with their guidance entries and one open question each.")
         if not embedded:
             print("The guidance entries are saved but not searchable (no embedding model "

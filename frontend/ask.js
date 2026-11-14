@@ -67,6 +67,13 @@ function noticeFor(error) {
 
 const currentDoctor = () => view.doctors.find(d => d.id === view.doctorId) || null;
 const doctorName = () => (currentDoctor() ? currentDoctor().name : 'your doctor');
+// "Dr. Ting Kai · Rheumatology" for the doctor who answered (the specialty only
+// when that doctor is still listed, so an old answer never shows a wrong one).
+const cloneName = payload => {
+  const name = payload.doctor_name || doctorName();
+  const doctor = view.doctors.find(d => d.name === name);
+  return doctor && doctor.specialty ? name + ' \u00b7 ' + doctor.specialty : name;
+};
 
 async function loadConversation(docId) {
   view.status = 'loading';
@@ -241,7 +248,7 @@ function assistantHtml(message, index) {
     <li class="msg msg-assistant" data-index="${index}">
       ${emergency ? emergencyHtml() : ''}
       <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AI clone answer">
-        <p class="clone-label">AI clone of ${esc(payload.doctor_name || doctorName())}</p>
+        <p class="clone-label">AI clone of ${esc(cloneName(payload))}</p>
         <div class="answer-text">${answerTextHtml(payload.answer, numbers)}</div>
         ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
         ${sourcesHtml(index, sources)}
@@ -373,13 +380,13 @@ function renderTabs() {
     box.innerHTML = '';
     return;
   }
-  const sig = view.doctors.map(d => d.id + ':' + d.name).join('|') + '#' + view.doctorId + '#' + view.busy;
+  const sig = view.doctors.map(d => d.id + ':' + d.name + ':' + (d.specialty || '')).join('|') + '#' + view.doctorId + '#' + view.busy;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.innerHTML = `
     <div class="doctor-picker" role="group" aria-label="Choose a doctor">
       ${view.doctors.map(d => `
-        <button type="button" class="doctor-tab" data-id="${esc(d.id)}" aria-pressed="${d.id === view.doctorId}" ${view.busy ? 'disabled' : ''}><span class="doctor-avatar" aria-hidden="true">${esc(initials(d.name))}</span><span class="doctor-tab-name">${esc(d.name)}</span></button>`).join('')}
+        <button type="button" class="doctor-tab" data-id="${esc(d.id)}" aria-pressed="${d.id === view.doctorId}" ${view.busy ? 'disabled' : ''}><span class="doctor-avatar" aria-hidden="true">${esc(initials(d.name))}</span><span class="doctor-tab-text"><span class="doctor-tab-name">${esc(d.name)}</span>${d.specialty ? `<span class="doctor-tab-specialty">${esc(d.specialty)}</span>` : ''}</span></button>`).join('')}
     </div>`;
   box.querySelectorAll('.doctor-tab').forEach(button => {
     button.addEventListener('click', () => {

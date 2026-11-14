@@ -43,10 +43,14 @@ async def test_seed_is_idempotent_and_creates_the_demo_history(tmp_path):
     users, guidance, questions, docs, counts, _ = await snapshot(url)
 
     assert counts == {"users": 5, "docs": 2}
-    for username, name in (("dr.ting", "Dr. Ting Kai"), ("dr.renny", "Dr. Aaron Renny"),
-                           ("dr.patel", "Dr. Parin Patel")):
+    for username, name, specialty in (
+        ("dr.ting", "Dr. Ting Kai", "Rheumatology"),
+        ("dr.renny", "Dr. Aaron Renny", "Nephrology"),
+        ("dr.patel", "Dr. Parin Patel", "Internal Medicine"),
+    ):
         assert users[username].role == "doctor"
         assert users[username].display_name == name
+        assert users[username].specialty == specialty
     assert docs[users["demo"].id].status == "pending_review"
     assert docs[users["demo2"].id].status == "confirmed"
 

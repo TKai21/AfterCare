@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import current_patient
 from db import get_session
-from doctors import doctor_label, doctor_labels, list_doctors, require_doctor
+from doctors import doctor_label, doctor_labels, doctor_specialty, list_doctors, require_doctor
 from models import CareTeamQuestion, User
 from safety import detect_emergency, warning_terms
 
@@ -85,7 +85,8 @@ async def doctors(
     user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
 ):
     return {"doctors": [
-        {"id": d.id, "name": doctor_label(d)} for d in await list_doctors(session)
+        {"id": d.id, "name": doctor_label(d), "specialty": doctor_specialty(d)}
+        for d in await list_doctors(session)
     ]}
 
 

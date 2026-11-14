@@ -687,6 +687,9 @@ async function boot() {
   const name = me.display_name || me.username;
   document.getElementById('brandName').textContent = name;
   document.getElementById('avatar').textContent = initials(name);
+  const specialty = document.getElementById('brandSpecialty');
+  specialty.textContent = me.specialty || '';
+  specialty.hidden = !me.specialty;
   bindQuestions();
   bindGuidance();
   bindShared();

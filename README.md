@@ -227,22 +227,26 @@ Accounts have a role: `patient` (sign up on the site) or `doctor`. A doctor cann
 In the Ask tab the patient sees one tab per doctor. Each tab is its own conversation with that doctor's AI clone, and the clone's replies are labeled "AI clone". The clone answers only from the patient's discharge document, the education sources, and that doctor's own earlier advice (cited as "Dr. Name's advice"). A question the clone cannot answer goes to that doctor's queue, and the patient can also ask that doctor directly. Each answer a doctor gives becomes guidance for that doctor's clone and shows up in the patient's Care team tab.
 
 ```bash
-python scripts/create_doctor.py USERNAME "Display Name"   # prompts for the password twice
+python scripts/create_doctor.py USERNAME "Display Name" ["Specialty"]   # prompts for the password twice
 ```
+
+A doctor's specialty is optional. Patients see it under the doctor's name when they choose a doctor, on the AI clone's answers ("AI clone of Dr. Ting Kai · Rheumatology") and in the care-team doctor list; the doctor sees it next to their own name. A doctor without one is shown by name alone.
 
 `scripts/seed_demo.py` creates three doctors, all with the password `doctor-password-1`:
 
-| Username | Doctor |
-| --- | --- |
-| `dr.ting` | Dr. Ting Kai |
-| `dr.renny` | Dr. Aaron Renny |
-| `dr.patel` | Dr. Parin Patel |
+| Username | Doctor | Specialty |
+| --- | --- | --- |
+| `dr.ting` | Dr. Ting Kai | Rheumatology |
+| `dr.renny` | Dr. Aaron Renny | Nephrology |
+| `dr.patel` | Dr. Parin Patel | Internal Medicine |
 
 It also creates `demo` / `demo-password-1` (kidney stones) and `demo2` / `demo-password-2` (gout case, always confirmed). Each doctor has one general entry (Dr. Ting: colchicine timing; Dr. Renny: tamsulosin and stent discomfort; Dr. Patel: naproxen with food) and one open question in their queue; Dr. Ting also has a patient-specific entry for `demo2`. All seeded answers are invented for the demo. Embeddings need a configured model; without one the entries are saved unsearchable and can be retried from the doctor page.
 
 Upgrading from the single-doctor version: questions and messages now belong to a doctor, so recreate the dev database (delete `aftercare-dev.sqlite3`) and run `python scripts/seed_demo.py --confirm` again.
 
 On MySQL, the same upgrade adds the columns `chat_messages.doctor_id` and `care_team_questions.doctor_id`, which `schema.sql` (`CREATE TABLE IF NOT EXISTS`) does not add to existing tables. Drop and recreate the database with `sql/schema.sql`, then run the seed again.
+
+The `users.specialty` column needs no such step: the server adds it to an existing `users` table when it starts (SQLite and MySQL), and existing rows keep their data. Run the seed again, or set it per doctor, to fill it in.
 
 Demo walkthrough:
 

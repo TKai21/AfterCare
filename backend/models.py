@@ -19,6 +19,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="patient", server_default="patient")
     display_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # A doctor's specialty as patients see it ("Rheumatology"); None for patients.
+    specialty: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

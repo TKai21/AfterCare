@@ -25,8 +25,22 @@ async def test_doctors_endpoint_lists_doctors_in_id_order(client):
     h = await auth_headers(client)
     resp = await client.get("/api/doctors", headers=h)
     assert resp.status_code == 200
-    assert resp.json() == {"doctors": [{"id": a, "name": "Dr. A"}, {"id": b, "name": "dr.b"}]}
+    assert resp.json() == {"doctors": [
+        {"id": a, "name": "Dr. A", "specialty": None},
+        {"id": b, "name": "dr.b", "specialty": None},
+    ]}
     assert (await client.get("/api/doctors", headers=ha)).status_code == 403
+
+
+async def test_doctors_endpoint_lists_specialties_and_hides_blank_ones(client):
+    ha, hb, a, b = await two_doctors(client)
+    async with client.app.state.session_factory() as s:
+        (await s.get(User, a)).specialty = "Rheumatology"
+        (await s.get(User, b)).specialty = "   "
+        await s.commit()
+    h = await auth_headers(client)
+    doctors = (await client.get("/api/doctors", headers=h)).json()["doctors"]
+    assert [(d["id"], d["specialty"]) for d in doctors] == [(a, "Rheumatology"), (b, None)]
 
 
 async def test_direct_question_assigned_and_labelled(client):

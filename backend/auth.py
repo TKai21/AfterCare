@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_session
+from doctors import doctor_specialty
 from models import User
 
 router = APIRouter()
@@ -79,7 +80,8 @@ async def current_doctor(user: User = Depends(current_user)) -> User:
 
 
 async def create_doctor(
-    session: AsyncSession, username: str, password: str, display_name: str
+    session: AsyncSession, username: str, password: str, display_name: str,
+    specialty: str | None = None,
 ) -> User:
     if await session.scalar(select(User).where(User.username == username)):
         raise ValueError(f"Username {username!r} is already taken")
@@ -88,6 +90,7 @@ async def create_doctor(
         password_hash=hash_password(password),
         role="doctor",
         display_name=display_name,
+        specialty=(specialty or "").strip() or None,
     )
     session.add(user)
     await session.commit()
@@ -123,5 +126,6 @@ async def login(
 
 @router.get("/api/me")
 async def me(user: User = Depends(current_user)):
-    return {"username": user.username, "role": user.role, "display_name": user.display_name}
+    return {"username": user.username, "role": user.role, "display_name": user.display_name,
+            "specialty": doctor_specialty(user) if user.role == "doctor" else None}
 

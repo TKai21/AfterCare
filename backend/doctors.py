@@ -18,6 +18,11 @@ def doctor_label(user: User) -> str:
     return (user.display_name or "").strip() or user.username
 
 
+def doctor_specialty(user: User) -> str | None:
+    """The specialty to show next to the doctor's name, or None when unset."""
+    return (user.specialty or "").strip() or None
+
+
 async def doctor_labels(session: AsyncSession, ids) -> dict[int, str]:
     """Labels for the given user ids, in one query."""
     ids = {i for i in ids if i}

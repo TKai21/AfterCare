@@ -841,6 +841,15 @@ fieldset:disabled textarea { background: var(--surface-muted); color: var(--text
   font-size: 14.5px;
   font-weight: 550;
 }
+.user-meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.user-specialty {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
 .header-user .btn { flex: none; margin-right: -12px; }
 
 .tabs {
@@ -937,13 +946,13 @@ fieldset:disabled textarea { background: var(--surface-muted); color: var(--text
 @media (min-width: 720px) and (max-width: 899px) {
   .tab { padding: 0 12px; }
   .tab-icon { display: none; }
-  .username { display: none; }
+  .username, .user-meta { display: none; }
 }
 
 /* Phone: the tabs become a bottom bar within thumb reach. */
 @media (max-width: 719px) {
   :root { --header-height: 60px; --bottom-nav: calc(68px + env(safe-area-inset-bottom)); }
-  .username { display: none; }
+  .username, .user-meta { display: none; }
   .brand-name { font-size: 21px; }
   .brand-role { display: none; }
   .brand-mark { width: 32px; height: 32px; border-radius: 10px; }
@@ -2190,6 +2199,9 @@ textarea.composer-input:focus { box-shadow: none; }
   letter-spacing: 0.04em;
   transition: background-color 240ms ease, color 240ms ease;
 }
+.doctor-tab-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; padding: 5px 0; text-align: left; line-height: 1.2; }
+.doctor-tab-specialty { color: var(--text-muted); font-size: 12.5px; font-weight: 500; transition: color 200ms ease; }
+.doctor-tab[aria-pressed="true"] .doctor-tab-specialty { color: color-mix(in srgb, var(--on-accent) 82%, transparent); }
 .doctor-tab:hover:not(:disabled) { border-color: var(--accent); }
 .doctor-tab[aria-pressed="true"] {
   border-color: var(--accent);

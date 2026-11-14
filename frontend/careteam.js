@@ -209,7 +209,7 @@ function formHtml() {
       <div class="field">
         <label for="directDoctor">Doctor</label>
         <select id="directDoctor">
-          ${view.doctors.map(d => `<option value="${esc(d.id)}" ${d.id === form.doctorId ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+          ${view.doctors.map(d => `<option value="${esc(d.id)}" ${d.id === form.doctorId ? 'selected' : ''}>${esc(d.specialty ? d.name + ' - ' + d.specialty : d.name)}</option>`).join('')}
         </select>
       </div>
       <div class="field">

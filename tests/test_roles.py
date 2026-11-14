@@ -17,7 +17,7 @@ async def test_signup_creates_patient(client):
     me = (await client.get(
         "/api/me", headers={"Authorization": f"Bearer {resp.json()['token']}"}
     )).json()
-    assert me == {"username": "alice", "role": "patient", "display_name": None}
+    assert me == {"username": "alice", "role": "patient", "display_name": None, "specialty": None}
 
 
 async def test_doctor_login_returns_role_and_display_name(client):
@@ -31,6 +31,19 @@ async def test_doctor_login_returns_role_and_display_name(client):
     )).json()
     assert me["role"] == "doctor"
     assert me["display_name"] == "Dr. Ting Kai"
+    assert me["specialty"] is None
+
+
+async def test_doctor_me_returns_the_specialty(client):
+    async with client.app.state.session_factory() as session:
+        await create_doctor(session, "dr.ting", "doctor-password-1", "Dr. Ting Kai", "  Rheumatology ")
+    resp = await client.post(
+        "/api/login", json={"username": "dr.ting", "password": "doctor-password-1"}
+    )
+    me = (await client.get(
+        "/api/me", headers={"Authorization": f"Bearer {resp.json()['token']}"}
+    )).json()
+    assert me["specialty"] == "Rheumatology"
 
 
 async def test_create_doctor_rejects_taken_username(client):

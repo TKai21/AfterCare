@@ -1,3 +1,4 @@
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import StaticPool
@@ -37,3 +38,19 @@ async def init_db(engine: AsyncEngine) -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
+
+
+# Columns added after a table first shipped. create_all (and schema.sql's
+# CREATE TABLE IF NOT EXISTS) never alters an existing table, so an existing
+# database gets each one here, on SQLite and MySQL alike, with no data loss.
+ADDED_COLUMNS = (
+    ("users", "specialty", "VARCHAR(100) NULL"),
+)
+
+
+def _add_missing_columns(conn) -> None:
+    inspector = inspect(conn)
+    for table, column, ddl in ADDED_COLUMNS:
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
