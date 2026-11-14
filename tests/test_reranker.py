@@ -92,17 +92,18 @@ async def test_fetch_unknown_model(tmp_path):
 
 def test_load_reranker_notes(tmp_path, monkeypatch):
     monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path)
-    assert load_reranker(Settings(rerank_enabled=False)) == (None, "off: RERANK_ENABLED=0")
-    got, note = load_reranker(Settings(rerank_model="nope"))
+    assert load_reranker(Settings(rerank_enabled=False)) == (
+        None, "off: disabled, set RERANK_ENABLED=1 to turn it on")
+    got, note = load_reranker(Settings(rerank_enabled=True, rerank_model="nope"))
     assert got is None and note == "off: unknown RERANK_MODEL nope"
-    got, note = load_reranker(Settings())
+    got, note = load_reranker(Settings(rerank_enabled=True))
     assert got is None
     assert note == "off: model files missing, run python backend/manage_knowledge.py fetch-reranker"
     folder = tmp_path / REAL_NAME
     folder.mkdir()
     (folder / "model.onnx").write_bytes(b"garbage")
     (folder / "tokenizer.json").write_bytes(b"garbage")
-    got, note = load_reranker(Settings())
+    got, note = load_reranker(Settings(rerank_enabled=True))
     assert got is None
     assert note.startswith("off: failed to load (") and note.endswith(")")
 
@@ -146,7 +147,7 @@ def test_load_reranker_logs_failure(tmp_path, monkeypatch, caplog):
     (folder / "model.onnx").write_bytes(b"garbage")
     (folder / "tokenizer.json").write_bytes(b"garbage")
     with caplog.at_level("WARNING", logger="reranker"):
-        load_reranker(Settings())
+        load_reranker(Settings(rerank_enabled=True))
     assert any(r.levelname == "WARNING" and r.exc_info for r in caplog.records)
 
 

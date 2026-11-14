@@ -73,9 +73,10 @@ def create_app(
             if removed:
                 logger.warning("Removed drug labels that are not approved from the library: %s",
                                ", ".join(removed))
-            note = app.state.store.reranker_note
-            (startup_logger.info if app.state.store.reranker is not None else startup_logger.warning)(
-                "Library reranker: %s", note)
+            # A warning only when the reranker was asked for and is not available.
+            unavailable = settings.rerank_enabled and app.state.store.reranker is None
+            (startup_logger.warning if unavailable else startup_logger.info)(
+                "Library reranker: %s", app.state.store.reranker_note)
         yield
         await label_client.aclose()
         await engine.dispose()

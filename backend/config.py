@@ -27,8 +27,11 @@ class Settings:
     # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.
     label_fixtures: bool = False
     rerank_model: str = "ms-marco-MiniLM-L-6-v2"
-    rerank_enabled: bool = True
-    rag_min_rerank: float = 0.0
+    # Off by default: on the evaluation set's test split the reranker lost one
+    # hit@5 to embedding-only search (README, "Library search"). RERANK_ENABLED=1 turns it on.
+    rerank_enabled: bool = False
+    # Calibrated by scripts/eval_library.py --sweep on the tune split.
+    rag_min_rerank: float = -4.5
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -66,6 +69,6 @@ def get_settings() -> Settings:
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
         label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
         rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),
-        rerank_enabled=env.get("RERANK_ENABLED", "") != "0",
+        rerank_enabled=env.get("RERANK_ENABLED", "") == "1",
         rag_min_rerank=float(env.get("RAG_MIN_RERANK", defaults.rag_min_rerank)),
     )

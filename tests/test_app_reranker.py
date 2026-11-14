@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -34,6 +35,25 @@ def test_settings_parse_rerank_env(monkeypatch, clean_settings_cache):
     assert settings.rerank_model == "x"
 
 
+def test_rerank_is_off_by_default_and_on_with_rerank_enabled_1(monkeypatch, clean_settings_cache):
+    # Off by default: the reranker lost to embeddings on test-split hit@5 (README, Library search).
+    assert Settings().rerank_enabled is False
+    monkeypatch.delenv("RERANK_ENABLED", raising=False)
+    assert get_settings().rerank_enabled is False
+    get_settings.cache_clear()
+    monkeypatch.setenv("RERANK_ENABLED", "1")
+    assert get_settings().rerank_enabled is True
+    get_settings.cache_clear()
+    for off in ("", "0", "true"):
+        get_settings.cache_clear()
+        monkeypatch.setenv("RERANK_ENABLED", off)
+        assert get_settings().rerank_enabled is False
+
+
+def test_rag_min_rerank_default_is_the_calibrated_cut():
+    assert Settings().rag_min_rerank == -4.5
+
+
 def missing_model_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path / "models")
     return Settings(
@@ -41,6 +61,7 @@ def missing_model_settings(tmp_path, monkeypatch):
         jwt_secret="test-secret-not-for-production",
         rag_db_path=str(tmp_path / "index.sqlite3"),
         rerank_model="ms-marco-MiniLM-L-6-v2",
+        rerank_enabled=True,
     )
 
 
@@ -54,6 +75,16 @@ async def test_app_starts_without_model_files_and_reports_off(tmp_path, monkeypa
     assert status["reranker"] == "off"
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "Library reranker" in r.getMessage()]
     assert warnings and "fetch-reranker" in warnings[0].getMessage()
+
+
+async def test_app_with_rerank_disabled_logs_info_not_warning(tmp_path, monkeypatch, caplog):
+    settings = replace(missing_model_settings(tmp_path, monkeypatch), rerank_enabled=False)
+    app = create_app(settings, llm=FakeLLM())
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        async with app.router.lifespan_context(app):
+            assert app.state.store.reranker_note == "off: disabled, set RERANK_ENABLED=1 to turn it on"
+    lines = [r for r in caplog.records if "Library reranker" in r.getMessage()]
+    assert [r.levelno for r in lines] == [logging.INFO]
 
 
 async def test_passed_store_keeps_its_own_reranker(tmp_path):

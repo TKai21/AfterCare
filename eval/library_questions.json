@@ -1,0 +1,338 @@
+[
+  {
+    "id": "gout-night-toe",
+    "question": "Why does my big toe suddenly hurt so much and swell up in the middle of the night?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "gout-avoid-food",
+    "question": "What foods and drinks should I avoid with gout?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "gout-flare-medicine",
+    "question": "Which medicines can bring down the pain of a gout flare?",
+    "expected": [
+      "medlineplus-gout"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "gout-lumps",
+    "question": "What are these hard bumps forming under the skin around my knuckles?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "gout-joint-fluid-test",
+    "question": "What test checks the fluid from my swollen joint for uric acid crystals?",
+    "expected": [
+      "medlineplus-gout"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-water",
+    "question": "How much water should I drink so I don't get another kidney stone?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "niddk-kidney-stones-diet"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-dairy",
+    "question": "My stone was calcium, so should I stop eating dairy?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "niddk-kidney-stones-diet",
+      "curated-uchicago-oxalate-table-use",
+      "uchicago-low-oxalate-diet"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-lithotripsy",
+    "question": "What is shock wave lithotripsy?",
+    "expected": [
+      "niddk-kidney-stones-treatment",
+      "nkf-kidney-stones"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-tube",
+    "question": "They left a thin tube inside me after taking the stone out. What is it for?",
+    "expected": [
+      "niddk-kidney-stones-treatment"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-oxalate-goal",
+    "question": "How many milligrams of oxalate a day should I aim for?",
+    "expected": [
+      "curated-uchicago-oxalate-table-use",
+      "uchicago-low-oxalate-diet"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-spinach",
+    "question": "Is spinach okay to eat if I keep forming stones?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "niddk-kidney-stones-diet",
+      "curated-uchicago-oxalate-table-use",
+      "uchicago-low-oxalate-diet",
+      "upmc-low-oxalate-diet"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "hf-swelling",
+    "question": "Why are my ankles puffy and why can't I breathe when I lie flat at night?",
+    "expected": [
+      "cdc-heart-failure",
+      "curated-heart-failure-sodium-fluids",
+      "medlineplus-heart-failure"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "hf-salt-fluids",
+    "question": "Do I need to cut back on salt and fluids with heart failure?",
+    "expected": [
+      "curated-heart-failure-sodium-fluids",
+      "medlineplus-heart-failure"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "sodium-teaspoon",
+    "question": "How much sodium is in one teaspoon of table salt?",
+    "expected": [
+      "cdc-sodium",
+      "medlineplus-sodium"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "copd-exercise",
+    "question": "Is it safe for me to work out when my lungs are this bad?",
+    "expected": [
+      "curated-copd-activity",
+      "medlineplus-copd",
+      "cdc-copd"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "copd-rehab",
+    "question": "What is pulmonary rehabilitation?",
+    "expected": [
+      "curated-copd-activity",
+      "medlineplus-copd",
+      "cdc-copd"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "pneumonia-germs",
+    "question": "What germs cause pneumonia?",
+    "expected": [
+      "cdc-pneumonia",
+      "medlineplus-pneumonia"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "pneumonia-symptoms",
+    "question": "I have a fever, chills and a cough bringing up thick mucus. Could it be a lung infection?",
+    "expected": [
+      "medlineplus-pneumonia",
+      "cdc-pneumonia"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "cellulitis-wound",
+    "question": "How do I take care of the cut on my leg while it heals?",
+    "expected": [
+      "curated-cellulitis-wound-care",
+      "cdc-group-a-strep-prevention"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "cellulitis-skin",
+    "question": "My shin is red, hot, tender and puffy. What infection could this be?",
+    "expected": [
+      "cdc-cellulitis",
+      "medlineplus-cellulitis"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "uti-prevent",
+    "question": "How can I keep from getting bladder infections again?",
+    "expected": [
+      "cdc-uti",
+      "niddk-uti-treatment"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "uti-burning",
+    "question": "It burns when I pee and I need to go all the time. What could cause that?",
+    "expected": [
+      "medlineplus-uti",
+      "cdc-uti",
+      "niddk-uti-treatment"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "diabetes-plate",
+    "question": "What is the plate method for planning meals?",
+    "expected": [
+      "curated-diabetes-diet-basics",
+      "cdc-diabetes-meal-planning"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "diabetes-a1c",
+    "question": "What does the A1C blood test measure?",
+    "expected": [
+      "medlineplus-diabetes-type-2"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "bp-numbers",
+    "question": "What do the two numbers in a reading like 120/80 mean?",
+    "expected": [
+      "medlineplus-high-blood-pressure"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "bp-prevent",
+    "question": "What everyday habits help prevent high blood pressure?",
+    "expected": [
+      "cdc-high-blood-pressure-prevention"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-tamsulosin-dose",
+    "question": "What is the usual dose of tamsulosin and when do I take it?",
+    "expected": [
+      "dailymed-tamsulosin"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-macrobid-food",
+    "question": "Should I take Macrobid with food?",
+    "expected": [
+      "dailymed-nitrofurantoin"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "drug-advil-max",
+    "question": "How many Advil tablets can I take in 24 hours?",
+    "expected": [
+      "dailymed-ibuprofen"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-prednisone-stop",
+    "question": "Can I just quit taking prednisone all at once?",
+    "expected": [
+      "dailymed-prednisone"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "drug-ventolin-prime",
+    "question": "How do I prime my Ventolin inhaler before the first use?",
+    "expected": [
+      "dailymed-albuterol-inhaler"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-lasix-lightheaded",
+    "question": "I get lightheaded when I stand up since starting my water pill. What should I do?",
+    "expected": [
+      "dailymed-furosemide"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "none-cast",
+    "question": "How do I take care of my cast after breaking my wrist?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-chemo",
+    "question": "What are the side effects of chemotherapy for breast cancer?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-tattoo",
+    "question": "Is it safe to get a tattoo while pregnant?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-knee",
+    "question": "How long does it take to recover from a knee replacement?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-dentist",
+    "question": "How often should I get my teeth cleaned at the dentist?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-acne",
+    "question": "What is the best treatment for acne scars?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-adhd",
+    "question": "How do I know if my child has ADHD?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-cataract",
+    "question": "When can I drive again after cataract surgery?",
+    "expected": [],
+    "split": "test"
+  }
+]

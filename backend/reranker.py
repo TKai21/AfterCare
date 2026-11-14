@@ -73,7 +73,7 @@ class OnnxReranker:
 def load_reranker(settings) -> tuple[OnnxReranker | None, str]:
     """The reranker and a note saying why it is on or off. Never raises."""
     if not settings.rerank_enabled:
-        return None, "off: RERANK_ENABLED=0"
+        return None, "off: disabled, set RERANK_ENABLED=1 to turn it on"
     name = settings.rerank_model
     spec = RERANKERS.get(name)
     if spec is None:
