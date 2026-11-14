@@ -101,10 +101,12 @@ function textHtml(label) {
     </div>`;
 }
 
-// The date comes first so a long product name never cuts it off.
+// The date comes first so a long product name never cuts it off. The labeler
+// goes last: candidates often share a date and a product name.
 function optionText(candidate) {
   const day = formatDay(candidate.published);
-  return (day ? day + ' - ' : '') + productName(candidate.title);
+  const labeler = candidate.labeler ? ` (${candidate.labeler})` : '';
+  return (day ? day + ' - ' : '') + productName(candidate.title) + labeler;
 }
 
 function pickHtml(label, busy) {
@@ -174,6 +176,7 @@ function failedLabelCardHtml(label) {
   return `
     <li class="card doctor-card label-card" data-label-id="${label.id}" ${busy ? 'aria-busy="true"' : ''}>
       ${headHtml(ingredientName(label), statusBadge(failed ? 'Lookup failed' : 'No label found', 'problem'))}
+      ${label.title ? `<p class="label-product">${esc(productName(label.title))}</p>` : ''}
       ${sourcesHtml(label.sources)}
       <p class="label-problem">${esc(failed ? (label.error || 'The lookup failed.') : NO_LABEL)}</p>
       ${pickHtml(label, busy)}
