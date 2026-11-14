@@ -13,7 +13,7 @@ from conftest import auth_headers
 from db import init_db, make_engine, make_session_factory
 from druglabels import (
     INTERRUPTED, LABEL_SECTIONS, LabelClient, LabelServiceError, approved_label_records,
-    failing_transport, fixture_transport, mark_interrupted, patient_rxcuis, resolve_document_drug,
+    failing_transport, fixture_transport, mark_interrupted, patient_rxcuis, resolve_document, resolve_document_drug,
 )
 from models import ChecklistItem, DocumentDrug, DrugLabel
 
@@ -322,6 +322,17 @@ async def test_patient_rxcuis_unlock_only_approved_labels(client, fake_llm):
     assert await unlocked() == frozenset({"2683"})
     await set_label_status(client, "7258", "approved")
     assert await unlocked() == frozenset({"2683", "7258"})
+
+
+async def test_resolve_document_twice_adds_no_rows(client, fake_llm):
+    """A second run (say the seed calling it again) leaves items that already
+    have rows alone, so no medication is listed twice."""
+    doc_id, _ = await confirm_meds(client, fake_llm, "alice", *GOUT, med("Multivitamin"))
+    before = [(d.id, d.rxcui, d.status) for d in await rows(client, DocumentDrug)]
+    assert [status for _, _, status in before] == ["resolved", "resolved", "failed"]
+    await resolve_document(client.app.state.session_factory, client.app.state.label_client, doc_id)
+    assert [(d.id, d.rxcui, d.status) for d in await rows(client, DocumentDrug)] == before
+    assert len(await rows(client, DrugLabel)) == 2
 
 
 async def test_mark_interrupted(client, fake_llm):

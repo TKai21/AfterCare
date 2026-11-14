@@ -371,14 +371,17 @@ async def _resolve_row(session_factory, client: LabelClient, row_id: int) -> Non
 
 async def resolve_document(session_factory, client: LabelClient, document_id: int) -> None:
     """Resolve every medication of a confirmed document to ingredients and labels.
-    Never raises."""
+    Items that already have rows are left alone, so a second run adds nothing
+    (a failed row is retried on its own). Never raises."""
     try:
         async with session_factory() as session:
+            done = select(DocumentDrug.extracted_item_id).where(DocumentDrug.document_id == document_id)
             items = list(await session.scalars(
                 select(ExtractedItem)
                 .where(ExtractedItem.document_id == document_id,
                        ExtractedItem.category == "medication",
-                       ExtractedItem.status == "active")
+                       ExtractedItem.status == "active",
+                       ExtractedItem.id.notin_(done))
                 .order_by(ExtractedItem.id)
             ))
             rows = [
