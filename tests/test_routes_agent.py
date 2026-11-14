@@ -242,7 +242,7 @@ def test_create_app_without_model_has_no_llm_or_store():
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:", jwt_secret="test-secret-not-for-production"
     )
-    app = create_app(settings)
+    app = create_app(settings, label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     assert app.state.llm is None and app.state.store is None
 
 
@@ -251,7 +251,7 @@ def test_create_app_builds_llm_client_and_store_from_settings(tmp_path):
         database_url="sqlite+aiosqlite:///:memory:", jwt_secret="test-secret-not-for-production",
         llm_model="local-model", rag_db_path=str(tmp_path / "index.sqlite3"),
     )
-    app = create_app(settings)
+    app = create_app(settings, label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     assert isinstance(app.state.llm, LLMClient)
     assert isinstance(app.state.store, KnowledgeStore)
     assert app.state.store.path == tmp_path / "index.sqlite3"
