@@ -52,8 +52,13 @@ function formatDate(iso) {
 
 const sentenceCase = text => text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : '';
 
+// The title without its trailing "[LABELER]" (the labeler has its own line).
+function productName(title) {
+  return String(title || '').replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+}
+
 export function doseForm(title) {
-  let product = String(title || '').replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+  let product = productName(title);
   const paren = product.lastIndexOf(')');
   if (paren !== -1) product = product.slice(paren + 1).trim();
   const match = FORM_WORDS.exec(product.toUpperCase());
@@ -96,6 +101,12 @@ function textHtml(label) {
     </div>`;
 }
 
+// The date comes first so a long product name never cuts it off.
+function optionText(candidate) {
+  const day = formatDay(candidate.published);
+  return (day ? day + ' - ' : '') + productName(candidate.title);
+}
+
 function pickHtml(label, busy) {
   const options = (label.candidates || []).filter(c => c.setid !== label.setid);
   if (!options.length) return '';
@@ -106,7 +117,7 @@ function pickHtml(label, busy) {
       <label for="pick-${label.id}">Pick another label</label>
       <div class="label-pick-row">
         <select id="pick-${label.id}" class="label-pick-select" data-label-pick="${label.id}" ${busy ? 'disabled' : ''}>
-          ${options.map(c => `<option value="${esc(c.setid)}" ${c.setid === selected ? 'selected' : ''}>${esc(c.title)}${c.published ? ' - ' + esc(formatDay(c.published)) : ''}</option>`).join('')}
+          ${options.map(c => `<option value="${esc(c.setid)}" ${c.setid === selected ? 'selected' : ''}>${esc(optionText(c))}</option>`).join('')}
         </select>
         <button type="button" class="btn btn-secondary" data-label-action="pick" ${busy ? 'disabled' : ''}>${busy === 'pick' ? BUSY_TEXT.pick : 'Use'}</button>
       </div>
@@ -134,7 +145,7 @@ function pendingCardHtml(label) {
   return `
     <li class="card doctor-card label-card" data-label-id="${label.id}" ${busy ? 'aria-busy="true"' : ''}>
       ${headHtml(ingredientName(label), statusBadge('Needs review', 'pending'))}
-      ${label.title ? `<p class="label-product">${esc(label.title)}</p>` : ''}
+      ${label.title ? `<p class="label-product">${esc(productName(label.title))}</p>` : ''}
       ${factsHtml(label)}
       ${sourcesHtml(label.sources)}
       ${textHtml(label)}
@@ -206,7 +217,7 @@ function reviewedCardHtml(label) {
   return `
     <li class="card doctor-card label-card is-reviewed" data-label-id="${label.id}" ${busy ? 'aria-busy="true"' : ''}>
       ${headHtml(ingredientName(label), statusBadge(approved ? 'Approved' : 'Rejected', approved ? 'approved' : 'rejected'))}
-      ${label.title ? `<p class="label-product">${esc(label.title)}</p>` : ''}
+      ${label.title ? `<p class="label-product">${esc(productName(label.title))}</p>` : ''}
       ${factsHtml(label)}
       <p class="doctor-meta"><span class="doctor-meta-label">${esc(who)}</span> ${approved ? 'approved' : 'rejected'} this label${when ? ' on ' + esc(when) : ''}.</p>
       ${approved ? textHtml({id: label.id, url: label.url}) : pickHtml(label, busy)}
@@ -268,8 +279,12 @@ function pendingCount(data) {
 function setData(main, data) {
   state.data = data;
   state.error = '';
+  // Forget per-card state of cards that left the list.
   const known = new Set(data.labels.map(l => l.id));
+  const keys = new Set([...data.labels.map(l => labelKey(l.id)), ...data.unresolved.map(d => drugKey(d.id))]);
   for (const id of state.openText) if (!known.has(id)) state.openText.delete(id);
+  for (const id of state.picks.keys()) if (!known.has(id)) state.picks.delete(id);
+  for (const key of state.errors.keys()) if (!keys.has(key)) state.errors.delete(key);
   const view = views.get(main);
   if (view) view.onCount(pendingCount(data));
   render(main);
