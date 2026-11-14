@@ -5,12 +5,14 @@ The server never downloads a model: `fetch_reranker` is only called by
 checked against a sha256.
 """
 import hashlib
+import logging
 from pathlib import Path
 
 import httpx
 
 from config import PROJECT_DIR
 
+logger = logging.getLogger(__name__)
 MODELS_DIR = PROJECT_DIR / "models"
 MAX_TOKENS = 512
 HF_URL = "https://huggingface.co/{repo}/resolve/{revision}/{path}"
@@ -82,6 +84,7 @@ def load_reranker(settings) -> tuple[OnnxReranker | None, str]:
     try:
         return OnnxReranker(folder), f"on: {name}"
     except Exception as exc:
+        logger.warning("Reranker %s failed to load", name, exc_info=True)
         return None, f"off: failed to load ({type(exc).__name__})"
 
 

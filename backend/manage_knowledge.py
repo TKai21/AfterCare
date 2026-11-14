@@ -53,7 +53,7 @@ def run(argv: list[str], settings: Settings | None = None) -> int:
             return 2
         try:
             folder = asyncio.run(reranker.fetch_reranker(settings.rerank_model))
-        except (reranker.RerankerError, httpx.HTTPError) as exc:
+        except (reranker.RerankerError, httpx.HTTPError, httpx.StreamError, OSError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
         print(folder)

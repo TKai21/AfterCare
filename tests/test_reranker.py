@@ -69,16 +69,19 @@ async def test_fetch_sha_mismatch_raises_and_leaves_nothing(tmp_path, monkeypatc
     assert not list(folder.glob("*.part"))
 
 
-async def test_fetch_mismatch_keeps_previously_verified_file(tmp_path, monkeypatch):
+async def test_fetch_later_mismatch_keeps_verified_earlier_file(tmp_path, monkeypatch):
     monkeypatch.setitem(reranker.RERANKERS, "fake", fake_entry())
-    await fetch_reranker("fake", dest=tmp_path, transport=serve(MODEL_BYTES, []))
-    # The pin changes, so the old file no longer matches: it is re-fetched, and
-    # a bad download must not clobber anything else that is still good.
-    monkeypatch.setitem(reranker.RERANKERS, "fake", fake_entry(b"other"))
-    with pytest.raises(RerankerError, match="model.onnx"):
-        await fetch_reranker("fake", dest=tmp_path, transport=serve(b"wrong", []))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("model.onnx"):
+            return httpx.Response(200, content=MODEL_BYTES)
+        return httpx.Response(200, content=b"bad tokenizer")
+
+    with pytest.raises(RerankerError, match="tokenizer.json"):
+        await fetch_reranker("fake", dest=tmp_path, transport=httpx.MockTransport(handler))
     folder = tmp_path / "fake"
-    assert (folder / "tokenizer.json").read_bytes() == TOKENIZER_BYTES
+    assert (folder / "model.onnx").read_bytes() == MODEL_BYTES
+    assert not (folder / "tokenizer.json").exists()
     assert not list(folder.glob("*.part"))
 
 
@@ -124,6 +127,27 @@ def test_cli_fetch_reranker_error_exits_1(monkeypatch, capsys):
     monkeypatch.setattr(reranker, "fetch_reranker", boom)
     assert manage_knowledge.run(["fetch-reranker"], settings=Settings()) == 1
     assert "Error: bad hash" in capsys.readouterr().err
+
+
+def test_cli_fetch_reranker_os_and_stream_errors_exit_1(monkeypatch, capsys):
+    for exc in (OSError("disk full"), httpx.StreamClosed()):
+        async def boom(name, dest=None, transport=None, exc=exc):
+            raise exc
+
+        monkeypatch.setattr(reranker, "fetch_reranker", boom)
+        assert manage_knowledge.run(["fetch-reranker"], settings=Settings()) == 1
+        assert "Error:" in capsys.readouterr().err
+
+
+def test_load_reranker_logs_failure(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path)
+    folder = tmp_path / REAL_NAME
+    folder.mkdir()
+    (folder / "model.onnx").write_bytes(b"garbage")
+    (folder / "tokenizer.json").write_bytes(b"garbage")
+    with caplog.at_level("WARNING", logger="reranker"):
+        load_reranker(Settings())
+    assert any(r.levelname == "WARNING" and r.exc_info for r in caplog.records)
 
 
 @pytest.fixture(scope="module")
