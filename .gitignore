@@ -11,4 +11,4 @@ aftercare-dev.sqlite3
 knowledge/index.sqlite3
 knowledge/*.staging.sqlite3
 .DS_Store
-*.sqlite3.bak
+*.sqlite3.bak*
