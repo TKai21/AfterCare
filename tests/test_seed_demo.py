@@ -62,6 +62,7 @@ async def test_seed_is_idempotent_and_creates_the_demo_history(tmp_path):
     assert answered.user_id == users["demo2"].id
     assert answered.answered_by == users["dr.ting"].id
     assert answered.doctor_id == users["dr.ting"].id
+    assert answered.source == "patient"  # asked directly, as POST /api/care-team saves it
     assert patient[0].source_question_id == answered.id
     open_qs = [q for q in questions if q.status == "open"]
     assert len(questions) == 4 and len(open_qs) == 3
@@ -73,6 +74,12 @@ async def test_seed_is_idempotent_and_creates_the_demo_history(tmp_path):
         assert q.document_id == docs[q.user_id].id
     (ting_open,) = [q for q in open_qs if q.doctor_id == users["dr.ting"].id]
     assert ting_open.user_id == users["demo"].id
+    # Dr. Renny's open question is about something his own entry does not cover.
+    (renny_open,) = [q for q in open_qs if q.doctor_id == users["dr.renny"].id]
+    (renny_entry,) = [g for g in general if g.doctor_id == users["dr.renny"].id]
+    assert renny_open.question == "Can I drive while the stent is in?"
+    assert "driv" not in renny_entry.answer.lower()
+    assert "driv" not in docs[users["demo"].id].text.lower()
 
 
 async def test_every_doctor_has_a_general_entry_eligible_for_a_demo_patient(tmp_path):

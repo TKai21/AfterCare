@@ -47,7 +47,7 @@ Anti-goals (failure even if it works):
 ## 6. Retrieval and the clone
 
 - `guidance.retrieve` gains a `doctor_id` filter: a clone only ever sees entries whose `doctor_id` is its own doctor. The applicability gate, scope and document rules stay as they are.
-- `/api/ask` takes `doctor_id` (required; 422 if it is not a doctor account). History, retrieval, the doctor name in the prompt, evidence titles, the not-covered copy and queue assignment all use that doctor.
+- `/api/ask` takes `doctor_id` (required; 422 if it is missing or not a doctor account, except that a message the emergency backstop matches still gets the fixed emergency answer, unsaved, so the backstop never depends on the doctor id). History, retrieval, the doctor name in the prompt, evidence titles, the not-covered copy and queue assignment all use that doctor.
 - Prompt: replace the third-person rule with: "You are {DOCTOR}'s AI clone. Speak in the first person as {DOCTOR}'s AI clone ('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when you introduce yourself, say you are {DOCTOR}'s AI clone." Evidence titles become "My earlier advice, <date>" in the model's context, and stay "Dr. X's advice (<date>)" on the patient's source chips.
 - Everything else in the agent (authority order, number grounding, medication-change check, general-information check, emergency handling) is unchanged.
 - The not-covered and fallback copy: "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. X." (first person, then the human doctor's name).
@@ -69,7 +69,7 @@ Anti-goals (failure even if it works):
  Want the real Dr. Ting Kai?  [ Ask Dr. Ting Kai directly ]
 ```
 
-- The tab row lists all doctors (new patient endpoint `GET /api/doctors` -> `[{id, display_name}]`, ordered by id). The selected doctor is remembered per browser (local storage; first doctor by default).
+- The tab row lists all doctors (new patient endpoint `GET /api/doctors` -> `{"doctors": [{id, name}]}`, ordered by id; `name` is the display name, or the username when it is empty). The selected doctor is remembered per browser (local storage; first doctor by default).
 - The lead text names the selected doctor: "Answers come from your discharge document and Dr. X's earlier advice, given by Dr. X's AI clone."
 - Every clone answer has the "AI clone of Dr. X" label at the top (not only the first). Emergency answers keep the existing emergency banner and copy, unchanged.
 - "Ask Dr. X directly" opens a small inline form, prefilled with the patient's last question in this conversation (editable), and sends it to that doctor's queue with source `patient`. A short confirmation line points to the Care team tab.

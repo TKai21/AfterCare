@@ -147,6 +147,8 @@ It also creates `demo` / `demo-password-1` (kidney stones) and `demo2` / `demo-p
 
 Upgrading from the single-doctor version: questions and messages now belong to a doctor, so recreate the dev database (delete `aftercare-dev.sqlite3`) and run `python scripts/seed_demo.py --confirm` again.
 
+On MySQL, the same upgrade adds the columns `chat_messages.doctor_id` and `care_team_questions.doctor_id`, which `schema.sql` (`CREATE TABLE IF NOT EXISTS`) does not add to existing tables. Drop and recreate the database with `sql/schema.sql`, then run the seed again.
+
 Demo walkthrough:
 
 1. Run `python scripts/seed_demo.py --confirm` so `demo`'s document is confirmed (asking needs a confirmed document).
@@ -164,7 +166,7 @@ The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine simil
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 490 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 532 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

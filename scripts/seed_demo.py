@@ -3,9 +3,10 @@
 Creates, or resets, the user `demo` / `demo-password-1` in the database named by
 DATABASE_URL (from the project .env), with one PENDING fictional kidney-stones
 discharge document and its extracted items, so the review screen can be seen
-without a language model. It also seeds the doctor clone demo: the doctor
-the three doctors (`dr.ting`, `dr.renny`, `dr.patel`, all `doctor-password-1`), the patient `demo2` / `demo-password-2` (gout case,
-always confirmed), and a small guidance history (see seed_guidance). Every source_quote is a verbatim substring of one
+without a language model. It also seeds the doctor clone demo: the three
+doctors (`dr.ting`, `dr.renny`, `dr.patel`, all `doctor-password-1`), the patient
+`demo2` / `demo-password-2` (gout case, always confirmed), and a small guidance
+history (see seed_guidance). Every source_quote is a verbatim substring of one
 document paragraph; the script checks this before writing anything.
 
     .venv/bin/python scripts/seed_demo.py            # pending review
@@ -87,7 +88,8 @@ PATEL_DRUG_TAGS = ["naproxen"]
 PATEL_CONDITION_TAGS = ["gout"]
 OPEN_QUESTION = "Is it normal to see a little blood in my urine while the stent is in?"
 OPEN_REASON = "The patient asked something the discharge document does not answer."
-RENNY_OPEN_QUESTION = "Can I drink coffee while the stent is in?"
+# Neither Dr. Renny's entry nor the kidney-stone document covers driving.
+RENNY_OPEN_QUESTION = "Can I drive while the stent is in?"
 PATEL_OPEN_QUESTION = "Is it safe to have a beer after my gout flare settles?"
 
 
@@ -266,9 +268,9 @@ async def ensure_doctors(session) -> dict[str, User]:
 async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo2: User,
                         doc: DischargeDocument, doc2: DischargeDocument) -> bool:
     """The doctors' fictional history. Dr. Ting: one general entry (colchicine timing
-    in a gout flare), one patient-specific entry for demo2 with its answered question,
-    and one open question from `demo`. Dr. Renny: a general kidney-stone entry and an
-    open question from `demo`. Dr. Patel: a general naproxen/gout entry and an open
+    in a gout flare), one patient-specific entry for demo2 from the question demo2
+    asked him directly (answered), and one open question from `demo`. Dr. Renny: a
+    general kidney-stone entry and an open question from `demo`. Dr. Patel: a general naproxen/gout entry and an open
     question from `demo2`. Returns True when every entry got an embedding."""
     doctor = doctors[DOCTOR]
     renny, patel = doctors["dr.renny"], doctors["dr.patel"]
@@ -280,7 +282,7 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     ))
     answered = CareTeamQuestion(
         user_id=demo2.id, document_id=doc2.id, question=PATIENT_QUESTION,
-        reason="The patient asked the care team directly.", source="agent",
+        reason="Asked by the patient", source="patient",
         status="answered", answer=PATIENT_ANSWER, answered_by=doctor.id, doctor_id=doctor.id,
         answered_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
