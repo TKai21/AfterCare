@@ -304,8 +304,9 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     """The doctors' fictional history. Dr. Ting: one general entry (colchicine timing
     in a gout flare), one patient-specific entry for demo2 from the question demo2
     asked him directly (answered), and one open question from `demo`. Dr. Renny: a
-    general kidney-stone entry and an open question from `demo`. Dr. Patel: a general naproxen/gout entry and an open
-    question from `demo2`. Returns True when every entry got an embedding."""
+    general kidney-stone entry and an open question from `demo`. Dr. Patel: a
+    general naproxen/gout entry and an open question from `demo2`. Returns True
+    when every entry got an embedding."""
     doctor = doctors[DOCTOR]
     renny, patel = doctors["dr.renny"], doctors["dr.patel"]
     general_questions = (GENERAL_QUESTION, RENNY_QUESTION, PATEL_QUESTION)
