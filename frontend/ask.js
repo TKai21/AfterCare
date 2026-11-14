@@ -2,7 +2,7 @@
 import {api, escapeHtml, registerTab} from '/static/api.js';
 import {refreshCareTeam} from '/static/careteam.js';
 import {
-  EMERGENCY_COPY, MAX_QUESTION, askDoctorDirectly, emergencyHtml as sharedEmergencyHtml,
+  CHECK_ICON, EMERGENCY_COPY, MAX_QUESTION, askDoctorDirectly, emergencyHtml as sharedEmergencyHtml,
   loadDoctors, pickDoctor, rememberDoctor, warningSignsOf,
 } from '/static/doctors.js';
 
@@ -104,6 +104,9 @@ function switchDoctor(id) {
   view.open.clear();
   rememberDoctor(id);
   renderShell(panelRef);
+  // The tab row was rebuilt: keep keyboard focus on the tab just pressed.
+  const tab = panelRef.querySelector(`.doctor-tab[data-id="${CSS.escape(String(id))}"]`);
+  if (tab) tab.focus();
   loadConversation(view.docId);
 }
 
@@ -122,6 +125,9 @@ async function ask(question) {
     if (view.docId !== docId || view.doctorId !== doctorId) return;
     view.messages.push({role: 'assistant', content: payload.answer, payload});
     view.busy = false;
+    // A new answer brings back the "Ask directly" button in place of the last confirmation.
+    const direct = view.direct[doctorId];
+    if (direct && direct.sent) view.direct[doctorId] = newDirectState();
     update();
     refreshCareTeam();
     announce('Answer received.');
@@ -181,7 +187,6 @@ function doctorLabel(title) {
 }
 
 const EXTERNAL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const INFO_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="6.3" r="1.1" fill="currentColor"/></svg>';
 const SEND_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 16V4m0 0L5 9m5-5l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -379,10 +384,10 @@ function renderTabs() {
 
 // ---------- ask the real doctor ----------
 
+const newDirectState = () => ({open: false, text: '', touched: false, sending: false, sent: null, emergency: false, error: ''});
+
 const directState = () => {
-  if (!view.direct[view.doctorId]) {
-    view.direct[view.doctorId] = {open: false, text: '', touched: false, sending: false, sent: null, emergency: false, error: ''};
-  }
+  if (!view.direct[view.doctorId]) view.direct[view.doctorId] = newDirectState();
   return view.direct[view.doctorId];
 };
 
@@ -397,21 +402,22 @@ function directHtml() {
   const state = directState();
   if (state.sent) {
     return `
-      <div class="direct">
+      <div class="direct direct-done">
         ${state.emergency ? emergencyHtml() : ''}
         <p class="direct-sent" role="status">${CHECK_ICON}<span>Sent to ${esc(state.sent)}. You'll see the reply in <a href="#careteam">Care team</a>.</span></p>
+        <button type="button" class="btn btn-secondary btn-small" data-direct="again">Ask another question</button>
       </div>`;
   }
   if (!state.open) {
     return `
       <div class="direct">
-        <p class="direct-line">Want the real ${esc(name)}? <button type="button" class="btn btn-secondary btn-small" data-direct="open">Ask ${esc(name)} directly</button></p>
+        <p class="direct-line"><span>Want the real ${esc(name)}?</span><button type="button" class="btn btn-secondary btn-small" data-direct="open">Ask ${esc(name)} directly</button></p>
       </div>`;
   }
   return `
     <form class="direct direct-form" novalidate>
       <label class="direct-label" for="directInput">Your question for ${esc(name)}</label>
-      <textarea id="directInput" class="direct-input" rows="3" maxlength="${MAX_QUESTION}">${esc(state.text)}</textarea>
+      <textarea id="directInput" class="direct-input" rows="3" maxlength="${MAX_QUESTION}" ${state.sending ? 'disabled' : ''}>${esc(state.text)}</textarea>
       ${state.error ? `<p class="form-error" role="alert">${esc(state.error)}</p>` : ''}
       <div class="form-actions">
         <button type="button" class="btn btn-secondary btn-small" data-direct="cancel" ${state.sending ? 'disabled' : ''}>Cancel</button>
@@ -420,19 +426,42 @@ function directHtml() {
     </form>`;
 }
 
+// The direct box is rebuilt only when its structure changes, so a clone answer
+// arriving while the patient types keeps the text, caret and selection. The
+// textarea's text is not in the signature: the DOM holds it while typing.
+function directSig() {
+  if (view.status !== 'ready' || !currentDoctor()) return '';
+  const s = directState();
+  return JSON.stringify([view.doctorId, doctorName(), s.open, s.sending, s.sent, s.emergency, s.error]);
+}
+
 function renderDirect() {
   const box = panelRef.querySelector('#askDirect');
-  const focused = document.activeElement && document.activeElement.id === 'directInput';
+  const sig = directSig();
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const active = document.activeElement;
+  const input = active && active.id === 'directInput' ? active : null;
+  const caret = input && {start: input.selectionStart, end: input.selectionEnd,
+    direction: input.selectionDirection, scroll: input.scrollTop};
   box.innerHTML = directHtml();
-  const input = box.querySelector('#directInput');
-  if (input && focused) input.focus();
+  const again = box.querySelector('#directInput');
+  if (caret && again && !again.disabled) {
+    again.focus();
+    again.setSelectionRange(caret.start, caret.end, caret.direction);
+    again.scrollTop = caret.scroll;
+  }
 }
 
 function onDirectClick(event) {
   const button = event.target.closest('[data-direct]');
   if (!button) return;
   const state = directState();
-  if (button.dataset.direct === 'open') {
+  if (button.dataset.direct === 'open' || button.dataset.direct === 'again') {
+    if (button.dataset.direct === 'again') {
+      // A fresh, empty form: the question just sent is not offered again.
+      Object.assign(state, newDirectState(), {touched: true});
+    }
     state.open = true;
     if (!state.touched) state.text = lastQuestion();
     renderDirect();
@@ -441,6 +470,8 @@ function onDirectClick(event) {
   } else if (button.dataset.direct === 'cancel' && !state.sending) {
     state.open = false;
     renderDirect();
+    const open = panelRef.querySelector('[data-direct="open"]');
+    if (open) open.focus();
   }
 }
 
@@ -459,6 +490,10 @@ async function onDirectSubmit(event) {
   const state = directState();
   const question = state.text.trim();
   if (!question || state.sending) return;
+  // Sending disables the form, which drops focus; it comes back afterwards
+  // unless the patient has moved on.
+  const box = panelRef.querySelector('#askDirect');
+  const hadFocus = box.contains(document.activeElement);
   state.sending = true;
   state.error = '';
   renderDirect();
@@ -472,7 +507,13 @@ async function onDirectSubmit(event) {
     state.sending = false;
     state.error = error.message;
   }
-  if (isVisible() && view.doctorId === doctorId) renderDirect();
+  if (!isVisible() || view.doctorId !== doctorId) return;
+  renderDirect();
+  const lost = !document.activeElement || document.activeElement === document.body;
+  if (hadFocus && lost) {
+    const next = panelRef.querySelector(state.sent ? '[data-direct="again"]' : '#directInput');
+    if (next) next.focus();
+  }
 }
 
 function update({clearInput = false, restoreInput = false} = {}) {

@@ -1326,15 +1326,21 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
   overflow-wrap: anywhere;
 }
 .doctor-tab:hover:not(:disabled) { border-color: var(--accent); }
-.doctor-tab[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.doctor-tab[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+/* The global focus ring would square the pill's corners. */
+.doctor-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 999px; }
 .doctor-tab:disabled { cursor: not-allowed; opacity: 0.6; }
 .direct { margin-top: var(--space-2); min-width: 0; }
-.direct-line { color: var(--text-muted); overflow-wrap: anywhere; }
-.direct-line .btn { margin-left: var(--space-1); }
+.direct-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); color: var(--text-muted); overflow-wrap: anywhere; }
+.direct-line > span { min-width: 0; }
 .direct-form { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .direct-label { font-size: 15px; font-weight: 600; }
 .direct-input { min-height: 88px; }
-.direct-sent { display: flex; align-items: center; gap: 8px; margin-top: var(--space-1); color: var(--accent-hover); font-weight: 600; }
+.direct-sent { display: flex; align-items: center; gap: 8px; color: var(--accent-hover); font-weight: 600; }
+/* The confirmation after a direct question, the same in Ask and Care team. */
+.direct-done { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-width: 0; }
+.direct-done .emergency { align-self: stretch; margin-bottom: 0; }
+.direct-box .direct-done { margin-top: var(--space-1); }
 .direct-sent a { color: inherit; }
 .direct-sent svg { flex: none; }
 .direct-box { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }

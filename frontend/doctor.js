@@ -96,7 +96,7 @@ function contextHtml(q) {
   if (convo.length) {
     panels.push(`<details class="doctor-context" data-key="${q.id}:convo" ${isOpen(q.id, 'convo')}><summary>Recent conversation (last ${convo.length} messages)</summary>
       <ul class="doctor-context-body doctor-context-list">${convo.map(m =>
-        `<li><span class="doctor-context-cat">${m.role === 'user' ? 'Patient' : 'Assistant'}</span> ${esc(m.content)}</li>`).join('')}</ul></details>`);
+        `<li><span class="doctor-context-cat">${m.role === 'user' ? 'Patient' : 'Your AI clone'}</span> ${esc(m.content)}</li>`).join('')}</ul></details>`);
   }
   return panels.join('');
 }
@@ -121,11 +121,13 @@ function generalHtml(q, d) {
     </div>`;
 }
 
+// Open and answered cards. Answering assigns a question, so an answered card
+// never shows "Unassigned".
 function metaLabelsHtml(q) {
   const labels = [];
   if (q.source === 'patient') labels.push('Asked by the patient');
   if (q.doctor_id == null) labels.push('Unassigned');
-  return labels.map(l => ` &middot; <span class="doctor-meta-label">${l}</span>`).join('');
+  return labels.map(l => ` &middot; <span class="doctor-meta-label">${esc(l)}</span>`).join('');
 }
 
 function openCardHtml(q) {
@@ -134,16 +136,16 @@ function openCardHtml(q) {
     <li class="card doctor-card" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
       <p class="doctor-question">${esc(q.question)}</p>
-      ${q.source === 'patient' ? '' : q.reason ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
+      ${q.reason && q.source !== 'patient' ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
       <div class="field">
         <label for="answer-${q.id}">Your answer</label>
         <textarea id="answer-${q.id}" class="doctor-answer-box" maxlength="4000" placeholder="Your answer...">${esc(d.answer)}</textarea>
-        <span class="field-hint">The assistant follows the discharge document over this answer if they conflict.</span>
+        <span class="field-hint">Your AI clone follows the discharge document over this answer if they conflict.</span>
       </div>
       <label class="doctor-check">
         <input type="checkbox" class="doctor-general-check" ${d.general ? 'checked' : ''}>
-        <span>General advice: the assistant may use this for other patients</span>
+        <span>General advice: your AI clone may use this for other patients</span>
       </label>
       <div class="doctor-general">${generalHtml(q, d)}</div>
       <div class="doctor-error">${d.error ? `<p class="form-error" role="alert">${esc(d.error)}</p>` : ''}</div>
@@ -156,7 +158,7 @@ function openCardHtml(q) {
 function answeredCardHtml(q) {
   return `
     <li class="card doctor-card doctor-card-answered">
-      <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(formatDate(q.created_at))}</p>
+      <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
       <p class="doctor-question">${esc(q.question)}</p>
       <p class="doctor-reason"><span class="doctor-reason-label">${esc(q.answered_by_name || 'Doctor')} answered ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
     </li>`;
@@ -166,7 +168,7 @@ function renderQuestions() {
   const cards = state.open.length
     ? `<ul class="item-list doctor-list">${state.open.map(openCardHtml).join('')}</ul>`
     : `<div class="card empty-inline"><p class="section-title">No open questions</p>
-         <p class="section-text">Questions the assistant cannot answer for patients show up here.</p></div>`;
+         <p class="section-text">Questions your AI clone cannot answer for patients show up here.</p></div>`;
   main.innerHTML = `
     <div class="page-head"><h1 class="page-title">Questions</h1></div>
     <p class="doctor-notice" role="status">${esc(state.notice)}</p>
@@ -422,7 +424,7 @@ function renderGuidance() {
   const opt = (v, cur, label) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${label}</option>`;
   main.innerHTML = `
     <div class="page-head"><h1 class="page-title">My guidance</h1>
-      <p class="lead">Editing changes future assistant answers only. Past chat messages keep the text they showed.</p></div>
+      <p class="lead">Editing changes your AI clone's future answers only. Past chat messages keep the text they showed.</p></div>
     <div class="doctor-filters">
       <div class="field"><label for="fScope">Scope</label>
         <select id="fScope">${opt('all', f.scope, 'All')}${opt('general', f.scope, 'General')}${opt('patient', f.scope, 'Patient-specific')}</select></div>
@@ -481,7 +483,7 @@ async function rowAction(action, id) {
     if (entry.active) {
       const ok = await confirmDialog({
         title: 'Retire this guidance?',
-        body: 'The assistant will stop using it. You can re-activate it later.',
+        body: 'Your AI clone will stop using it. You can re-activate it later.',
         confirmLabel: 'Retire', danger: true,
       });
       if (!ok) return;

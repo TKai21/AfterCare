@@ -1,7 +1,8 @@
 // Care team tab: questions to bring to the care team, open first, resolved collapsed.
 import {api, escapeHtml, registerTab} from '/static/api.js';
 import {
-  MAX_QUESTION, askDoctorDirectly, emergencyHtml, loadDoctors, pickDoctor, warningSignsOf,
+  CHECK_ICON, MAX_QUESTION, askDoctorDirectly, emergencyHtml, loadDoctors, pickDoctor,
+  warningSignsOf,
 } from '/static/doctors.js';
 
 const esc = escapeHtml;
@@ -20,22 +21,30 @@ const view = {
   itemError: null,     // {id, text}
   resolvedOpen: false,
   doctors: [],
-  form: {doctorId: null, text: '', sending: false, error: '', sent: null, emergency: false},
+  // chosen: the patient picked a doctor in the select during this visit to the tab.
+  form: {doctorId: null, chosen: false, text: '', sending: false, error: '', sent: null, emergency: false},
   signs: [],           // active warning signs, for the emergency banner
 };
 
+// Each visit starts on the doctor last chosen in Ask, unless the patient picks
+// another one in the form during the visit.
+function pickFormDoctor() {
+  const form = view.form;
+  if (form.chosen && view.doctors.some(d => d.id === form.doctorId)) return;
+  const picked = pickDoctor(view.doctors);
+  form.doctorId = picked ? picked.id : null;
+}
+
 function show(panel, ctx) {
   view.signs = warningSignsOf(ctx && ctx.document);
+  view.form.chosen = false;
+  pickFormDoctor();
   markAnswersSeen();
   render(panel);
   load(panel);
   loadDoctors().then(doctors => {
     view.doctors = doctors;
-    const current = doctors.find(d => d.id === view.form.doctorId);
-    if (!current) {
-      const picked = pickDoctor(doctors);
-      view.form.doctorId = picked ? picked.id : null;
-    }
+    pickFormDoctor();
     render(panel);
   }).catch(() => {
     // The form stays hidden; the list still works.
@@ -197,9 +206,6 @@ function formHtml() {
   return `
     <form class="direct-box" id="directBox" novalidate>
       <h2 class="section-title">Ask a doctor directly</h2>
-      ${form.sent ? `
-        ${form.emergency ? emergencyHtml(view.signs) : ''}
-        <p class="direct-sent" role="status">Sent to ${esc(form.sent)}. You'll see the reply below.</p>` : ''}
       <div class="field">
         <label for="directDoctor">Doctor</label>
         <select id="directDoctor">
@@ -208,12 +214,17 @@ function formHtml() {
       </div>
       <div class="field">
         <label for="directQuestion">Your question</label>
-        <textarea id="directQuestion" maxlength="${MAX_QUESTION}">${esc(form.text)}</textarea>
+        <textarea id="directQuestion" maxlength="${MAX_QUESTION}" ${form.sending ? 'disabled' : ''}>${esc(form.text)}</textarea>
       </div>
       ${form.error ? `<p class="form-error" role="alert">${esc(form.error)}</p>` : ''}
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-small" id="directSubmit" ${disabled ? 'disabled' : ''}>${form.sending ? 'Sending...' : 'Send'}</button>
       </div>
+      ${form.sent ? `
+        <div class="direct-done">
+          ${form.emergency ? emergencyHtml(view.signs) : ''}
+          <p class="direct-sent" role="status">${CHECK_ICON}<span>Sent to ${esc(form.sent)}. You'll see the reply below.</span></p>
+        </div>` : ''}
     </form>`;
 }
 
@@ -221,6 +232,9 @@ async function sendDirect(panel) {
   const form = view.form;
   const question = form.text.trim();
   if (!question || form.sending || form.doctorId === null) return;
+  // Sending disables the form, which drops focus; it returns to the question
+  // box afterwards unless the patient has moved on.
+  const hadFocus = panel.contains(document.activeElement);
   form.sending = true;
   form.error = '';
   render(panel);
@@ -239,12 +253,23 @@ async function sendDirect(panel) {
   }
   form.sending = false;
   render(panel);
+  const lost = !document.activeElement || document.activeElement === document.body;
+  if (hadFocus && lost) {
+    const input = panel.querySelector('#directQuestion');
+    if (input) input.focus();
+  }
 }
 
 function render(panel) {
   if (panel.hidden) return;
+  // Everything is rebuilt: the focused field gets its focus, caret, selection
+  // and scroll back.
   const active = document.activeElement;
   const refocus = active && panel.contains(active) && active.id ? active.id : null;
+  const caret = refocus && typeof active.selectionStart === 'number'
+    ? {start: active.selectionStart, end: active.selectionEnd,
+       direction: active.selectionDirection, scroll: active.scrollTop}
+    : null;
   let body;
   if (view.error && !view.questions) {
     body = `<p class="form-error" role="alert">${esc(view.error)}</p>`;
@@ -283,7 +308,10 @@ function render(panel) {
   if (box) {
     box.querySelector('#directDoctor').addEventListener('change', event => {
       const picked = view.doctors.find(d => String(d.id) === event.target.value);
-      if (picked) view.form.doctorId = picked.id;
+      if (picked) {
+        view.form.doctorId = picked.id;
+        view.form.chosen = true;
+      }
     });
     box.querySelector('#directQuestion').addEventListener('input', event => {
       view.form.text = event.target.value;
@@ -296,8 +324,14 @@ function render(panel) {
     });
   }
   if (refocus) {
-    const again = panel.querySelector('#' + refocus);
-    if (again) again.focus();
+    const again = panel.querySelector('#' + CSS.escape(refocus));
+    if (again && !again.disabled) {
+      again.focus();
+      if (caret && typeof again.setSelectionRange === 'function') {
+        again.setSelectionRange(caret.start, caret.end, caret.direction);
+        again.scrollTop = caret.scroll;
+      }
+    }
   }
 
   panel.querySelectorAll('.resolve-btn').forEach(button => {
