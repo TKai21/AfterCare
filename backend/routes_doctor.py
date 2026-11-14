@@ -14,18 +14,20 @@ from db import get_session
 from doctors import doctor_labels
 from documents import paragraphs
 from extraction import normalize
-from guidance import embed_entry
 from llm import LLMError
 from models import (
     CareTeamQuestion,
     ChatMessage,
     DischargeDocument,
     DoctorGuidance,
+    GuidanceConflict,
+    GuidanceRule,
     User,
 )
 from routes_agent import recent_history
 from routes_care_team import question_view
 from routes_documents import load_items
+from rules import clear_rules, index_entry
 
 router = APIRouter()
 
@@ -161,6 +163,71 @@ async def cited_counts(session: AsyncSession, doctor_ids: set[int]) -> dict[tupl
     return counts
 
 
+async def rules_and_conflicts(
+    session: AsyncSession, entries: list[DoctorGuidance]
+) -> tuple[dict[int, list[GuidanceRule]], dict[int, list[dict]]]:
+    """Each entry's rules, and the open conflicts on either side of them, as the
+    doctor sees them from that entry. A conflict whose other entry is retired
+    is not shown: retired advice reaches no patient."""
+    ids = [e.id for e in entries]
+    rules: dict[int, list[GuidanceRule]] = {}
+    if not ids:
+        return rules, {}
+    for r in await session.scalars(
+        select(GuidanceRule).where(GuidanceRule.guidance_id.in_(ids))
+        .order_by(GuidanceRule.guidance_id, GuidanceRule.position)
+    ):
+        rules.setdefault(r.guidance_id, []).append(r)
+    rule_ids = [r.id for rs in rules.values() for r in rs]
+    if not rule_ids:
+        return rules, {}
+    found = list(await session.scalars(
+        select(GuidanceConflict).where(
+            GuidanceConflict.status == "open",
+            or_(GuidanceConflict.rule_id.in_(rule_ids),
+                GuidanceConflict.other_rule_id.in_(rule_ids)),
+        ).order_by(GuidanceConflict.id)
+    ))
+    side_ids = {c.rule_id for c in found} | {c.other_rule_id for c in found if c.other_rule_id}
+    side = {
+        r.id: (r, e) for r, e in (await session.execute(
+            select(GuidanceRule, DoctorGuidance)
+            .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)
+            .where(GuidanceRule.id.in_(side_ids))
+        )).all()
+    } if side_ids else {}
+    mine = set(ids)
+    out: dict[int, list[dict]] = {}
+    for c in found:
+        pairs = [(c.rule_id, c.other_rule_id)]
+        if c.other_rule_id is not None:
+            pairs.append((c.other_rule_id, c.rule_id))
+        for own_id, other_id in pairs:
+            if own_id not in side:
+                continue
+            own_rule, own_entry = side[own_id]
+            if own_entry.id not in mine:
+                continue
+            if other_id is None:
+                other = {"kind": "label", "title": c.label_title, "url": c.label_url,
+                         "quote": c.label_quote}
+            else:
+                if other_id not in side:
+                    continue
+                other_rule, other_entry = side[other_id]
+                if not other_entry.active:
+                    continue
+                other = {"kind": "advice", "guidance_id": other_entry.id,
+                         "question": other_entry.question, "statement": other_rule.statement,
+                         "quote": other_rule.quote}
+            out.setdefault(own_entry.id, []).append({
+                "id": c.id, "explanation": c.explanation,
+                "rule": {"statement": own_rule.statement, "quote": own_rule.quote},
+                "other": other,
+            })
+    return rules, out
+
+
 async def guidance_views(
     session: AsyncSession, llm, entries: list[DoctorGuidance]
 ) -> list[dict]:
@@ -181,6 +248,7 @@ async def guidance_views(
             )).all()
         }
     cited = await cited_counts(session, {e.doctor_id for e in entries})
+    rules, conflicts = await rules_and_conflicts(session, entries)
     model = getattr(llm, "embedding_model", None) if llm is not None else None
     return [
         {
@@ -201,6 +269,10 @@ async def guidance_views(
                 and (e.document_id is None or e.document_id != active_docs.get(e.patient_id))
             ),
             "cited_count": cited.get((e.doctor_id, e.id), 0),
+            "rules_status": e.rules_status,
+            "rules": [{"id": r.id, "statement": r.statement, "quote": r.quote}
+                      for r in rules.get(e.id, [])],
+            "conflicts": conflicts.get(e.id, []),
             "created_at": e.created_at.isoformat() if e.created_at else None,
             "updated_at": e.updated_at.isoformat() if e.updated_at else None,
         }
@@ -257,8 +329,7 @@ async def answer_question(
     session.add(entry)
     await session.commit()
     if llm is not None:
-        await embed_entry(llm, entry)
-        await session.commit()
+        await index_entry(session, llm, request.app.state.store, entry)
     await session.refresh(q)
     await session.refresh(entry)
     return {
@@ -382,12 +453,14 @@ async def patch_guidance(
     if body.active is not None:
         entry.active = body.active
     if text_changed:
+        # The old vector and rules describe the old text: never search them.
         entry.embedding = None
         entry.embedding_model = None
+        entry.rules_status = None
+        await clear_rules(session, entry.id)
     await session.commit()
     if text_changed and llm is not None:
-        await embed_entry(llm, entry)
-        await session.commit()
+        await index_entry(session, llm, request.app.state.store, entry)
     await session.refresh(entry)
     return await guidance_view(session, llm, entry)
 
@@ -403,7 +476,20 @@ async def embed_guidance(
     if llm is None:
         raise HTTPException(status_code=503, detail="No model is configured.")
     entry = await get_entry(session, guidance_id, doctor)
-    await embed_entry(llm, entry)
-    await session.commit()
+    await index_entry(session, llm, request.app.state.store, entry)
     await session.refresh(entry)
     return await guidance_view(session, llm, entry)
+
+
+@router.post("/api/doctor/conflicts/{conflict_id}/dismiss")
+async def dismiss_conflict(
+    conflict_id: int,
+    doctor: User = Depends(current_doctor),
+    session: AsyncSession = Depends(get_session),
+):
+    conflict = await session.get(GuidanceConflict, conflict_id)
+    if conflict is None or conflict.doctor_id != doctor.id:
+        raise HTTPException(status_code=404, detail="Conflict not found")
+    conflict.status = "dismissed"
+    await session.commit()
+    return {"id": conflict.id, "status": conflict.status}

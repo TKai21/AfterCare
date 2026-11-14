@@ -11,9 +11,9 @@ from auth import current_patient
 from db import get_session
 from doctors import doctor_label, require_doctor
 from druglabels import patient_rxcuis
-from guidance import retrieve
+from guidance import Unit, retrieve
 from llm import LLMError
-from models import ChatMessage, DoctorGuidance, User
+from models import ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import detect_emergency, warning_terms
@@ -119,7 +119,7 @@ async def ask(
         min_similarity = request.app.state.settings.guidance_min_similarity
         memory_failed = False
 
-        async def guidance_search(query: str) -> list[DoctorGuidance]:
+        async def guidance_search(query: str) -> list[Unit]:
             # The guidance memory must never break a turn (an emergency answer
             # included): any failure other than the model's becomes a tool error.
             nonlocal memory_failed
@@ -140,7 +140,7 @@ async def ask(
                 except Exception:
                     log.exception("Rollback after a failed guidance search failed")
                 raise GuidanceUnavailable(str(exc)) from exc
-            return [entry for entry, _score in hits]
+            return [unit for unit, _score in hits]
 
         search = guidance_search
         prefetch = None

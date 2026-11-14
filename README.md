@@ -259,13 +259,23 @@ The gate: a general entry only reaches a patient whose discharge document or con
 
 The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine similarity for retrieving an entry that passes the gate.
 
+### Rules and conflicts
+
+When a doctor saves or edits advice, the model splits the answer into **rules**: short standalone statements, each tied to the exact words of the answer it came from (design: `docs/superpowers/specs/2026-11-14-guidance-rules-design.md`). The server keeps a rule only if its quote really is a span of the answer and every number in the rule appears in that quote. Retrieval then scores rules instead of whole answers (at most 3 rules per entry, 6 in total), after the same gate, so the clone can combine rules from several answers in one reply. The patient's source shows the doctor's own words, and only those words ground the numbers in an answer. If the rules cannot be read (no model, a model error, nothing valid), the entry is searched as a whole, as before, and the doctor page offers "Retry reading rules".
+
+New rules are also checked for **conflicts** with the same doctor's other rules (when they could reach the same patient) and with approved FDA drug label passages for the entry's drug tags. The model judges the most similar pairs; a conflict shows on the doctor's guidance page on both entries, with both sides quoted, until the doctor edits the advice or presses "Not a conflict". The My guidance tab badge counts the entries with an open conflict. Conflicts are advisory: they never block saving and never change what the clone may cite.
+
+The tables `guidance_rules` and `guidance_conflicts` are created on startup; the column `doctor_guidance.rules_status` is added to an existing table on startup (SQLite and MySQL). Existing entries get rules the next time they are edited or retried.
+
+To see a conflict: log in as `dr.ting`, answer the open question with "General advice" ticked and tags `colchicine / Colcrys` and `gout`, for example "In a flare you can repeat 0.6 mg of colchicine every 2 hours until the pain eases." With a model configured, both this entry and the seeded colchicine entry show the conflict.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 667 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 693 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

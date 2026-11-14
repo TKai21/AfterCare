@@ -37,7 +37,7 @@ from sqlalchemy import delete, or_, select  # noqa: E402
 
 from auth import hash_password  # noqa: E402
 from config import get_settings  # noqa: E402
-from guidance import embed_entry  # noqa: E402
+from rules import clear_rules_of, index_without_commit  # noqa: E402
 from llm import LLMClient  # noqa: E402
 from db import init_db, make_engine, make_session_factory  # noqa: E402
 from documents import paragraphs  # noqa: E402
@@ -211,12 +211,12 @@ async def reset_user(session, username: str, password: str) -> User:
         doc_ids = select(DischargeDocument.id).where(DischargeDocument.user_id == user.id)
         item_ids = select(ChecklistItem.id).where(ChecklistItem.document_id.in_(doc_ids))
         question_ids = select(CareTeamQuestion.id).where(CareTeamQuestion.user_id == user.id)
-        await session.execute(
-            delete(DoctorGuidance).where(or_(
-                DoctorGuidance.patient_id == user.id,
-                DoctorGuidance.source_question_id.in_(question_ids),
-            ))
+        owned = or_(
+            DoctorGuidance.patient_id == user.id,
+            DoctorGuidance.source_question_id.in_(question_ids),
         )
+        await clear_rules_of(session, select(DoctorGuidance.id).where(owned))
+        await session.execute(delete(DoctorGuidance).where(owned))
         await session.execute(
             delete(ChecklistCompletion).where(ChecklistCompletion.checklist_item_id.in_(item_ids))
         )
@@ -311,11 +311,13 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     doctor = doctors[DOCTOR]
     renny, patel = doctors["dr.renny"], doctors["dr.patel"]
     general_questions = (GENERAL_QUESTION, RENNY_QUESTION, PATEL_QUESTION)
-    await session.execute(delete(DoctorGuidance).where(
+    seeded = (
         DoctorGuidance.doctor_id.in_([d.id for d in doctors.values()]),
         DoctorGuidance.scope == "general",
         DoctorGuidance.question.in_(general_questions),
-    ))
+    )
+    await clear_rules_of(session, select(DoctorGuidance.id).where(*seeded))
+    await session.execute(delete(DoctorGuidance).where(*seeded))
     answered = CareTeamQuestion(
         user_id=demo2.id, document_id=doc2.id, question=PATIENT_QUESTION,
         reason="Asked by the patient", source="patient",
@@ -360,7 +362,8 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     embedded = True
     if llm is not None:
         for entry in entries:
-            embedded = await embed_entry(llm, entry) and embedded
+            # No library store: the demo labels are reset to pending by the seed.
+            embedded = await index_without_commit(session, llm, None, entry) and embedded
     else:
         embedded = False
     return embedded

@@ -23,6 +23,7 @@ const state = {
   editing: new Map(),   // guidance id -> edit draft
   rowErrors: new Map(), // guidance id -> message
   busyRows: new Set(),
+  rulesOpen: new Set(), // guidance ids whose rules disclosure is open
 };
 
 const main = document.getElementById('main');
@@ -368,10 +369,57 @@ function bindQuestions() {
 
 // ---------- My guidance tab ----------
 
+function statusMatches(e, status) {
+  if (status === 'conflicts') return e.active && e.conflicts.length > 0;
+  return status === 'active' ? e.active : !e.active;
+}
+
 function visibleEntries() {
   const {scope, status} = state.filters;
   return (state.guidance || []).filter(e =>
-    (scope === 'all' || e.scope === scope) && (status === 'active' ? e.active : !e.active));
+    (scope === 'all' || e.scope === scope) && statusMatches(e, status));
+}
+
+// Entries with an open conflict, as the Guidance tab badge counts them.
+function conflictCount() {
+  return (state.guidance || []).filter(e => e.active && e.conflicts.length).length;
+}
+
+const WARN_ICON = '<svg class="conflict-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5l8.5 15h-17z"/><path d="M12 10.25v4"/><path d="M12 17.25v.01"/></svg>';
+
+function conflictHtml(c) {
+  const o = c.other;
+  const other = o.kind === 'label'
+    ? `<p class="conflict-side-label">FDA drug label${o.title ? `: ${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>` : esc(o.title)}` : ''}</p>
+       <blockquote class="conflict-quote">${esc(o.quote)}</blockquote>`
+    : `<p class="conflict-side-label">Your earlier advice, on &ldquo;${esc(o.question)}&rdquo;</p>
+       <blockquote class="conflict-quote">${esc(o.quote)}</blockquote>`;
+  return `
+    <li class="conflict" data-cid="${c.id}">
+      <p class="conflict-head">${WARN_ICON}<span>Possible conflict</span></p>
+      <p class="conflict-why">${esc(c.explanation)}</p>
+      <div class="conflict-sides">
+        <div class="conflict-side"><p class="conflict-side-label">This advice</p>
+          <blockquote class="conflict-quote">${esc(c.rule.quote)}</blockquote></div>
+        <div class="conflict-side">${other}</div>
+      </div>
+      <div class="form-actions conflict-actions">
+        <button type="button" class="btn btn-secondary btn-small" data-action="dismiss-conflict" data-cid="${c.id}">Not a conflict</button>
+      </div>
+    </li>`;
+}
+
+function rulesHtml(e) {
+  if (!e.rules.length) return '';
+  const open = state.rulesOpen.has(e.id) ? ' open' : '';
+  return `
+    <details class="doctor-rules"${open} data-gid="${e.id}">
+      <summary class="doctor-rules-summary">How your clone reads this <span class="count">${e.rules.length}</span></summary>
+      <ol class="rule-list">${e.rules.map(r => `
+        <li class="rule"><p class="rule-statement">${esc(r.statement)}</p>
+          ${r.quote !== r.statement ? `<p class="rule-quote"><span class="rule-quote-label">Your words</span> ${esc(r.quote)}</p>` : ''}</li>`).join('')}
+      </ol>
+    </details>`;
 }
 
 function tagsLine(e) {
@@ -401,6 +449,7 @@ function rowHtml(e) {
   const labels = [];
   if (e.scope === 'patient' && e.stale) labels.push('for an earlier document');
   if (!e.searchable) labels.push('not searchable yet');
+  else if (e.rules_status === 'failed') labels.push('read as a whole');
   const scope = e.scope === 'general' ? 'General' : `Patient: ${esc(e.patient || 'unknown')}`;
   const meta = [scope, formatDate(e.created_at), `cited ${e.cited_count} ${e.cited_count === 1 ? 'time' : 'times'}`]
     .filter(Boolean).join(' &middot; ');
@@ -410,13 +459,15 @@ function rowHtml(e) {
       ${ed ? editHtml(e, ed) : `
         <p class="doctor-question">${esc(e.question)}</p>
         <p class="doctor-answer-text">${esc(e.answer)}</p>
-        ${tagsLine(e)}`}
+        ${tagsLine(e)}
+        ${e.active && e.conflicts.length ? `<ul class="conflict-list">${e.conflicts.map(conflictHtml).join('')}</ul>` : ''}
+        ${rulesHtml(e)}`}
       ${err ? `<p class="form-error" role="alert">${esc(err)}</p>` : ''}
       <div class="form-actions doctor-row-actions">
         ${ed ? `
           <button type="button" class="btn btn-secondary btn-small" data-action="cancel-edit" ${busy ? 'disabled' : ''}>Cancel</button>
           <button type="button" class="btn btn-primary btn-small" data-action="save-edit" ${busy ? 'disabled' : ''}>${busy ? 'Saving...' : 'Save'}</button>` : `
-          ${!e.searchable && e.active ? `<button type="button" class="btn btn-secondary btn-small" data-action="embed" ${busy ? 'disabled' : ''}>Retry embedding</button>` : ''}
+          ${e.active && (!e.searchable || e.rules_status === 'failed') ? `<button type="button" class="btn btn-secondary btn-small" data-action="embed" ${busy ? 'disabled' : ''}>${!e.searchable ? 'Retry embedding' : 'Retry reading rules'}</button>` : ''}
           <button type="button" class="btn btn-secondary btn-small" data-action="edit" ${busy ? 'disabled' : ''}>Edit</button>
           <button type="button" class="btn ${e.active ? 'btn-secondary' : 'btn-primary'} btn-small" data-action="toggle-active" ${busy ? 'disabled' : ''}>${e.active ? 'Retire' : 'Re-activate'}</button>`}
       </div>
@@ -446,8 +497,9 @@ function renderGuidance() {
       <div class="field"><label for="fScope">Scope</label>
         <select id="fScope">${opt('all', f.scope, 'All')}${opt('general', f.scope, 'General')}${opt('patient', f.scope, 'Patient-specific')}</select></div>
       <div class="field"><label for="fStatus">Status</label>
-        <select id="fStatus">${opt('active', f.status, 'Active')}${opt('retired', f.status, 'Retired')}</select></div>
+        <select id="fStatus">${opt('active', f.status, 'Active')}${opt('conflicts', f.status, 'With conflicts')}${opt('retired', f.status, 'Retired')}</select></div>
     </div>
+    ${conflictCount() ? `<button type="button" class="conflict-summary" data-action="show-conflicts">${WARN_ICON}<span><strong>${conflictCount()}</strong> ${conflictCount() === 1 ? 'entry has' : 'entries have'} a possible conflict</span></button>` : ''}
     </div>
     <div class="split-main">
     ${state.guidanceError && state.guidance ? `<p class="form-error" role="alert">${esc(state.guidanceError)}</p>` : ''}
@@ -463,6 +515,7 @@ async function loadGuidance() {
   } catch (error) {
     state.guidanceError = error.message;
   }
+  renderTabs();
   if (state.tab === 'guidance') renderGuidance();
 }
 
@@ -481,7 +534,7 @@ async function patchRow(id, json, {optimisticClose} = {}) {
   renderGuidance();
 }
 
-async function rowAction(action, id) {
+async function rowAction(action, id, cid) {
   const entry = state.guidance.find(e => e.id === id);
   const ed = state.editing.get(id);
   if (action === 'edit') {
@@ -510,6 +563,8 @@ async function rowAction(action, id) {
       if (!ok) return;
     }
     await patchRow(id, {active: !entry.active});
+  } else if (action === 'dismiss-conflict') {
+    await dismissConflict(id, Number(cid));
   } else if (action === 'embed') {
     state.busyRows.add(id);
     renderGuidance();
@@ -525,7 +580,29 @@ async function rowAction(action, id) {
   }
 }
 
+async function dismissConflict(id, cid) {
+  state.busyRows.add(id);
+  renderGuidance();
+  try {
+    await api(`/api/doctor/conflicts/${cid}/dismiss`, {method: 'POST'});
+    // A conflict shows on both of its entries: drop it everywhere.
+    state.guidance = state.guidance.map(e => ({...e, conflicts: e.conflicts.filter(c => c.id !== cid)}));
+    state.rowErrors.delete(id);
+  } catch (error) {
+    state.rowErrors.set(id, error.message);
+  }
+  state.busyRows.delete(id);
+  renderTabs();
+  renderGuidance();
+}
+
 function bindGuidance() {
+  main.addEventListener('toggle', event => {
+    const details = event.target;
+    if (!details.classList || !details.classList.contains('doctor-rules')) return;
+    const id = Number(details.dataset.gid);
+    if (details.open) state.rulesOpen.add(id); else state.rulesOpen.delete(id);
+  }, true);
   main.addEventListener('change', event => {
     if (event.target.id === 'fScope') { state.filters.scope = event.target.value; renderGuidance(); }
     else if (event.target.id === 'fStatus') { state.filters.status = event.target.value; renderGuidance(); }
@@ -588,8 +665,11 @@ function bindShared() {
       } else if (action === 'add-tag') {
         addEditTag(id, kind, row.querySelector(`.doctor-tag-input[data-kind="${kind}"]`));
       } else {
-        rowAction(action, id);
+        rowAction(action, id, button.dataset.cid);
       }
+    } else if (action === 'show-conflicts') {
+      state.filters.status = 'conflicts';
+      renderGuidance();
     }
   });
   main.addEventListener('keydown', event => {
@@ -625,6 +705,7 @@ function setBadge(tab, count, one, many) {
 function renderTabs() {
   setBadge(document.getElementById('tabQuestions'), state.open.length, 'open question', 'open questions');
   setBadge(document.getElementById('tabLabels'), state.labelCount, 'label to review', 'labels to review');
+  setBadge(document.getElementById('tabGuidance'), conflictCount(), 'entry with a possible conflict', 'entries with a possible conflict');
   document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === state.tab) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
@@ -698,6 +779,7 @@ async function boot() {
   main.innerHTML = '<p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Loading...</p>';
   // The badge only (the tab shows its own errors); a count the tab reported wins.
   countPendingLabels().then(count => { if (!state.labelCountFromTab) setLabelCount(count); }, () => {});
+  loadGuidance();  // for the conflict badge; the tab reloads it when opened
   await loadQueue();
   route();
 }

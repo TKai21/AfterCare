@@ -46,6 +46,7 @@ async def init_db(engine: AsyncEngine) -> None:
 # database gets each one here, on SQLite and MySQL alike, with no data loss.
 ADDED_COLUMNS = (
     ("users", "specialty", "VARCHAR(100) NULL"),
+    ("doctor_guidance", "rules_status", "VARCHAR(20) NULL"),
 )
 
 

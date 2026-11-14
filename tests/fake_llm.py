@@ -1,6 +1,9 @@
 import hashlib
+import json
 import math
 import re
+
+import rules
 
 
 class FakeLLM:
@@ -11,6 +14,13 @@ class FakeLLM:
     def __init__(self, embedding_model: str = "fake-bag-of-words-64"):
         self.queue: list[dict] = []
         self.calls: list[tuple] = []
+        # System prompt -> responder(messages) -> message. Routed calls skip the
+        # scripted queue and are recorded in routed_calls, not calls.
+        # By default the rule reader gets one rule per sentence and the conflict
+        # check finds none, so indexing never consumes the scripted queue.
+        self.routes: dict = {rules.RULES_PROMPT: sentence_rules,
+                             rules.CONFLICT_PROMPT: no_conflicts}
+        self.routed_calls: list[tuple] = []
         self._embedding_model = embedding_model
 
     @property
@@ -20,7 +30,14 @@ class FakeLLM:
     def script(self, *messages: dict) -> None:
         self.queue.extend(messages)
 
+    def route(self, system_prompt: str, responder) -> None:
+        self.routes[system_prompt] = responder
+
     async def chat(self, messages, tools=None, json_mode=False):
+        system = messages[0].get("content") if messages else None
+        if system in self.routes:
+            self.routed_calls.append((messages, tools, json_mode))
+            return self.routes[system](messages)
         self.calls.append((messages, tools, json_mode))
         if not self.queue:
             raise AssertionError(
@@ -40,3 +57,15 @@ class FakeLLM:
         if norm == 0:
             values[0], norm = 1.0, 1.0
         return [v / norm for v in values]
+
+
+def sentence_rules(messages):
+    """Default rule reader: one rule per sentence of the answer, the sentence
+    as both statement and quote."""
+    answer = messages[1]["content"].split("Doctor's answer:\n", 1)[1]
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
+    return {"content": json.dumps({"rules": [{"statement": s, "quote": s} for s in sentences]})}
+
+
+def no_conflicts(messages):
+    return {"content": json.dumps({"conflicts": []})}

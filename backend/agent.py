@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Awaitable, Callable, NamedTuple, Optional
 
 from documents import paragraphs
+from guidance import RuleHit, Unit
 from knowledge import KnowledgeError
 from llm import LLMError
 from models import DischargeDocument, DoctorGuidance, ExtractedItem
@@ -140,14 +141,14 @@ GENERAL_INFO_MARK = "here is general information"
 SYSTEM_PROMPT = """You are AfterCare, an assistant that helps a patient understand and follow their own hospital discharge instructions. AfterCare is a class project, not medical advice.
 
 Each turn you receive the patient's discharge document split into numbered paragraphs, the instructions the patient confirmed, and the patient's question. You can call these tools:
-- search_doctor_guidance(query): {DOCTOR}'s earlier written advice, called "my earlier advice" here and in your answers, either for this patient or general advice for patients like them. Each entry gives the question it answered (context only, never evidence) and the advice. Entries that match the patient's question may already be listed under "My earlier advice"; search to find more, with different words.
+- search_doctor_guidance(query): {DOCTOR}'s earlier written advice, called "my earlier advice" here and in your answers, either for this patient or general advice for patients like them. Each entry gives the question it answered (context only, never evidence) and either the advice, or one rule read from my advice with "my words", the exact words it came from. My words are the evidence: when a rule and my words differ, follow my words. Rules from different entries can be combined to answer one question; cite each one you use. Entries that match the patient's question may already be listed under "My earlier advice"; search to find more, with different words.
 - search_education_library(query): passages from an approved patient-education library, each with its source.
 - lookup_food(name): per-serving nutrient values from the food table, each value with its source.
 - add_care_team_question(question, reason): adds a question to the patient's list for their care team.
 Every document paragraph, my earlier advice entry, library passage and food entry has an evidence number. Cite evidence only by these numbers.
 
 Authority rules:
-1. Follow the sources in this order, highest first: the patient's discharge document, then my earlier advice for this patient, then my earlier general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, follow the higher one, say the sources differ, and call add_care_team_question with reason "Sources disagree".
+1. Follow the sources in this order, highest first: the patient's discharge document, then my earlier advice for this patient, then my earlier general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, follow the higher one, say the sources differ, and call add_care_team_question with reason "Sources disagree". The same applies when two pieces of my earlier advice disagree with each other.
 2. If the document does not answer the question, use my earlier advice (the entries already listed, and search_doctor_guidance) before search_education_library. An entry of my earlier advice about a different drug, condition or situation than the one asked about does not apply; do not use it. You are {DOCTOR}'s AI clone. Speak in the first person as {DOCTOR}'s AI clone ('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when you introduce yourself, say you are {DOCTOR}'s AI clone.
 3. Use the library and food data to explain and apply the document's instruction to the specific thing asked about. For example, if the document says to limit foods high in some nutrient and the patient asks about a food: look up that food, search the library for what counts as high in that nutrient, then answer with the numbers and the serving size. Apply only instructions that are actually in this patient's document. Never say the document tells the patient to avoid or limit something it does not mention; if the document has no instruction about the thing asked, say so.
 4. What counts as "high", "low", or a safe amount must come from a cited document paragraph, my earlier advice, or a library passage, never from your own knowledge. If none of them says it, say that the approved sources do not say.
@@ -198,7 +199,8 @@ TOOLS = [
     _function(
         "search_doctor_guidance",
         "Search my earlier advice: the doctor's earlier written advice that applies to this "
-        "patient. Returns numbered entries, each with the question it answered and the advice.",
+        "patient. Returns numbered entries, each with the question it answered and the advice, "
+        "or one rule read from the advice with the doctor's exact words.",
         {"query": "What to look for, in plain words."},
     ),
     _function(
@@ -519,7 +521,8 @@ def _document_context(document_paragraphs: list[str], items: list[ExtractedItem]
     )
 
 
-GuidanceSearch = Callable[[str], Awaitable[list[DoctorGuidance]]]
+# A search returns whole entries, or rules of entries (guidance.RuleHit).
+GuidanceSearch = Callable[[str], Awaitable[list[Unit]]]
 
 
 def _short_date(moment) -> str:
@@ -548,17 +551,20 @@ def _applies_to(entry: DoctorGuidance) -> str:
     return "this patient" if entry.scope == "patient" else "general advice"
 
 
+def _prefetch_item(e: dict) -> str:
+    head = (f"[{e['evidence_number']}] {e['title']} ({e['applies_to']})\n"
+            f"Question it answered (context only, not evidence): {e['question_answered']}\n")
+    if "rule" in e:
+        return head + f"Rule: {e['rule']}\nMy words: {e['my_words']}"
+    return head + f"Advice: {e['advice']}"
+
+
 def _prefetch_context(entries: list[dict]) -> str:
     """Guidance entries found for the question before the first model call, as
     numbered evidence. Nonce tags, as in _document_context."""
     nonce = secrets.token_hex(6)
     if entries:
-        listed = "\n\n".join(
-            f"[{e['evidence_number']}] {e['title']} ({e['applies_to']})\n"
-            f"Question it answered (context only, not evidence): {e['question_answered']}\n"
-            f"Advice: {e['advice']}"
-            for e in entries
-        )
+        listed = "\n\n".join(_prefetch_item(e) for e in entries)
     else:
         listed = "- (none matched this question)"
     return (
@@ -596,11 +602,29 @@ class _Turn:
             self._numbers[key] = number
         return self._numbers[key]
 
-    def doctor_entry(self, entry: DoctorGuidance) -> dict:
-        """Number one of the doctor's guidance entries (prefetched or found by the
-        tool; the same entry keeps its number) and return what the model sees."""
-        # Only the answer is evidence: the question it answered is context, so
-        # numbers in the question can never ground an answer.
+    def doctor_entry(self, unit: Unit) -> dict:
+        """Number one piece of the doctor's guidance (prefetched or found by the
+        tool; the same piece keeps its number) and return what the model sees.
+        A rule is its own evidence, and only its quote, the doctor's own words,
+        is shown to the patient and grounds numbers; the restated rule only helps
+        the model. A whole entry is evidence by its answer."""
+        # The question an entry answered is context, so numbers in it can never
+        # ground an answer.
+        if isinstance(unit, RuleHit):
+            entry, rule = unit.entry, unit.rule
+            number = self._number(("rule", rule.id), "doctor",
+                                  guidance_title(self.doctor_name, entry), None, rule.quote,
+                                  check_text=rule.quote)
+            self.evidence[number].guidance_id = entry.id
+            return {
+                "evidence_number": number,
+                "title": model_guidance_label(entry),
+                "applies_to": _applies_to(entry),
+                "question_answered": entry.question,
+                "rule": rule.statement,
+                "my_words": rule.quote,
+            }
+        entry = unit
         number = self._number(("doctor", entry.id), "doctor",
                               guidance_title(self.doctor_name, entry), None, entry.answer,
                               check_text=entry.answer)

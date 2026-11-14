@@ -172,10 +172,53 @@ class DoctorGuidance(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     embedding: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # The rules read from the answer (guidance_rules): None when not tried (no
+    # model), "ready" when there are rules, "failed" when reading them failed.
+    rules_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class GuidanceRule(Base):
+    """One standalone rule read from a guidance entry's answer. `quote` is an
+    exact span of the answer: it, not the restated `statement`, is the evidence."""
+    __tablename__ = "guidance_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    guidance_id: Mapped[int] = mapped_column(
+        ForeignKey("doctor_guidance.id", ondelete="CASCADE"), index=True
+    )
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    statement: Mapped[str] = mapped_column(Text)
+    quote: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+
+class GuidanceConflict(Base):
+    """A newer rule that a patient could not follow together with the doctor's
+    earlier rule (`other_rule_id`) or an approved drug label passage (`label_*`)."""
+    __tablename__ = "guidance_conflicts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("guidance_rules.id", ondelete="CASCADE"), index=True
+    )
+    other_rule_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("guidance_rules.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    label_rxcui: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    label_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    label_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    label_quote: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str] = mapped_column(Text)
+    # open | dismissed
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class DrugLabel(Base):

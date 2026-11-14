@@ -5,6 +5,8 @@ whose discharge document or confirmed instructions mention its drugs and
 conditions as whole words. Anything unclear fails closed.
 """
 import re
+from dataclasses import dataclass
+from typing import Union
 
 import numpy as np
 from sqlalchemy import select
@@ -12,7 +14,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from extraction import normalize
 from llm import LLMError
-from models import DischargeDocument, DoctorGuidance, ExtractedItem, User
+from models import DischargeDocument, DoctorGuidance, ExtractedItem, GuidanceRule, User
+
+# At most this many rules of one entry among the hits, so one long answer
+# cannot crowd out the doctor's other advice.
+RULES_PER_ENTRY = 3
+
+
+@dataclass(frozen=True)
+class RuleHit:
+    """One rule of an entry, found by retrieval. The entry carries the gate,
+    the title and the scope; the rule carries the evidence."""
+    entry: DoctorGuidance
+    rule: GuidanceRule
+
+
+# What retrieval returns: a rule of an entry that has rules, else the whole entry.
+Unit = Union[DoctorGuidance, RuleHit]
 
 
 def tag_names(tag: str) -> list[str]:
@@ -67,6 +85,26 @@ async def embed_entry(llm, entry: DoctorGuidance) -> bool:
     return True
 
 
+def _cosine(vector, query_vec: np.ndarray, query_norm: float) -> float | None:
+    vec = np.asarray(vector, dtype=float)
+    if vec.shape != query_vec.shape:
+        return None
+    norm = np.linalg.norm(vec)
+    if norm == 0:
+        return None
+    return float(vec @ query_vec / (norm * query_norm))
+
+
+def rules_usable(entry: DoctorGuidance, rules: list[GuidanceRule], model: str) -> bool:
+    """True when the entry is scored by its rules: they were read and every one
+    has an embedding of the current model. Otherwise the entry is scored whole."""
+    return (
+        entry.rules_status == "ready"
+        and bool(rules)
+        and all(r.embedding is not None and r.embedding_model == model for r in rules)
+    )
+
+
 async def retrieve(
     session: AsyncSession,
     llm,
@@ -77,11 +115,14 @@ async def retrieve(
     min_similarity: float,
     *,
     doctor_id: int,
-    limit: int = 5,
-) -> list[tuple[DoctorGuidance, float]]:
-    """The best matching guidance entries of one doctor that may be used for
-    this patient and document. Only `doctor_id`'s entries are ever candidates:
-    a clone never sees another doctor's advice."""
+    limit: int = 6,
+) -> list[tuple[Unit, float]]:
+    """The best matching guidance of one doctor that may be used for this
+    patient and document. Only `doctor_id`'s entries are ever candidates: a
+    clone never sees another doctor's advice.
+
+    The gate runs on entries first; only then are an eligible entry's rules
+    scored (RuleHit), or the entry itself when it has no usable rules."""
     rows = (
         await session.scalars(
             select(DoctorGuidance).where(
@@ -104,20 +145,35 @@ async def retrieve(
     ]
     if not candidates:
         return []
+    rules_by_entry: dict[int, list[GuidanceRule]] = {row.id: [] for row in candidates}
+    for rule in await session.scalars(
+        select(GuidanceRule)
+        .where(GuidanceRule.guidance_id.in_(list(rules_by_entry)))
+        .order_by(GuidanceRule.guidance_id, GuidanceRule.position)
+    ):
+        rules_by_entry[rule.guidance_id].append(rule)
     query_vec = np.asarray((await llm.embed([query]))[0], dtype=float)
-    query_norm = np.linalg.norm(query_vec)
+    query_norm = float(np.linalg.norm(query_vec))
     if query_norm == 0:
         return []
-    scored: list[tuple[DoctorGuidance, float]] = []
+    scored: list[tuple[Unit, float]] = []
     for row in candidates:
-        vec = np.asarray(row.embedding, dtype=float)
-        if vec.shape != query_vec.shape:
-            continue
-        norm = np.linalg.norm(vec)
-        if norm == 0:
-            continue
-        score = float(vec @ query_vec / (norm * query_norm))
-        if score >= min_similarity:
-            scored.append((row, score))
+        rules = rules_by_entry[row.id]
+        if rules_usable(row, rules, llm.embedding_model):
+            hits = []
+            for rule in rules:
+                score = _cosine(rule.embedding, query_vec, query_norm)
+                if score is not None and score >= min_similarity:
+                    hits.append((RuleHit(row, rule), score))
+            hits.sort(key=lambda pair: pair[1], reverse=True)
+            scored.extend(hits[:RULES_PER_ENTRY])
+        else:
+            score = _cosine(row.embedding, query_vec, query_norm)
+            if score is not None and score >= min_similarity:
+                scored.append((row, score))
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return scored[:limit]
+
+
+def unit_entry(unit: Unit) -> DoctorGuidance:
+    return unit.entry if isinstance(unit, RuleHit) else unit

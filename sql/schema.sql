@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS doctor_guidance (
   active TINYINT(1) NOT NULL DEFAULT 1,
   embedding JSON NULL,
   embedding_model VARCHAR(100) NULL,
+  rules_status VARCHAR(20) NULL,                          -- NULL (not tried) | ready | failed
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -146,6 +147,43 @@ CREATE TABLE IF NOT EXISTS doctor_guidance (
   FOREIGN KEY (patient_id) REFERENCES users (id) ON DELETE CASCADE,
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL,
   FOREIGN KEY (source_question_id) REFERENCES care_team_questions (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS guidance_rules (
+  id INT NOT NULL AUTO_INCREMENT,
+  guidance_id INT NOT NULL,
+  doctor_id INT NOT NULL,
+  position INT NOT NULL,
+  statement TEXT NOT NULL,                                -- standalone restatement
+  quote TEXT NOT NULL,                                    -- exact span of the answer
+  embedding JSON NULL,
+  embedding_model VARCHAR(100) NULL,
+  PRIMARY KEY (id),
+  KEY ix_guidance_rules_guidance_id (guidance_id),
+  KEY ix_guidance_rules_doctor_id (doctor_id),
+  FOREIGN KEY (guidance_id) REFERENCES doctor_guidance (id) ON DELETE CASCADE,
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS guidance_conflicts (
+  id INT NOT NULL AUTO_INCREMENT,
+  doctor_id INT NOT NULL,
+  rule_id INT NOT NULL,
+  other_rule_id INT NULL,
+  label_rxcui VARCHAR(20) NULL,
+  label_title VARCHAR(500) NULL,
+  label_url VARCHAR(500) NULL,
+  label_quote TEXT NULL,
+  explanation TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',             -- open | dismissed
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_guidance_conflicts_doctor_id (doctor_id),
+  KEY ix_guidance_conflicts_rule_id (rule_id),
+  KEY ix_guidance_conflicts_other_rule_id (other_rule_id),
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (rule_id) REFERENCES guidance_rules (id) ON DELETE CASCADE,
+  FOREIGN KEY (other_rule_id) REFERENCES guidance_rules (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS drug_labels (
