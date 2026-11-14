@@ -11,6 +11,7 @@ import routes_agent
 import routes_care_team
 import routes_checklist
 import routes_doctor
+import routes_labels
 import routes_documents
 from config import PROJECT_DIR, Settings, get_settings
 from druglabels import LabelClient, mark_interrupted
@@ -73,6 +74,7 @@ def create_app(
     app.include_router(routes_documents.router)
     app.include_router(routes_care_team.router)
     app.include_router(routes_doctor.router)
+    app.include_router(routes_labels.router)
     app.include_router(routes_checklist.router)
     app.include_router(routes_agent.router)
 
