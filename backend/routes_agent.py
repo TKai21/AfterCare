@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -5,7 +6,9 @@ from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent import DEFAULT_DOCTOR_NAME, HISTORY_LIMIT, emergency_result, run_agent
+from agent import (
+    DEFAULT_DOCTOR_NAME, HISTORY_LIMIT, GuidanceUnavailable, emergency_result, run_agent,
+)
 from auth import current_patient
 from db import get_session
 from guidance import retrieve
@@ -16,6 +19,7 @@ from routes_documents import active_document, confirmed_document, load_items
 from safety import detect_emergency, warning_terms
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 MAX_QUESTION_CHARS = 2000
 # A care-team question with this reason is added at most once while open.
@@ -67,6 +71,9 @@ async def ask(
 ):
     doc = await confirmed_document(session, user)
     items = await load_items(session, doc)
+    # Plain values: a failed guidance search rolls the session back, which
+    # expires the ORM objects, and expired objects cannot be reloaded here.
+    user_id, doc_id = user.id, doc.id
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
@@ -77,15 +84,31 @@ async def ask(
             raise HTTPException(status_code=503, detail="The language model is not configured.")
         result = emergency_result()
     else:
-        history = await recent_history(session, doc.id)
+        history = await recent_history(session, doc_id)
         await session.commit()  # end the read transaction before the slow model calls
         min_similarity = request.app.state.settings.guidance_min_similarity
+        memory_failed = False
 
         async def guidance_search(query: str) -> list[DoctorGuidance]:
+            # The guidance memory must never break a turn (an emergency answer
+            # included): any failure other than the model's becomes a tool error.
+            nonlocal memory_failed
+            if memory_failed:
+                raise GuidanceUnavailable("The guidance memory failed earlier in this turn.")
             try:
                 hits = await retrieve(session, llm, user, doc, items, query, min_similarity)
-            finally:
                 await session.commit()  # no read transaction held across model calls
+            except LLMError:
+                await session.commit()
+                raise
+            except Exception as exc:
+                memory_failed = True
+                log.exception("Doctor guidance search failed")
+                try:
+                    await session.rollback()
+                except Exception:
+                    log.exception("Rollback after a failed guidance search failed")
+                raise GuidanceUnavailable(str(exc)) from exc
             return [entry for entry, _score in hits]
 
         try:
@@ -116,12 +139,12 @@ async def ask(
         "guidance_ids": result.guidance_ids,
         "doctor_name": name,
     }
-    session.add(ChatMessage(document_id=doc.id, role="user", content=body.question))
-    session.add(ChatMessage(document_id=doc.id, role="assistant", content=result.answer,
+    session.add(ChatMessage(document_id=doc_id, role="user", content=body.question))
+    session.add(ChatMessage(document_id=doc_id, role="assistant", content=result.answer,
                             payload=payload))
     if result.care_team_question:
         await add_question(
-            session, user.id, doc.id,
+            session, user_id, doc_id,
             question=result.care_team_question,
             reason=result.care_team_reason,
             source=result.care_team_source,

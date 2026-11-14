@@ -805,6 +805,10 @@ async def test_medication_change_from_library_gets_repaired_then_falls_back(
     "switch to", "increase", "Increase the dose", "reduce your dose", "take another dose",
     "you can take more", "STOP TAKING it", "skipping a dose", "lower your dose",
     "decrease the dosage", "start taking aspirin", "substitute ibuprofen", "increased",
+    "Stop colchicine.", "Stop your colchicine.", "Do not take colchicine today.",
+    "Hold your colchicine tonight.", "You can skip it.", "Take 2 tablets instead of 1.",
+    "You can have a second tablet.", "Don't take your pills tonight", "Take another dose",
+    "Don\u2019t take it", "Pause your blood thinner", "discontinue warfarin", "an extra capsule",
 ])
 def test_medication_change_pattern_matches(text):
     assert agent.MEDICATION_CHANGE.search(text), text
@@ -841,7 +845,10 @@ async def test_guidance_unavailable_tool_error(store, foods, document, items):
     async def broken(query):
         raise LLMError("embedding down")
 
-    for search in (None, broken):
+    async def memory_down(query):
+        raise agent.GuidanceUnavailable("database down")
+
+    for search in (None, broken, memory_down):
         llm = FakeLLM()
         llm.script(
             tool_call("search_doctor_guidance", {"query": "colchicine"}),

@@ -2,7 +2,7 @@ import json
 
 import httpx
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from agent import FALLBACK
 from app import create_app
@@ -469,3 +469,42 @@ async def test_emergency_backstop_answers_when_guidance_search_fails(client, fak
 async def auth_user(client, username) -> int:
     async with client.app.state.session_factory() as session:
         return await session.scalar(select(User.id).where(User.username == username))
+
+
+async def broken_retrieve(session, *args, **kwargs):
+    """A real database failure inside guidance retrieval."""
+    await session.execute(text("SELECT * FROM no_such_table"))
+
+
+async def test_guidance_database_error_keeps_the_emergency_answer(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
+    fake_llm.script(
+        tool("search_doctor_guidance", {"query": "amoxicillin chest pain"}),
+        {"content": "not json"},
+    )
+    question = "I have chest pain, can I still take amoxicillin?"
+    resp = await post_ask(client, h, question)
+    assert resp.status_code == 200, resp.text
+    assert tool_results(fake_llm, -1) == [{"error": "Doctor guidance is not available right now."}]
+    body = resp.json()
+    assert_emergency_payload(body, ["chest pain"])
+    messages = (await client.get("/api/conversation", headers=h)).json()["messages"]
+    assert [m["content"] for m in messages] == [question, EMERGENCY_ANSWER_COPY]
+
+
+async def test_guidance_database_error_is_a_tool_error_and_turn_completes(
+    client, fake_llm, monkeypatch
+):
+    h = await confirmed(client, fake_llm)
+    monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
+    fake_llm.script(
+        tool("search_doctor_guidance", {"query": "swimming"}),
+        tool("search_doctor_guidance", {"query": "swimming again"}, call_id="c2"),
+        answer("I could not find this.", [], kind="not_covered"),
+    )
+    resp = await post_ask(client, h, "Can I swim?")
+    assert resp.status_code == 200, resp.text
+    unavailable = {"error": "Doctor guidance is not available right now."}
+    assert tool_results(fake_llm, -1) == [unavailable, unavailable]
+    assert [q["question"] for q in await care_team(client, h)] == ["Can I swim?"]

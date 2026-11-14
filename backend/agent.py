@@ -28,6 +28,11 @@ HISTORY_LIMIT = 6
 DOCUMENT_TITLE = "Your discharge document"
 LIBRARY_UNAVAILABLE = "The education library is not available right now."
 GUIDANCE_UNAVAILABLE = "Doctor guidance is not available right now."
+
+
+class GuidanceUnavailable(Exception):
+    """Raised by a guidance search that cannot reach the guidance memory."""
+
 DEFAULT_DOCTOR_NAME = "your doctor"
 MEDICATION_CHANGE_ERROR = (
     "A medication change must cite the discharge document or the doctor's advice."
@@ -74,14 +79,18 @@ NUMBER_WORDS = frozenset(
 )
 # Wording that changes a medication or dose. An "answer" that matches must cite
 # a document paragraph or the doctor's advice; library passages and the model's
-# own knowledge never justify a change. A false match only asks for a stronger
-# citation, so the list leans broad.
+# own knowledge never justify a change. A false match ("stop using ice packs")
+# only asks for a stronger citation, so the list leans broad on purpose.
 MEDICATION_CHANGE = re.compile(
     r"\b(?:"
     r"take (?:an? |one )?(?:extra|additional|another|more|less|fewer)"
+    r"|(?:do not|don['\u2019]?t|never) take"
     r"|double (?:up|your|the|a)"
-    r"|(?:stop|quit|discontinue|pause|start|begin) (?:taking|using)"
-    r"|skip(?:ping|ped)? (?:a|an|the|your|this|that|next|tonight's|today's)"
+    r"|(?:stop|quit|discontinue|hold|pause) \w+"
+    r"|(?:start|begin) (?:taking|using)"
+    r"|skip(?:ping|ped)? (?:it|them|a|an|the|your|this|that|next|tonight's|today's)"
+    r"|(?:second|another|extra|additional) (?:\w+ )?(?:tablet|pill|capsule|dose)s?"
+    r"|instead of"
     r"|switch(?:ing)? (?:to|from)"
     r"|substitut\w*"
     r"|increas\w*"
@@ -530,7 +539,7 @@ class _Turn:
             return {"error": GUIDANCE_UNAVAILABLE}
         try:
             entries = await self.guidance_search(query)
-        except LLMError:
+        except (LLMError, GuidanceUnavailable):
             return {"error": GUIDANCE_UNAVAILABLE}
         out = []
         for entry in entries:
@@ -672,7 +681,8 @@ async def run_agent(
     max_rounds + 2 model calls before the fallback.
 
     `guidance_search(query)` returns the doctor's guidance entries that may be
-    used for this patient (None: the tool reports guidance unavailable)."""
+    used for this patient, or raises LLMError or GuidanceUnavailable (the tool
+    then reports guidance unavailable, as it does when the search is None)."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name)
     user_content = _document_context(turn.paragraphs, items)
     if emergency_terms:
