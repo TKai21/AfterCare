@@ -10,6 +10,7 @@ import auth
 import routes_agent
 import routes_care_team
 import routes_checklist
+import routes_doctor
 import routes_documents
 from config import PROJECT_DIR, Settings, get_settings
 from db import init_db, make_engine, make_session_factory
@@ -63,6 +64,7 @@ def create_app(settings: Optional[Settings] = None, llm=None, store=None, foods=
     app.include_router(auth.router)
     app.include_router(routes_documents.router)
     app.include_router(routes_care_team.router)
+    app.include_router(routes_doctor.router)
     app.include_router(routes_checklist.router)
     app.include_router(routes_agent.router)
 

@@ -125,8 +125,3 @@ async def login(
 async def me(user: User = Depends(current_user)):
     return {"username": user.username, "role": user.role, "display_name": user.display_name}
 
-
-# Throwaway: proves the doctor guard end to end; removed once real doctor routes exist.
-@router.get("/api/doctor/ping")
-async def doctor_ping(user: User = Depends(current_doctor)):
-    return {"ok": True}

@@ -76,12 +76,6 @@ async def test_old_token_without_role_still_works(client):
 
 async def test_role_comes_from_database(client):
     await auth_headers(client, "alice")
-    resp = await client.get("/api/doctor/ping", headers=_token(1, "alice", role="doctor"))
+    resp = await client.get("/api/doctor/questions", headers=_token(1, "alice", role="doctor"))
     assert resp.status_code == 403
     assert resp.json()["detail"] == "This page is for doctors."
-
-
-async def test_doctor_ping_allows_doctor(client):
-    headers = await doctor_headers(client)
-    resp = await client.get("/api/doctor/ping", headers=headers)
-    assert resp.json() == {"ok": True}
