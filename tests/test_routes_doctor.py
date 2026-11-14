@@ -363,3 +363,11 @@ async def test_queue_loads_each_document_once(client, fake_llm):
         routes_doctor.load_items = real
     assert len(data["open"]) >= 2
     assert calls == [doc["id"]]
+
+
+async def test_doctor_page_served(client):
+    resp = await client.get("/doctor")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert resp.headers["cache-control"] == "no-cache"
+    assert "doctor.js" in resp.text

@@ -1308,3 +1308,85 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* ---------- doctor page (/doctor) ---------- */
+
+.doctor-tabs { grid-template-columns: repeat(2, auto); }
+.doctor-list { list-style: none; padding: 0; }
+.doctor-card { padding: var(--space-2); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.doctor-meta { color: var(--text-muted); font-size: 14px; overflow-wrap: anywhere; }
+.doctor-question { font-size: 17px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.doctor-reason, .doctor-answer-text { color: var(--text-muted); font-size: 15px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.doctor-answer-text { color: var(--text); }
+.doctor-reason-label { font-weight: 650; }
+.doctor-notice { min-height: 0; margin-bottom: var(--space-1); color: var(--accent-hover); font-size: 15px; font-weight: 600; }
+.doctor-notice:empty { display: none; }
+.doctor-contexts { display: flex; flex-direction: column; gap: var(--space-half); }
+.doctor-context summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 650; padding: 6px 0; }
+.doctor-context-body {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: var(--space-half);
+  padding: 12px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.doctor-context-body p + p { margin-top: var(--space-1); }
+.doctor-context-list { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.doctor-context-cat { color: var(--text-subtle); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 6px; }
+.doctor-answer-box { min-height: 110px; }
+.doctor-check { display: flex; align-items: flex-start; gap: var(--space-1); font-size: 15px; font-weight: 600; cursor: pointer; }
+.doctor-check input { width: 20px; min-height: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.doctor-general-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: var(--space-2);
+  border-left: 3px solid var(--accent-mark);
+  background: var(--surface-muted);
+  border-radius: var(--radius-small);
+}
+.doctor-tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.doctor-tag-label { flex: 0 0 96px; font-size: 15px; font-weight: 600; }
+.doctor-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; min-width: 0; }
+.doctor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--accent-mark);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.doctor-chip-cond { background: var(--surface); }
+.doctor-chip-x { border: 0; background: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.doctor-chip-x:hover { color: var(--danger); }
+.doctor-tag-add { display: inline-flex; gap: 6px; align-items: center; }
+.doctor-tag-input { width: 140px; min-height: 36px; padding: 4px 10px; font-size: 14px; }
+.doctor-hint { color: var(--text-muted); font-size: 14px; }
+.doctor-answered { margin-top: var(--space-3); }
+.doctor-answered > .doctor-list { margin-top: var(--space-1); }
+.doctor-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.doctor-filters .field { min-width: 160px; }
+.doctor-filters select, .doctor-edit-scope {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  font-size: 16px;
+}
+.doctor-short { min-height: 72px; }
+.doctor-row-actions { justify-content: flex-end; }
+.doctor-row .badge { margin-top: 0; margin-left: 6px; }
+@media (max-width: 560px) {
+  .doctor-tag-label { flex-basis: 100%; }
+  .doctor-tag-input { width: 120px; }
+}

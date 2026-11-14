@@ -178,6 +178,7 @@
     document.getElementById('username').textContent = state.username;
     try {
       const me = await api('/api/me');
+      if (me.role === 'doctor') { window.location.replace('/doctor'); return; }
       state.username = me.username;
       document.getElementById('username').textContent = me.username;
       state.document = await loadDocument();

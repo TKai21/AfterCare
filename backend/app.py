@@ -78,6 +78,7 @@ def create_app(settings: Optional[Settings] = None, llm=None, store=None, foods=
 
     app.add_api_route("/", page("index.html"), include_in_schema=False)
     app.add_api_route("/app", page("app.html"), include_in_schema=False)
+    app.add_api_route("/doctor", page("doctor.html"), include_in_schema=False)
     # Mounted last so it never shadows /api routes.
     app.mount("/static", FrontendFiles(directory=FRONTEND_DIR), name="static")
     return app
