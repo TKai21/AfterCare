@@ -571,14 +571,31 @@ async def test_ask_requires_a_doctor(client, fake_llm):
                                  headers=h)
         assert resp.status_code == 422
         assert resp.json()["detail"] == "Choose one of the doctors."
-    # A bad id is refused even for an emergency message.
-    resp = await client.post(
-        "/api/ask", json={"question": "I have chest pain", "doctor_id": patient}, headers=h
-    )
-    assert resp.status_code == 422
     assert (await client.get("/api/conversation", headers=h)).status_code == 422
     assert (await get_conversation(client, h, patient)).status_code == 422
     assert len(fake_llm.calls) == calls_before  # no model work for a bad doctor
+
+
+async def test_emergency_with_a_bad_doctor_still_gets_the_emergency_answer(client, fake_llm):
+    # The backstop never depends on the doctor id: an emergency message gets the
+    # fixed emergency answer, and nothing is saved under a doctor that does not exist.
+    h = await confirmed(client, fake_llm)
+    patient = await auth_user(client, "alice")
+    doctor = await default_doctor(client)
+    calls_before = len(fake_llm.calls)
+    for body in ({"question": "I have chest pain", "doctor_id": patient},
+                 {"question": "I have chest pain", "doctor_id": doctor + 999},
+                 {"question": "I have chest pain"}):
+        resp = await client.post("/api/ask", json=body, headers=h)
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert_emergency_payload(payload, ["chest pain"])
+        assert payload["doctor_id"] is None and payload["doctor_name"] is None
+        assert payload["flagged"] is False
+    assert len(fake_llm.calls) == calls_before
+    async with client.app.state.session_factory() as session:
+        assert list(await session.scalars(select(ChatMessage))) == []
+    assert await care_team(client, h) == []
 
 
 async def test_history_is_per_doctor(client, fake_llm):
@@ -617,7 +634,7 @@ async def test_not_covered_goes_to_that_doctor(client, fake_llm):
     assert mine["question"] == "Can I swim?" and mine["doctor_id"] == b
     # Doctor B sees the conversation with B's clone; nothing of any other doctor's.
     assert [m["content"] for m in mine["context"]["conversation"]] == [
-        "Can I swim?", "I could not find this.",
+        "Can I swim?", fallback_answer("Dr. B"),
     ]
 
 
@@ -667,14 +684,29 @@ async def test_ask_uses_only_that_doctors_guidance(client, fake_llm):
     assert body["guidance_ids"] == [entry_b.id]
 
 
-async def test_prefetch_failure_keeps_emergency(client, fake_llm, monkeypatch):
+async def test_prefetch_failure_still_answers_and_saves_the_turn(client, fake_llm, monkeypatch):
+    # A database error in the prefetch rolls the session back before the agent
+    # has read the document or items; the turn must still answer and be saved.
     h = await confirmed(client, fake_llm)
     await make_doctor(client)
-    monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
-    fake_llm.script({"content": "not json"})
-    resp = await post_ask(client, h, "I have chest pain, can I still take amoxicillin?")
+    searched = []
+
+    async def failing(session, *args, **kwargs):
+        searched.append(args[-2])
+        await broken_retrieve(session)
+
+    monkeypatch.setattr("routes_agent.retrieve", failing)
+    fake_llm.script(answer("Take amoxicillin 500 mg three times daily [2].", [2]))
+    question = "How often do I take amoxicillin?"
+    resp = await post_ask(client, h, question)
     assert resp.status_code == 200, resp.text
-    assert_emergency_payload(resp.json(), ["chest pain"])
+    assert searched == [question]  # the prefetch ran and failed
+    body = resp.json()
+    assert body["kind"] == "answer" and body["sources"][0]["number"] == 2
+    first_user = [m for m in fake_llm.calls[-1][0] if m["role"] == "user"][-1]["content"]
+    assert "Take amoxicillin 500 mg by mouth" in first_user  # the document reached the model
+    messages = (await get_conversation(client, h)).json()["messages"]
+    assert [m["content"] for m in messages] == [question, body["answer"]]
 
 
 async def test_emergency_skips_the_guidance_prefetch(client, fake_llm, monkeypatch):

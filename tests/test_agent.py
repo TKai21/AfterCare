@@ -246,6 +246,39 @@ async def test_not_covered_adds_care_team_question_once(store, foods, document, 
     assert result.care_team_question == "Is almond flour high in oxalate?"
 
 
+async def test_not_covered_answer_is_always_the_fixed_sentence(store, foods, document, items):
+    # A model that echoes the question as its not_covered answer must not show
+    # that text with a "Sent to" chip.
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_education_library", {"query": "oxalate"}),
+        final("Can I swim? [5]", [5], kind="not_covered"),
+    )
+    result = await ask(llm, store, foods, document, items, question="Can I swim?",
+                       doctor_name="Dr. Ting Kai")
+    assert result.kind == "not_covered"
+    assert result.answer == agent.fallback_answer("Dr. Ting Kai")
+    assert result.sources == [] and result.guidance_ids == []
+    assert result.flagged is True and result.care_team_question == "Can I swim?"
+    assert result.care_team_source == "agent"
+
+
+async def test_not_covered_general_information_keeps_its_text_and_library_citation(
+    store, foods, document, items
+):
+    llm = FakeLLM()
+    text = (f"{agent.GENERAL_INFO} Foods with more than 10 mg of oxalate per serving "
+            "count as high [5].")
+    llm.script(
+        tool_call("search_education_library", {"query": "oxalate"}),
+        final(text, [5], kind="not_covered"),
+    )
+    result = await ask(llm, store, foods, document, items, question="What counts as high?")
+    assert result.kind == "not_covered" and result.answer == text
+    assert [(e.number, e.kind) for e in result.sources] == [(5, "library")]
+    assert result.flagged is True and result.care_team_question == "What counts as high?"
+
+
 async def test_exhausted_rounds_falls_back(store, foods, document, items):
     llm = FakeLLM()
     llm.script(*[tool_call("lookup_food", {"name": "almonds"}, call_id=f"c{i}") for i in range(4)])
@@ -346,7 +379,7 @@ async def test_food_not_found_and_partial_match(store, foods, document, items):
     llm.script(
         tool_call("lookup_food", {"name": "dragon fruit"}),
         tool_call("lookup_food", {"name": "almond flour"}, call_id="call-2"),
-        final("The food table does not list almond flour [5].", [5], kind="not_covered"),
+        final("The food table does not list almond flour [5].", [5]),
     )
     result = await ask(llm, store, foods, document, items)
     missing, partial = tool_results(llm, 2)
@@ -819,7 +852,9 @@ async def test_doctor_question_is_not_check_text(foods, document):
         validate(raw(answer="You can take 2 tablets [5].", citations=[5]), turn.evidence)
 
 
-MEDICATION_CHANGE_ERROR = "A medication change must cite the discharge document or the doctor's advice."
+MEDICATION_CHANGE_ERROR = (
+    "A medication change must be backed by a cited document paragraph or my earlier advice."
+)
 
 
 def test_medication_change_needs_document_or_doctor():
@@ -884,7 +919,7 @@ def test_prompt_states_clone_rules():
     prompt = agent.SYSTEM_PROMPT
     assert "\u2014" not in prompt
     for phrase in ('"Sources disagree"',
-                   "unless a cited document paragraph or doctor's advice says so",
+                   "unless a cited document paragraph or my earlier advice says so",
                    "Library passages and your own knowledge never justify it",
                    "does not apply", "search_doctor_guidance",
                    "before search_education_library",

@@ -142,16 +142,22 @@ async def list_questions(
     return {"open": [item(q) for q in open_rows], "answered": [item(q) for q in answered_rows]}
 
 
-async def cited_counts(session: AsyncSession) -> dict[int, int]:
-    counts: dict[int, int] = {}
-    payloads = await session.scalars(
-        select(ChatMessage.payload).where(ChatMessage.role == "assistant")
+async def cited_counts(session: AsyncSession, doctor_ids: set[int]) -> dict[tuple, int]:
+    """How many clone answers cited each entry, keyed by (doctor id, entry id).
+    Only the entry's own doctor's clone conversations count."""
+    counts: dict[tuple, int] = {}
+    if not doctor_ids:
+        return counts
+    rows = await session.execute(
+        select(ChatMessage.doctor_id, ChatMessage.payload).where(
+            ChatMessage.role == "assistant", ChatMessage.doctor_id.in_(doctor_ids)
+        )
     )
-    for payload in payloads:
+    for doctor_id, payload in rows:
         ids = payload.get("guidance_ids") if isinstance(payload, dict) else None
         if isinstance(ids, list):
             for gid in set(i for i in ids if isinstance(i, int)):
-                counts[gid] = counts.get(gid, 0) + 1
+                counts[(doctor_id, gid)] = counts.get((doctor_id, gid), 0) + 1
     return counts
 
 
@@ -174,7 +180,7 @@ async def guidance_views(
                 )
             )).all()
         }
-    cited = await cited_counts(session)
+    cited = await cited_counts(session, {e.doctor_id for e in entries})
     model = getattr(llm, "embedding_model", None) if llm is not None else None
     return [
         {
@@ -194,7 +200,7 @@ async def guidance_views(
                 and e.patient_id is not None
                 and (e.document_id is None or e.document_id != active_docs.get(e.patient_id))
             ),
-            "cited_count": cited.get(e.id, 0),
+            "cited_count": cited.get((e.doctor_id, e.id), 0),
             "created_at": e.created_at.isoformat() if e.created_at else None,
             "updated_at": e.updated_at.isoformat() if e.updated_at else None,
         }

@@ -9,7 +9,7 @@ number_tokens; an answer that cites nothing may not state quantities at all).
 Anything that fails becomes the safe fallback answer plus a care-team question.
 Sources shown to the patient are built from server-side Evidence, never from
 model text. An answer that changes a medication (see MEDICATION_CHANGE) must
-cite the document or the doctor's advice.
+cite a document paragraph or the doctor's earlier advice.
 """
 import json
 import re
@@ -36,7 +36,7 @@ class GuidanceUnavailable(Exception):
 
 DEFAULT_DOCTOR_NAME = "your doctor"
 MEDICATION_CHANGE_ERROR = (
-    "A medication change must cite the discharge document or the doctor's advice."
+    "A medication change must be backed by a cited document paragraph or my earlier advice."
 )
 
 # What the clone says when it cannot answer: its own not_covered answer (rule 6)
@@ -151,7 +151,7 @@ Authority rules:
 2. If the document does not answer the question, use my earlier advice (the entries already listed, and search_doctor_guidance) before search_education_library. An entry of my earlier advice about a different drug, condition or situation than the one asked about does not apply; do not use it. You are {DOCTOR}'s AI clone. Speak in the first person as {DOCTOR}'s AI clone ('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when you introduce yourself, say you are {DOCTOR}'s AI clone.
 3. Use the library and food data to explain and apply the document's instruction to the specific thing asked about. For example, if the document says to limit foods high in some nutrient and the patient asks about a food: look up that food, search the library for what counts as high in that nutrient, then answer with the numbers and the serving size. Apply only instructions that are actually in this patient's document. Never say the document tells the patient to avoid or limit something it does not mention; if the document has no instruction about the thing asked, say so.
 4. What counts as "high", "low", or a safe amount must come from a cited document paragraph, my earlier advice, or a library passage, never from your own knowledge. If none of them says it, say that the approved sources do not say.
-5. Never suggest changing, stopping, adding, or substituting a medication or dose unless a cited document paragraph or doctor's advice says so. Library passages and your own knowledge never justify it.
+5. Never suggest changing, stopping, adding, or substituting a medication or dose unless a cited document paragraph or my earlier advice says so. Library passages and your own knowledge never justify it.
 6. If the approved sources do not answer the question, call add_care_team_question and answer with exactly: "{NOT_COVERED}" Use kind "not_covered".
 7. For a medication question that neither the document nor my earlier advice covers (for example a missed dose), give the library's general guidance for that drug if a library passage gives it, starting with "{GENERAL_INFO}" and also call add_care_team_question. If no library passage gives it, do not give general information from your own knowledge; follow rule 6.
 8. If the patient reports having an emergency symptom now (chest pain, trouble breathing, signs of stroke, heavy bleeding, fainting, the document's own warning signs, and similar), tell them to call 911 or follow the document's emergency instructions, with no analysis. Use kind "emergency". Informational questions such as "what stroke signs does my document list?" are answered normally. When the message says a possible emergency was detected, decide which of the two cases applies.
@@ -801,6 +801,11 @@ async def run_agent(
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": nudge})
                 continue
+            if kind == "not_covered" and not answer.startswith(GENERAL_INFO):
+                # The patient always sees the fixed sentence, never model text
+                # (an echoed question would read as the clone's answer). Rule 7's
+                # general information keeps its text and library citations.
+                answer, cited = fallback_answer(doctor_name), []
             if turn.care_team is not None:
                 care_question, reason = turn.care_team
             elif final_question:

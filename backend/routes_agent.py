@@ -25,10 +25,31 @@ SOURCES_DISAGREE = "Sources disagree"
 
 
 class AskBody(BaseModel):
-    doctor_id: int
+    # Optional only so a missing id reaches the emergency backstop; any other
+    # message without a valid doctor is refused (422).
+    doctor_id: Optional[int] = None
     question: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_QUESTION_CHARS)
     ]
+
+
+def answer_payload(result, terms: list[str], doctor_id: Optional[int],
+                   doctor_name: Optional[str]) -> dict:
+    return {
+        "kind": result.kind,
+        "answer": result.answer,
+        "sources": [
+            {"number": e.number, "kind": e.kind, "title": e.title, "url": e.url,
+             "content": e.content, "guidance_id": e.guidance_id}
+            for e in result.sources
+        ],
+        "flagged": result.flagged,
+        "emergency": {"terms": terms, "banner": bool(terms) or result.kind == "emergency"},
+        # Read by the doctor's guidance list to count citations.
+        "guidance_ids": result.guidance_ids,
+        "doctor_id": doctor_id,
+        "doctor_name": doctor_name,
+    }
 
 
 def message_view(m: ChatMessage) -> dict:
@@ -71,7 +92,13 @@ async def ask(
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
-    doctor = await require_doctor(session, body.doctor_id)
+    try:
+        doctor = await require_doctor(session, body.doctor_id)
+    except HTTPException:
+        if not terms:
+            raise
+        # No conversation to save it in, so the fixed answer is only returned.
+        return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
     if llm is None:
@@ -134,21 +161,7 @@ async def ask(
                 ) from exc
             result = emergency_result()
 
-    payload = {
-        "kind": result.kind,
-        "answer": result.answer,
-        "sources": [
-            {"number": e.number, "kind": e.kind, "title": e.title, "url": e.url,
-             "content": e.content, "guidance_id": e.guidance_id}
-            for e in result.sources
-        ],
-        "flagged": result.flagged,
-        "emergency": {"terms": terms, "banner": bool(terms) or result.kind == "emergency"},
-        # Read by the doctor's guidance list to count citations.
-        "guidance_ids": result.guidance_ids,
-        "doctor_id": doctor_id,
-        "doctor_name": name,
-    }
+    payload = answer_payload(result, terms, doctor_id, name)
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",

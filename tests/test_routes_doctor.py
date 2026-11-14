@@ -235,7 +235,17 @@ async def test_guidance_list_newest_first_with_cited_count(client, fake_llm):
                                json=answer_body(general=True, drug_tags=["amoxicillin"]))).json()
     gid = first["guidance"]["id"]
     async with client.app.state.session_factory() as s:
-        s.add(ChatMessage(document_id=doc["id"], role="assistant", content="x",
+        me = await s.scalar(select(User.id).where(User.username == "dr.ting"))
+        s.add(ChatMessage(document_id=doc["id"], doctor_id=me, role="assistant", content="x",
+                          payload={"guidance_ids": [gid]}))
+        # Only this doctor's clone conversations count: not another doctor's, not
+        # a message with no doctor.
+        other = User(username="dr.other", password_hash="x", role="doctor")
+        s.add(other)
+        await s.flush()
+        s.add(ChatMessage(document_id=doc["id"], doctor_id=other.id, role="assistant",
+                          content="w", payload={"guidance_ids": [gid]}))
+        s.add(ChatMessage(document_id=doc["id"], role="assistant", content="v",
                           payload={"guidance_ids": [gid]}))
         s.add(ChatMessage(document_id=doc["id"], role="assistant", content="y", payload=None))
         s.add(ChatMessage(document_id=doc["id"], role="user", content="z",
