@@ -140,7 +140,7 @@ async def test_only_names_leave_the_server():
 
 import json as _json
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from conftest import auth_headers
 from druglabels import (
@@ -199,10 +199,17 @@ async def test_confirm_succeeds_when_services_down(client, fake_llm):
     assert await rows(client, DrugLabel) == []
 
 
+async def set_label_status(http, rxcui, status):
+    async with http.app.state.session_factory() as session:
+        await session.execute(update(DrugLabel).where(DrugLabel.rxcui == rxcui).values(status=status))
+        await session.commit()
+
+
 async def test_same_ingredient_two_patients_one_label(client, fake_llm):
     first, _ = await confirm_meds(client, fake_llm, "alice", med("Colchicine", "0.6 mg"))
     second, _ = await confirm_meds(client, fake_llm, "bob", med("Colchicine", "0.6 mg"))
     assert [l.rxcui for l in await rows(client, DrugLabel)] == ["2683"]
+    await set_label_status(client, "2683", "approved")
     async with client.app.state.session_factory() as session:
         assert await patient_rxcuis(session, first) == frozenset({"2683"})
         assert await patient_rxcuis(session, second) == frozenset({"2683"})
@@ -248,6 +255,22 @@ async def test_patient_rxcuis_empty_without_confirmed_document(client, fake_llm)
     up = await client.post("/api/documents", data={"text": doc_text(GOUT[0])}, headers=h)
     async with client.app.state.session_factory() as session:
         assert await patient_rxcuis(session, up.json()["id"]) == frozenset()
+
+
+async def test_patient_rxcuis_unlock_only_approved_labels(client, fake_llm):
+    doc_id, _ = await confirm_meds(client, fake_llm, "alice", *GOUT)
+
+    async def unlocked():
+        async with client.app.state.session_factory() as session:
+            return await patient_rxcuis(session, doc_id)
+
+    assert await unlocked() == frozenset()  # both labels pending
+    await set_label_status(client, "2683", "approved")
+    assert await unlocked() == frozenset({"2683"})
+    await set_label_status(client, "7258", "rejected")
+    assert await unlocked() == frozenset({"2683"})
+    await set_label_status(client, "7258", "approved")
+    assert await unlocked() == frozenset({"2683", "7258"})
 
 
 async def test_mark_interrupted(client, fake_llm):

@@ -121,12 +121,16 @@ async def test_approve_adds_to_store_and_is_retrievable_for_patient_only(client,
     assert resp.status_code == 200, resp.text
     view = resp.json()
     assert view["status"] == "approved" and view["reviewed_by_name"] == "Dr. Ting Kai" and view["reviewed_at"]
+    tamsulosin = await label_by_ingredient(client, "tamsulosin")
+    assert (await review(client, tamsulosin, "approve", doctor)).status_code == 200
     async with client.app.state.session_factory() as session:
-        assert await patient_rxcuis(session, doc_id) == {"2683", "7258"}
+        # Naproxen is on the gout document but its label is still pending.
+        assert await patient_rxcuis(session, doc_id) == {"2683"}
         assert await patient_rxcuis(session, stone_doc) == {"77492"}
     gout = await library_passages(client, fake_llm, gout_patient)
     assert gout and all("colchicine" in p["title"].lower() and "setid=" in p["url"] for p in gout)
-    assert await library_passages(client, fake_llm, stone_patient) == []
+    stone = await library_passages(client, fake_llm, stone_patient)
+    assert all("colchicine" not in p["title"].lower() for p in stone)
 
 
 async def test_approve_embedding_failure_stays_pending(client, fake_llm):
@@ -315,3 +319,35 @@ async def test_review_needs_the_setid(client, fake_llm):
         resp = await client.post(f"/api/doctor/labels/{colchicine.id}/{action}", headers=doctor)
         assert resp.status_code == 422
     assert (await label_by_ingredient(client, "colchicine")).status == "pending"
+
+
+async def test_startup_drops_library_labels_that_are_not_approved(tmp_path, fake_llm):
+    """The store and the database can drift (a restored index, a label row reset by
+    the seed): on startup every label document without an approved row leaves."""
+    from app import create_app
+    from config import Settings
+    from db import init_db, make_engine, make_session_factory
+    from knowledge import KnowledgeStore
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'app.db'}"
+    engine = make_engine(url)
+    await init_db(engine)
+    async with make_session_factory(engine)() as session:
+        session.add_all([
+            DrugLabel(rxcui="2683", ingredient="colchicine", status="approved", setid="a"),
+            DrugLabel(rxcui="7258", ingredient="naproxen", status="pending", setid="b"),
+        ])
+        await session.commit()
+    await engine.dispose()
+    store = KnowledgeStore(tmp_path / "index.sqlite3", fake_llm)
+    for rxcui in ("2683", "7258", "9999"):
+        await store.add({"id": f"dailymed-rxcui-{rxcui}", "title": f"Label {rxcui}",
+                         "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=x",
+                         "topic": "Medications", "collected_at": "2026-11-14", "sha256": "0",
+                         "text": f"Label text for {rxcui}.", "rxcui": rxcui})
+    await store.add({"id": "gout", "title": "Gout", "url": "https://medlineplus.gov/gout.html",
+                     "topic": "Gout", "collected_at": "2026-11-14", "sha256": "0", "text": "Gout text."})
+    app = create_app(Settings(database_url=url, jwt_secret="test-secret-not-for-production"),
+                     llm=fake_llm, store=store, label_client=LabelClient(fixture_transport(DEMO_LABELS)))
+    async with app.router.lifespan_context(app):
+        assert sorted(d["id"] for d in store.status()["documents"]) == ["dailymed-rxcui-2683", "gout"]

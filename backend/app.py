@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -14,13 +15,15 @@ import routes_doctor
 import routes_labels
 import routes_documents
 from config import PROJECT_DIR, Settings, get_settings
-from druglabels import LabelClient, mark_interrupted
+from druglabels import LabelClient, approved_rxcuis, mark_interrupted
 from db import init_db, make_engine, make_session_factory
 from foods import FoodTable
 from knowledge import KnowledgeStore
 from llm import LLMClient
 
 FRONTEND_DIR = PROJECT_DIR / "frontend"
+
+logger = logging.getLogger(__name__)
 
 # The frontend is unbundled files with stable names, so a browser must check
 # back (a cheap 304 via ETag) every time, or it keeps running an old version.
@@ -57,6 +60,13 @@ def create_app(
         # Tables are created automatically; sql/schema.sql is the manual alternative.
         await init_db(engine)
         await mark_interrupted(app.state.session_factory)
+        if app.state.store is not None:
+            # Only approved labels may be in the library; anything else (a restored
+            # index, a label the demo seed reset to pending) leaves before serving.
+            removed = app.state.store.prune_labels(await approved_rxcuis(app.state.session_factory))
+            if removed:
+                logger.warning("Removed drug labels that are not approved from the library: %s",
+                               ", ".join(removed))
         yield
         await label_client.aclose()
         await engine.dispose()

@@ -319,6 +319,22 @@ async def test_retrieve_filters_labels_before_ranking(tmp_path):
     assert got[0]["source_id"] == "dailymed-rxcui-2683"
 
 
+async def test_prune_labels_keeps_listed_rxcuis_and_manifest_sources(tmp_path):
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM())
+    label_url = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc"
+    for rxcui in ("2683", "7258"):
+        await store.add(record(f"dailymed-rxcui-{rxcui}", INHALER, url=label_url, topic="Medications")
+                        | {"rxcui": rxcui})
+    await store.add(record("stones", STONES))
+    assert store.prune_labels({"2683", "1111"}) == ["dailymed-rxcui-7258"]
+    assert sorted(d["id"] for d in store.status()["documents"]) == ["dailymed-rxcui-2683", "stones"]
+    with store.connect() as db:
+        assert db.execute("SELECT count(*) FROM chunks WHERE document_id='dailymed-rxcui-7258'").fetchone()[0] == 0
+    assert store.prune_labels(set()) == ["dailymed-rxcui-2683"]
+    assert store.prune_labels(set()) == []
+    assert [d["id"] for d in store.status()["documents"]] == ["stones"]
+
+
 async def test_index_sources_failure_keeps_previous_index(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir()

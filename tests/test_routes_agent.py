@@ -2,7 +2,7 @@ import json
 
 import httpx
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 from agent import FALLBACK, fallback_answer
 from app import create_app
@@ -13,7 +13,7 @@ from conftest import auth_headers
 from guidance import embed_entry
 from knowledge import KnowledgeStore
 from llm import LLMClient, LLMError
-from models import ChatMessage, DoctorGuidance, User
+from models import ChatMessage, DoctorGuidance, DrugLabel, User
 from test_routes_documents import DOC, upload_text
 
 # DOC paragraphs: [1] discharge date, [2] amoxicillin 500 mg, [3] fever above 101 F.
@@ -772,9 +772,14 @@ async def test_ask_uses_active_document_rxcuis(client, fake_llm):
                            headers=h2)
     assert up.status_code == 200, up.text
     assert (await client.post("/api/documents/active/confirm", json={}, headers=h2)).status_code == 200
-    fake_llm.script(
-        tool("search_education_library", {"query": "colchicine"}),
-        answer("Take colchicine 0.6 mg [2].", [2]),
-    )
-    assert (await post_ask(client, h2, "What is colchicine?")).status_code == 200
-    assert stub.calls == [frozenset({"2683"})]
+    for status, unlocked in (("pending", frozenset()), ("approved", frozenset({"2683"}))):
+        async with client.app.state.session_factory() as session:
+            await session.execute(update(DrugLabel).where(DrugLabel.rxcui == "2683").values(status=status))
+            await session.commit()
+        stub.calls.clear()
+        fake_llm.script(
+            tool("search_education_library", {"query": "colchicine"}),
+            answer("Take colchicine 0.6 mg [2].", [2]),
+        )
+        assert (await post_ask(client, h2, "What is colchicine?")).status_code == 200
+        assert stub.calls == [unlocked], status

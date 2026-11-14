@@ -309,6 +309,17 @@ class KnowledgeStore:
                             for chunk, vector in zip(chunks, vectors)])
         return len(chunks)
 
+    def prune_labels(self, keep: Collection[str]) -> list[str]:
+        """Delete every drug label document whose RxCUI is not in `keep`, with its
+        chunks. Manifest sources (no RxCUI) stay. Returns the deleted ids."""
+        keep = sorted(set(keep))
+        marks = ",".join("?" * len(keep))
+        with self.connect() as db:
+            ids = [row["id"] for row in db.execute(
+                f"SELECT id FROM documents WHERE rxcui IS NOT NULL AND rxcui NOT IN ({marks}) ORDER BY id", keep)]
+            db.executemany("DELETE FROM documents WHERE id=?", [(i,) for i in ids])
+        return ids
+
     def status(self) -> dict:
         with self.connect() as db:
             docs = [dict(row) for row in db.execute("""SELECT d.*, count(c.id) AS chunks

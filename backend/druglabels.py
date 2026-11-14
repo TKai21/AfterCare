@@ -392,18 +392,29 @@ async def mark_interrupted(session_factory) -> int:
 
 
 async def patient_rxcuis(session, document_id: int | None) -> frozenset[str]:
-    """Resolved RxCUIs of a confirmed document; empty for None or any other status."""
+    """The RxCUIs whose labels this patient may read: resolved drugs of a confirmed
+    document whose label a doctor has approved. Empty for None or any other status.
+
+    Requiring the approval here, too, means a label document left in the library
+    store (say a restored index) is still never shown unless its row is approved."""
     if document_id is None:
         return frozenset()
     rows = await session.scalars(
         select(DocumentDrug.rxcui)
         .join(DischargeDocument, DischargeDocument.id == DocumentDrug.document_id)
+        .join(DrugLabel, DrugLabel.rxcui == DocumentDrug.rxcui)
         .where(DocumentDrug.document_id == document_id,
                DischargeDocument.status == "confirmed",
                DocumentDrug.status == "resolved",
-               DocumentDrug.rxcui.is_not(None))
+               DrugLabel.status == "approved")
     )
     return frozenset(rows)
+
+
+async def approved_rxcuis(session_factory) -> frozenset[str]:
+    """RxCUIs of every approved label."""
+    async with session_factory() as session:
+        return frozenset(await session.scalars(select(DrugLabel.rxcui).where(DrugLabel.status == "approved")))
 
 
 LABEL_TOPIC = "Medications"
