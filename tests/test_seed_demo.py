@@ -1,4 +1,5 @@
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import httpx
@@ -204,7 +205,8 @@ async def test_seed_twice_starts_with_pending_labels_and_no_orphans(tmp_path):
     finally:
         await engine.dispose()
     assert [d["id"] for d in store.status()["documents"]] == ["gout"]
-    with sqlite3.connect(store_path) as db:
+    # closing(): sqlite3's own context manager commits but never closes.
+    with closing(sqlite3.connect(store_path)) as db:
         assert db.execute("SELECT count(*) FROM chunks WHERE document_id='dailymed-rxcui-2683'").fetchone()[0] == 0
 
 
