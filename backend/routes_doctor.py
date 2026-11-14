@@ -80,7 +80,9 @@ async def doctor_names(session: AsyncSession, questions) -> dict[int, str]:
     )
 
 
-async def document_context(session: AsyncSession, document_id: int | None) -> dict:
+async def document_context(
+    session: AsyncSession, document_id: int | None, doctor_id: int | None
+) -> dict:
     context: dict = {"document_paragraphs": None, "confirmed_items": [], "conversation": []}
     doc = await session.get(DischargeDocument, document_id) if document_id else None
     if doc is None:
@@ -91,7 +93,7 @@ async def document_context(session: AsyncSession, document_id: int | None) -> di
         "confirmed_items": [
             {"category": i.category, "text": i.text} for i in items if i.status != "rejected"
         ],
-        "conversation": await recent_history(session, doc.id),
+        "conversation": await recent_history(session, doc.id, doctor_id),
     }
 
 
@@ -123,16 +125,18 @@ async def list_questions(
         for u in await session.scalars(select(User).where(User.id.in_({q.user_id for q in rows})))
     } if rows else {}
     names = await doctor_names(session, rows)
-    contexts: dict[int | None, dict] = {}
+    # The conversation shown is the one with the question's own doctor's clone.
+    contexts: dict[tuple[int | None, int | None], dict] = {}
     for q in rows:
-        if q.document_id not in contexts:
-            contexts[q.document_id] = await document_context(session, q.document_id)
+        key = (q.document_id, q.doctor_id)
+        if key not in contexts:
+            contexts[key] = await document_context(session, q.document_id, q.doctor_id)
 
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
         view = question_view(q, names)
         view["patient"] = {"id": patient.id, "username": patient.username}
-        view["context"] = contexts[q.document_id]
+        view["context"] = contexts[(q.document_id, q.doctor_id)]
         return view
 
     return {"open": [item(q) for q in open_rows], "answered": [item(q) for q in answered_rows]}

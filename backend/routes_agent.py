@@ -6,11 +6,10 @@ from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent import (
-    DEFAULT_DOCTOR_NAME, HISTORY_LIMIT, GuidanceUnavailable, emergency_result, run_agent,
-)
+from agent import HISTORY_LIMIT, GuidanceUnavailable, emergency_result, run_agent
 from auth import current_patient
 from db import get_session
+from doctors import doctor_label, require_doctor
 from guidance import retrieve
 from llm import LLMError
 from models import ChatMessage, DoctorGuidance, User
@@ -26,6 +25,7 @@ SOURCES_DISAGREE = "Sources disagree"
 
 
 class AskBody(BaseModel):
+    doctor_id: int
     question: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_QUESTION_CHARS)
     ]
@@ -40,26 +40,20 @@ def message_view(m: ChatMessage) -> dict:
     }
 
 
-async def recent_history(session: AsyncSession, document_id: int) -> list[dict]:
+async def recent_history(
+    session: AsyncSession, document_id: int, doctor_id: Optional[int]
+) -> list[dict]:
+    """The last messages of one clone's conversation about a document. With no
+    doctor (a question nobody has picked up) there is no conversation to show."""
+    if doctor_id is None:
+        return []
     rows = await session.scalars(
         select(ChatMessage)
-        .where(ChatMessage.document_id == document_id)
+        .where(ChatMessage.document_id == document_id, ChatMessage.doctor_id == doctor_id)
         .order_by(ChatMessage.id.desc())
         .limit(HISTORY_LIMIT)
     )
     return [{"role": m.role, "content": m.content} for m in reversed(list(rows))]
-
-
-async def doctor_directory(session: AsyncSession) -> tuple[Optional[int], str]:
-    """The clone's doctor until the patient chooses one: the lowest id doctor's
-    id and name (its display name, its username if that is empty), or no id and
-    "your doctor" when there is no doctor account."""
-    doctor = await session.scalar(
-        select(User).where(User.role == "doctor").order_by(User.id).limit(1)
-    )
-    if doctor is None:
-        return None, DEFAULT_DOCTOR_NAME
-    return doctor.id, (doctor.display_name or "").strip() or doctor.username
 
 
 @router.post("/api/ask")
@@ -77,14 +71,15 @@ async def ask(
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
-    doctor_id, name = await doctor_directory(session)
+    doctor = await require_doctor(session, body.doctor_id)
+    doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
     if llm is None:
         if not terms:
             raise HTTPException(status_code=503, detail="The language model is not configured.")
         result = emergency_result()
     else:
-        history = await recent_history(session, doc_id)
+        history = await recent_history(session, doc_id, doctor_id)
         await session.commit()  # end the read transaction before the slow model calls
         # A failed guidance search rolls the session back, which expires every
         # object in it; detached, the user, document and items the turn reads
@@ -117,9 +112,9 @@ async def ask(
                 raise GuidanceUnavailable(str(exc)) from exc
             return [entry for entry, _score in hits]
 
-        search = guidance_search if doctor_id is not None else None
+        search = guidance_search
         prefetch = None
-        if search is not None:
+        if not terms:  # an emergency answer does not wait on the guidance memory
             try:
                 prefetch = await search(body.question)
             except (LLMError, GuidanceUnavailable):
@@ -151,17 +146,20 @@ async def ask(
         "emergency": {"terms": terms, "banner": bool(terms) or result.kind == "emergency"},
         # Read by the doctor's guidance list to count citations.
         "guidance_ids": result.guidance_ids,
+        "doctor_id": doctor_id,
         "doctor_name": name,
     }
-    session.add(ChatMessage(document_id=doc_id, role="user", content=body.question))
-    session.add(ChatMessage(document_id=doc_id, role="assistant", content=result.answer,
-                            payload=payload))
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
+                            content=body.question))
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
+                            content=result.answer, payload=payload))
     if result.care_team_question:
         await add_question(
             session, user_id, doc_id,
             question=result.care_team_question,
             reason=result.care_team_reason,
             source=result.care_team_source,
+            doctor_id=doctor_id,
             dedupe=result.care_team_reason == SOURCES_DISAGREE,
         )
     await session.commit()
@@ -170,13 +168,18 @@ async def ask(
 
 @router.get("/api/conversation")
 async def conversation(
-    user: User = Depends(current_patient), session: AsyncSession = Depends(get_session)
+    doctor_id: int,
+    user: User = Depends(current_patient),
+    session: AsyncSession = Depends(get_session),
 ):
+    await require_doctor(session, doctor_id)
     try:
         doc = await active_document(session, user)
     except HTTPException:
         return {"messages": []}
     rows = await session.scalars(
-        select(ChatMessage).where(ChatMessage.document_id == doc.id).order_by(ChatMessage.id)
+        select(ChatMessage)
+        .where(ChatMessage.document_id == doc.id, ChatMessage.doctor_id == doctor_id)
+        .order_by(ChatMessage.id)
     )
     return {"messages": [message_view(m) for m in rows]}

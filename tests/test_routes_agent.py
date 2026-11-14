@@ -4,7 +4,7 @@ import httpx
 import pytest_asyncio
 from sqlalchemy import select, text
 
-from agent import FALLBACK
+from agent import FALLBACK, fallback_answer
 from app import create_app
 from auth import create_doctor
 from config import Settings
@@ -42,8 +42,29 @@ async def confirmed(client, fake_llm, headers=None, text=DOC):
     return h
 
 
-async def post_ask(client, h, question):
-    return await client.post("/api/ask", json={"question": question}, headers=h)
+async def default_doctor(client) -> int:
+    """The lowest id doctor, created when there is none yet."""
+    async with client.app.state.session_factory() as session:
+        found = await session.scalar(
+            select(User.id).where(User.role == "doctor").order_by(User.id).limit(1)
+        )
+        if found is not None:
+            return found
+        return (await create_doctor(session, "dr.default", "doctor-password-1", "Dr. Default")).id
+
+
+async def post_ask(client, h, question, doctor_id=None):
+    if doctor_id is None:
+        doctor_id = await default_doctor(client)
+    return await client.post(
+        "/api/ask", json={"question": question, "doctor_id": doctor_id}, headers=h
+    )
+
+
+async def get_conversation(client, h, doctor_id=None):
+    if doctor_id is None:
+        doctor_id = await default_doctor(client)
+    return await client.get(f"/api/conversation?doctor_id={doctor_id}", headers=h)
 
 
 async def care_team(client, h):
@@ -53,6 +74,7 @@ async def care_team(client, h):
 async def test_ask_returns_cited_answer_and_saves_conversation(client, fake_llm):
     h = await confirmed(client, fake_llm)
     fake_llm.script(answer("Take amoxicillin 500 mg three times daily [2].", [2]))
+    doctor_id = await default_doctor(client)
     resp = await post_ask(client, h, "  How often do I take amoxicillin?  ")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -67,11 +89,12 @@ async def test_ask_returns_cited_answer_and_saves_conversation(client, fake_llm)
         "flagged": False,
         "emergency": {"terms": [], "banner": False},
         "guidance_ids": [],
-        "doctor_name": "your doctor",
+        "doctor_id": doctor_id,
+        "doctor_name": "Dr. Default",
     }
     assert fake_llm.calls[-1][0][-1]["content"].endswith("How often do I take amoxicillin?")
 
-    messages = (await client.get("/api/conversation", headers=h)).json()["messages"]
+    messages = (await get_conversation(client, h)).json()["messages"]
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", "How often do I take amoxicillin?"),
         ("assistant", body["answer"]),
@@ -109,10 +132,10 @@ async def test_conversation_scoped_to_active_document(client, fake_llm):
     assert (await post_ask(client, h, "How often?")).status_code == 200
     fake_llm.script(answer("I could not find this.", [], kind="not_covered"))
     assert (await post_ask(client, h, "Can I swim?")).status_code == 200
-    assert len((await client.get("/api/conversation", headers=h)).json()["messages"]) == 4
+    assert len((await get_conversation(client, h)).json()["messages"]) == 4
 
     await confirmed(client, fake_llm, headers=h, text=DOC + "\n\nRest at home.")
-    assert (await client.get("/api/conversation", headers=h)).json() == {"messages": []}
+    assert (await get_conversation(client, h)).json() == {"messages": []}
     fake_llm.script(answer("Rest at home [4].", [4]))
     assert (await post_ask(client, h, "Can I go to work?")).status_code == 200
     messages = fake_llm.calls[-1][0]
@@ -162,7 +185,7 @@ async def test_validation_fallback_saves_question(client, fake_llm):
     bad = answer("Take amoxicillin 900 mg [2].", [2])
     fake_llm.script(bad, bad)  # the repair round fails too
     body = (await post_ask(client, h, "What is my dose?")).json()
-    assert body["kind"] == "not_covered" and body["answer"] == FALLBACK
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Default")
     assert body["sources"] == [] and body["flagged"] is True
     questions = await care_team(client, h)
     assert [(q["question"], q["source"]) for q in questions] == [
@@ -188,7 +211,7 @@ async def test_ask_llm_error_502(client, fake_llm):
     resp = await post_ask(client, h, "How often?")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "The assistant could not answer right now. Please try again."
-    assert (await client.get("/api/conversation", headers=h)).json() == {"messages": []}
+    assert (await get_conversation(client, h)).json() == {"messages": []}
 
 
 @pytest_asyncio.fixture
@@ -200,6 +223,7 @@ async def app_and_client(fake_llm, tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            c.app = app  # as the shared client fixture does
             yield app, c
 
 
@@ -248,7 +272,7 @@ def assert_emergency_payload(body, terms):
 
 
 async def assert_saved(client, h, question, body):
-    messages = (await client.get("/api/conversation", headers=h)).json()["messages"]
+    messages = (await get_conversation(client, h)).json()["messages"]
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", question), ("assistant", EMERGENCY_ANSWER_COPY),
     ]
@@ -410,13 +434,13 @@ async def test_ask_never_retrieves_ineligible_general_advice(client, fake_llm):
     assert body["guidance_ids"] == []
 
 
-async def test_doctor_name_falls_back_to_username_then_your_doctor(client, fake_llm):
+async def test_doctor_name_falls_back_to_username(client, fake_llm):
     h = await confirmed(client, fake_llm)
-    await make_doctor(client, username="dr.b", display_name="")
-    await make_doctor(client, username="dr.c", display_name="Dr. Later")
+    await make_doctor(client, username="dr.a", display_name="Dr. A")
+    blank = await make_doctor(client, username="dr.b", display_name="")
     fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
-    body = (await post_ask(client, h, "How much?")).json()
-    assert body["doctor_name"] == "dr.b"  # the lowest id doctor; its display name is empty
+    body = (await post_ask(client, h, "How much?", blank)).json()
+    assert body["doctor_name"] == "dr.b"  # its display name is empty
     assert "sent it to dr.b" in fake_llm.calls[-1][0][0]["content"]
 
 
@@ -493,7 +517,7 @@ async def test_guidance_database_error_keeps_the_emergency_answer(client, fake_l
     assert tool_results(fake_llm, -1) == [{"error": "Doctor guidance is not available right now."}]
     body = resp.json()
     assert_emergency_payload(body, ["chest pain"])
-    messages = (await client.get("/api/conversation", headers=h)).json()["messages"]
+    messages = (await get_conversation(client, h)).json()["messages"]
     assert [m["content"] for m in messages] == [question, EMERGENCY_ANSWER_COPY]
 
 
@@ -516,19 +540,168 @@ async def test_guidance_database_error_is_a_tool_error_and_turn_completes(
 
 
 async def test_clone_never_sees_another_doctors_advice(client, fake_llm):
-    # Until the patient picks a doctor (Task 3), the clone is the lowest id doctor's.
     h = await confirmed(client, fake_llm)
-    await make_doctor(client, username="dr.a", display_name="Dr. A")
+    first = await make_doctor(client, username="dr.a", display_name="Dr. A")
     second = await make_doctor(client, username="dr.b", display_name="Dr. B")
     await seed_guidance(client, fake_llm, second)
     fake_llm.script(
         tool("search_doctor_guidance", {"query": "amoxicillin with milk"}),
         answer("I could not find this.", [], kind="not_covered"),
     )
-    body = (await post_ask(client, h, "Can I take amoxicillin with milk?")).json()
+    body = (await post_ask(client, h, "Can I take amoxicillin with milk?", first)).json()
     first_user = [m for m in fake_llm.calls[-2][0] if m["role"] == "user"][-1]["content"]
     assert MILK_ADVICE not in first_user and "none matched this question" in first_user
     assert tool_results(fake_llm, -1) == [{
         "query": "amoxicillin with milk", "entries": [], "result": "no matching advice",
     }]
     assert body["doctor_name"] == "Dr. A" and body["guidance_ids"] == []
+
+
+# ---------- one conversation per doctor ----------
+
+async def test_ask_requires_a_doctor(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    patient = await auth_user(client, "alice")
+    doctor = await default_doctor(client)
+    calls_before = len(fake_llm.calls)
+    resp = await client.post("/api/ask", json={"question": "How much?"}, headers=h)
+    assert resp.status_code == 422
+    for bad in (patient, doctor + 999):
+        resp = await client.post("/api/ask", json={"question": "How much?", "doctor_id": bad},
+                                 headers=h)
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Choose one of the doctors."
+    # A bad id is refused even for an emergency message.
+    resp = await client.post(
+        "/api/ask", json={"question": "I have chest pain", "doctor_id": patient}, headers=h
+    )
+    assert resp.status_code == 422
+    assert (await client.get("/api/conversation", headers=h)).status_code == 422
+    assert (await get_conversation(client, h, patient)).status_code == 422
+    assert len(fake_llm.calls) == calls_before  # no model work for a bad doctor
+
+
+async def test_history_is_per_doctor(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    a = await make_doctor(client, username="dr.a", display_name="Dr. A")
+    b = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    assert (await post_ask(client, h, "Question for A", a)).status_code == 200
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    body = (await post_ask(client, h, "Question for B", b)).json()
+    assert body["doctor_id"] == b
+    assert [m["role"] for m in fake_llm.calls[-1][0]] == ["system", "user"]  # no A messages
+    only_a = (await get_conversation(client, h, a)).json()["messages"]
+    assert [(m["role"], m["content"]) for m in only_a] == [
+        ("user", "Question for A"), ("assistant", "Take amoxicillin 500 mg [2].")
+    ]
+    only_b = (await get_conversation(client, h, b)).json()["messages"]
+    assert only_b[0]["content"] == "Question for B" and len(only_b) == 2
+
+
+async def test_not_covered_goes_to_that_doctor(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    a = await make_doctor(client, username="dr.a", display_name="Dr. A")
+    b = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    fake_llm.script(answer("I could not find this.", [], kind="not_covered"))
+    assert (await post_ask(client, h, "Can I swim?", b)).status_code == 200
+
+    async def queue(username):
+        login = await client.post("/api/login", json={"username": username,
+                                                       "password": "doctor-password-1"})
+        dh = {"Authorization": f"Bearer {login.json()['token']}"}
+        return (await client.get("/api/doctor/questions", headers=dh)).json()["open"]
+
+    assert await queue("dr.a") == []
+    (mine,) = await queue("dr.b")
+    assert mine["question"] == "Can I swim?" and mine["doctor_id"] == b
+    # Doctor B sees the conversation with B's clone; nothing of any other doctor's.
+    assert [m["content"] for m in mine["context"]["conversation"]] == [
+        "Can I swim?", "I could not find this.",
+    ]
+
+
+async def test_queue_context_never_shows_another_doctors_conversation(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    a = await make_doctor(client, username="dr.a", display_name="Dr. A")
+    b = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    assert (await post_ask(client, h, "Private question for A", a)).status_code == 200
+    fake_llm.script(answer("I could not find this.", [], kind="not_covered"))
+    assert (await post_ask(client, h, "Can I swim?", b)).status_code == 200
+    login = await client.post("/api/login", json={"username": "dr.a",
+                                                   "password": "doctor-password-1"})
+    ah = {"Authorization": f"Bearer {login.json()['token']}"}
+    login = await client.post("/api/login", json={"username": "dr.b",
+                                                   "password": "doctor-password-1"})
+    bh = {"Authorization": f"Bearer {login.json()['token']}"}
+    # B's question: B's conversation only, nothing from A's clone.
+    (qb,) = (await client.get("/api/doctor/questions", headers=bh)).json()["open"]
+    texts = [m["content"] for m in qb["context"]["conversation"]]
+    assert "Private question for A" not in texts and "Can I swim?" in texts
+    assert (await client.get("/api/doctor/questions", headers=ah)).json()["open"] == []
+    # An unassigned question shows no conversation to anyone.
+    async with client.app.state.session_factory() as session:
+        from models import CareTeamQuestion
+        doc_id = (await session.scalar(select(ChatMessage.document_id).limit(1)))
+        owner = await auth_user(client, "alice")
+        session.add(CareTeamQuestion(user_id=owner, document_id=doc_id, question="Loose?",
+                                     reason="r", source="agent", doctor_id=None))
+        await session.commit()
+    for dh in (ah, bh):
+        open_ = (await client.get("/api/doctor/questions", headers=dh)).json()["open"]
+        (loose,) = [q for q in open_ if q["question"] == "Loose?"]
+        assert loose["context"]["conversation"] == []
+
+
+async def test_ask_uses_only_that_doctors_guidance(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    a = await make_doctor(client, username="dr.a", display_name="Dr. A")
+    b = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    await seed_guidance(client, fake_llm, a, answer="A says milk is fine.")
+    entry_b = await seed_guidance(client, fake_llm, b, answer="B says food is fine.")
+    fake_llm.script(answer("B advised that food is fine [4].", [4]))
+    body = (await post_ask(client, h, "Can I take amoxicillin with milk?", b)).json()
+    first_user = [m for m in fake_llm.calls[-1][0] if m["role"] == "user"][-1]["content"]
+    assert "B says food is fine." in first_user and "A says milk is fine." not in first_user
+    assert body["guidance_ids"] == [entry_b.id]
+
+
+async def test_prefetch_failure_keeps_emergency(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    await make_doctor(client)
+    monkeypatch.setattr("routes_agent.retrieve", broken_retrieve)
+    fake_llm.script({"content": "not json"})
+    resp = await post_ask(client, h, "I have chest pain, can I still take amoxicillin?")
+    assert resp.status_code == 200, resp.text
+    assert_emergency_payload(resp.json(), ["chest pain"])
+
+
+async def test_emergency_skips_the_guidance_prefetch(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    await make_doctor(client)
+    searched = []
+
+    async def spy(*args, **kwargs):
+        searched.append(args[-2:])
+        return []
+
+    monkeypatch.setattr("routes_agent.retrieve", spy)
+    fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
+    resp = await post_ask(client, h, "I have chest pain")
+    assert resp.status_code == 200, resp.text
+    assert searched == []  # no retrieval before the first model call
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    await post_ask(client, h, "How much amoxicillin?")
+    assert len(searched) == 1  # an ordinary question is still prefetched
+
+
+async def test_payload_names_the_doctor(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    await make_doctor(client, username="dr.a", display_name="Dr. A")
+    b = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    body = (await post_ask(client, h, "How much?", b)).json()
+    assert (body["doctor_id"], body["doctor_name"]) == (b, "Dr. B")
+    saved = (await get_conversation(client, h, b)).json()["messages"][1]
+    assert saved["payload"]["doctor_id"] == b
