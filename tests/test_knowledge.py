@@ -329,6 +329,28 @@ def test_cli_index_keyless_self_hosted_embeddings_allowed(tmp_path, capsys, monk
     assert "dailymed-rxcui-2683: 1 chunks" in capsys.readouterr().out
 
 
+def test_cli_index_fails_loudly_when_labels_cannot_be_read(tmp_path, capsys, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    async def broken_labels(database_url):
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    async def never_index(*args, **kwargs):
+        raise AssertionError("a full rebuild must not run without the labels")
+
+    monkeypatch.setattr(manage_knowledge, "approved_label_records", broken_labels)
+    monkeypatch.setattr(manage_knowledge, "index_sources", never_index)
+    settings = Settings(
+        rag_db_path=str(tmp_path / "index.sqlite3"), llm_api_base="http://gpu-box:8000/v1",
+        llm_model="served-model", llm_api_key="", embedding_api_key="",
+        database_url="mysql+asyncmy://user:s3cret@db.example:3306/aftercare",
+    )
+    assert manage_knowledge.run(["index"], settings) == 1
+    err = capsys.readouterr().err
+    assert "Cannot read approved drug labels" in err and "OperationalError" in err
+    assert "s3cret" not in err
+
+
 def test_cli_status_reports_json(tmp_path, capsys):
     settings = Settings(rag_db_path=str(tmp_path / "index.sqlite3"), embedding_model="m1")
     assert manage_knowledge.run(["status"], settings) == 0
