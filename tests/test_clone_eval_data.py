@@ -1,5 +1,6 @@
 """The clone preference evaluation's committed data and its expected-behaviour
 rule. Offline: no model, no network."""
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -197,6 +198,15 @@ def test_case_questions_are_distinct():
         assert a.strip() and EM_DASH not in a
         for b in questions[i + 1:]:
             assert not near_duplicate(a, b), (a, b)
+
+
+def test_side_effect_questions_leave_the_timing_open():
+    # A D3 question that states when the symptom started relative to the doses
+    # pre-answers Dr. Ting's first ask (timing).
+    timing = re.compile(r"\b(since|after|before|yesterday|today|tonight|morning|started|when i take|hours?|days?)\b")
+    for case in load("cases"):
+        if case["dimension"] == "D3":
+            assert not timing.search(case["question"].lower()), case["id"]
 
 
 def test_no_em_dash_in_data_files():

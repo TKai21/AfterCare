@@ -108,7 +108,11 @@ def near_duplicate(a: str, b: str) -> bool:
 def prescription_names(patient: dict) -> set[str]:
     """Drug names on the patient's medication items: the first word of each
     item's source quote, which by convention is the document's medication line
-    starting with the drug name ("Colchicine 0.6 mg by mouth ...")."""
+    starting with the drug name ("Colchicine 0.6 mg by mouth ...").
+
+    It relies on that eval data convention (a medication item's source_quote
+    starts with the drug name) and is for the eval data only, not for real
+    extracted items."""
     names = set()
     for item in patient["items"]:
         if item["category"] == "medication":

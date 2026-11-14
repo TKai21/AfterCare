@@ -227,7 +227,7 @@
     "id": "c09",
     "patient": "gout_naproxen",
     "dimension": "D2",
-    "question": "Should I have some kind of plan ready for the next time this happens?",
+    "question": "What do I do if my ankle flares again after the naproxen runs out?",
     "expected": {
       "dr.ting": {
         "plan_behavior": "set_up_plan",
@@ -311,7 +311,7 @@
     "id": "c12",
     "patient": "gout_both",
     "dimension": "D3",
-    "question": "I've had loose stools since yesterday. Is that from my gout medicine?",
+    "question": "I've been having loose, watery stools. Is that from my gout medicine?",
     "expected": {
       "dr.ting": {
         "first_ask": "timing",
@@ -337,7 +337,7 @@
     "id": "c13",
     "patient": "gout_ckd_colchicine",
     "dimension": "D3",
-    "question": "My legs feel kind of weak and shaky today. Could that be the colchicine?",
+    "question": "My legs feel kind of weak and shaky. Could that be the colchicine?",
     "expected": {
       "dr.ting": {
         "first_ask": "timing",
@@ -366,7 +366,7 @@
     "id": "c14",
     "patient": "gout_naproxen",
     "dimension": "D3",
-    "question": "My stomach has been burning after I take my pills. Is that normal?",
+    "question": "I have a burning feeling in my stomach. Could my pills be causing it?",
     "expected": {
       "dr.ting": {
         "first_ask": "timing",
@@ -395,7 +395,7 @@
     "id": "c15",
     "patient": "gout_prednisone_plan",
     "dimension": "D3",
-    "question": "I can't sleep at night and I feel jittery since I started the prednisone. What should I do?",
+    "question": "I can't sleep and I feel jittery. Is that the prednisone?",
     "expected": {
       "dr.ting": {
         "first_ask": "timing",
@@ -424,7 +424,7 @@
     "id": "c16",
     "patient": "gout_ckd_both",
     "dimension": "D3",
-    "question": "I feel sick to my stomach and threw up once this morning. Is it the medicine?",
+    "question": "My hands and feet feel tingly and numb. Is it one of my medicines?",
     "expected": {
       "dr.ting": {
         "first_ask": "timing",
@@ -534,7 +534,7 @@
     "id": "c20",
     "patient": "gout_prednisone_plan",
     "dimension": "D4",
-    "question": "Can I take a double dose if the pain is really bad?",
+    "question": "My neighbor gave me some pills for back pain. Can I take them with my gout medicine?",
     "expected": {
       "dr.ting": {
         "first_ask": "past_experience",
@@ -563,7 +563,7 @@
     "id": "c21",
     "patient": "gout_ckd_both",
     "dimension": "D4",
-    "question": "Is this medicine okay with the other stuff I take?",
+    "question": "I still have some pain pills left from an old prescription. Is it okay to take those now?",
     "expected": {
       "dr.ting": {
         "first_ask": "past_experience",
