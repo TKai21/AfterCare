@@ -21,6 +21,8 @@ const view = {
   itemError: null,  // {id, text} for a failed toggle
   open: new Set(),  // ids whose source quote is expanded
   request: 0,       // guards against out-of-order responses
+  justDone: null,   // id checked a moment ago, so only its check mark animates
+  ring: null,       // {date, offset} last drawn, so the ring animates from there
   today: null,      // todayIso() when the view was last shown, to notice midnight
 };
 
@@ -132,6 +134,7 @@ async function toggle(panel, ctx, id, done) {
   if (!item) return;
   const date = view.date;
   item.done = done;
+  view.justDone = done ? id : null;
   view.itemError = null;
   render(panel, ctx);
   try {
@@ -156,7 +159,7 @@ function findItem(id) {
 
 // ---------- rendering ----------
 
-const CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path class="check-path" d="M3.5 8.5l3 3 6-7" pathLength="1" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const PREV_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const NEXT_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -174,7 +177,7 @@ function checkItemHtml(item, future) {
   const error = view.itemError && view.itemError.id === item.id
     ? `<p class="form-error check-error" role="alert">${esc(view.itemError.text)}</p>` : '';
   return `
-    <li class="item check-item${item.done ? ' is-done' : ''}">
+    <li class="item check-item${item.done ? ' is-done' : ''}${item.done && view.justDone === item.id ? ' is-just-done' : ''}">
       <div class="check-row">
         <input type="checkbox" class="check-input" id="${inputId}" data-id="${item.id}" ${item.done ? 'checked' : ''} ${future ? 'disabled' : ''}>
         <label class="check-label" for="${inputId}">
@@ -221,11 +224,21 @@ function progressHtml(data) {
   const items = data.slots.flatMap(s => s.items);
   if (!items.length) return '';
   const done = items.filter(i => i.done).length;
-  const pct = Math.round((done / items.length) * 100);
+  const fraction = done / items.length;
+  const complete = done === items.length;
+  const to = (1 - fraction).toFixed(4);
+  const from = view.ring && view.ring.date === data.date ? view.ring.offset : '1';
+  view.ring = {date: data.date, offset: to};
   return `
-    <div class="progress" role="status">
-      <span class="progress-text">${done} of ${items.length} done</span>
-      <span class="progress-bar" aria-hidden="true"><span style="width: ${pct}%"></span></span>
+    <div class="progress${complete ? ' is-complete' : ''}${done === 0 ? ' is-empty' : ''}" role="status">
+      <svg class="progress-ring" viewBox="0 0 48 48" aria-hidden="true">
+        <circle class="progress-track" cx="24" cy="24" r="20" pathLength="1"/>
+        <circle class="progress-arc" cx="24" cy="24" r="20" pathLength="1" style="--from: ${from}; --to: ${to}"/>
+      </svg>
+      <span class="progress-copy">
+        <span class="progress-count"><strong>${done}</strong> of ${items.length}</span>
+        <span class="progress-text">${complete ? 'All done' : 'done'}</span>
+      </span>
     </div>`;
 }
 
@@ -253,10 +266,11 @@ function render(panel, ctx) {
   }
 
   panel.innerHTML = `
-    <div class="today">
+    <div class="today split">
+      <div class="split-aside">
       <div class="page-head">
+        <p class="eyebrow">${esc(heading.lead)}</p>
         <h1 class="page-title">${esc(heading.title)}</h1>
-        <p class="lead">${esc(heading.lead)}</p>
       </div>
       <div class="day-bar">
         <nav class="day-switch" aria-label="Choose a day">
@@ -266,8 +280,11 @@ function render(panel, ctx) {
         </nav>
         ${data && !future ? progressHtml(data) : ''}
       </div>
-      ${atStart && anchor === date ? '<p class="note-inline">Your checklist starts on this day, your discharge date.</p>' : ''}
-      <div class="today-body${view.loading && data ? ' is-refreshing' : ''}">${body}</div>
+      </div>
+      <div class="split-main">
+        ${atStart && anchor === date ? '<p class="note-inline">Your checklist starts on this day, your discharge date.</p>' : ''}
+        <div class="today-body${view.loading && data ? ' is-refreshing' : ''}">${body}</div>
+      </div>
     </div>`;
 
   panel.querySelector('#prevDay').addEventListener('click', () => load(panel, ctx, addDays(view.date, -1)));

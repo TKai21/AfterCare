@@ -1,6 +1,7 @@
 // Ask tab: the cited Q&A conversation about the confirmed discharge document.
 import {api, escapeHtml, registerTab} from '/static/api.js';
 import {refreshCareTeam} from '/static/careteam.js';
+import {initials} from '/static/shell.js';
 import {
   CHECK_ICON, EMERGENCY_COPY, MAX_QUESTION, askDoctorDirectly, emergencyHtml as sharedEmergencyHtml,
   loadDoctors, pickDoctor, rememberDoctor, warningSignsOf,
@@ -188,6 +189,7 @@ function doctorLabel(title) {
 
 const EXTERNAL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const INFO_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="6.3" r="1.1" fill="currentColor"/></svg>';
+const ARROW_ICON = '<svg class="suggestion-arrow" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10h11m0 0l-4.5-4.5M15 10l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const SEND_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 16V4m0 0L5 9m5-5l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function safeUrl(url) {
@@ -258,12 +260,16 @@ function userHtml(message, index) {
 
 function renderShell(panel) {
   panel.innerHTML = `
-    <div class="ask">
-      <div class="page-head">
-        <h1 class="page-title">Ask about your recovery</h1>
-        <p class="lead" id="askLead"></p>
+    <div class="ask split">
+      <div class="split-aside">
+        <div class="page-head">
+          <p class="eyebrow">Answers with sources</p>
+          <h1 class="page-title">Ask about your <em>recovery</em></h1>
+          <p class="lead" id="askLead"></p>
+        </div>
+        <div id="askTabs"></div>
       </div>
-      <div id="askTabs"></div>
+      <div class="split-main">
       <div id="askBody"></div>
       <div id="askNotice"></div>
       <form class="composer" id="askForm" novalidate>
@@ -276,6 +282,7 @@ function renderShell(panel) {
       </form>
       <div id="askDirect"></div>
       <p class="visually-hidden" role="status" id="askStatus"></p>
+      </div>
     </div>`;
 
   const input = panel.querySelector('#askInput');
@@ -326,11 +333,11 @@ function bodyHtml() {
   if (view.status === 'failed') return '';
   if (!view.messages.length && !view.busy) {
     return `
-      <div class="card ask-empty">
+      <div class="ask-empty">
         <h2 class="section-title">Ask anything about your discharge instructions</h2>
-        <p class="section-text">For example:</p>
+        <p class="section-text">Start with one of these, or write your own below.</p>
         <div class="suggestions">
-          ${SUGGESTIONS.map(s => `<button type="button" class="suggestion">${esc(s)}</button>`).join('')}
+          ${SUGGESTIONS.map((s, i) => `<button type="button" class="suggestion" data-question="${esc(s)}"><span class="suggestion-num" aria-hidden="true">0${i + 1}</span><span class="suggestion-text">${esc(s)}</span>${ARROW_ICON}</button>`).join('')}
         </div>
       </div>`;
   }
@@ -372,7 +379,7 @@ function renderTabs() {
   box.innerHTML = `
     <div class="doctor-picker" role="group" aria-label="Choose a doctor">
       ${view.doctors.map(d => `
-        <button type="button" class="doctor-tab" data-id="${esc(d.id)}" aria-pressed="${d.id === view.doctorId}" ${view.busy ? 'disabled' : ''}>${esc(d.name)}</button>`).join('')}
+        <button type="button" class="doctor-tab" data-id="${esc(d.id)}" aria-pressed="${d.id === view.doctorId}" ${view.busy ? 'disabled' : ''}><span class="doctor-avatar" aria-hidden="true">${esc(initials(d.name))}</span><span class="doctor-tab-name">${esc(d.name)}</span></button>`).join('')}
     </div>`;
   box.querySelectorAll('.doctor-tab').forEach(button => {
     button.addEventListener('click', () => {
@@ -540,7 +547,7 @@ function update({clearInput = false, restoreInput = false} = {}) {
   panel.querySelectorAll('.suggestion').forEach(button => {
     button.addEventListener('click', () => {
       if (view.busy || inputLocked()) return;
-      ask(button.textContent);
+      ask(button.dataset.question);
     });
   });
   panel.querySelectorAll('.source-item').forEach(details => {

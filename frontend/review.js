@@ -104,7 +104,8 @@ function renderUpload(panel, ctx) {
   const busy = view.busy === 'upload';
   panel.innerHTML = `
     <div class="page-head">
-      <h1 class="page-title">${doc ? 'Upload a new document' : 'Upload your discharge document'}</h1>
+      <p class="eyebrow">Step 1 of 2</p>
+      <h1 class="page-title">${doc ? 'Upload a new <em>document</em>' : 'Upload your discharge <em>document</em>'}</h1>
       <p class="lead">AfterCare reads the instructions your doctor wrote and lists them for you to check against your document. Nothing is used until you confirm.</p>
     </div>
     <form class="card upload-card" id="uploadForm" novalidate>
@@ -272,7 +273,8 @@ function renderReview(panel, ctx, doc) {
   const disabled = view.busy ? 'disabled' : '';
   panel.innerHTML = `
     <div class="page-head">
-      <h1 class="page-title">Review your instructions</h1>
+      <p class="eyebrow">Step 2 of 2</p>
+      <h1 class="page-title">Review your <em>instructions</em></h1>
       <p class="lead">Check each instruction against your document. Select one to see the words it came from.</p>
     </div>
     <div class="meta card">
@@ -373,7 +375,8 @@ function renderConfirmed(panel, ctx, doc) {
   panel.innerHTML = `
     <div class="page-head page-head-row">
       <div>
-        <h1 class="page-title">Your instructions</h1>
+        <p class="eyebrow eyebrow-ok">Confirmed</p>
+        <h1 class="page-title">Your <em>instructions</em></h1>
         <p class="lead">Confirmed from ${esc(doc.filename || 'pasted text')}. ${anchorLine(doc)}</p>
       </div>
       <a class="btn btn-primary" href="#today">Open Today</a>

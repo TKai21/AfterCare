@@ -295,13 +295,18 @@ function render(panel) {
   }
 
   panel.innerHTML = `
-    <div class="careteam">
-      <div class="page-head">
-        <h1 class="page-title">Questions for your care team</h1>
-        <p class="lead">Bring these to your next visit or call. Mark one as resolved once you have an answer.</p>
+    <div class="careteam split">
+      <div class="split-aside">
+        <div class="page-head">
+          <p class="eyebrow">Care team</p>
+          <h1 class="page-title">Questions for your <em>care team</em></h1>
+          <p class="lead">Bring these to your next visit or call. Mark one as resolved once you have an answer.</p>
+        </div>
       </div>
-      ${formHtml()}
-      ${body}
+      <div class="split-main">
+        ${formHtml()}
+        ${body}
+      </div>
     </div>`;
 
   const box = panel.querySelector('#directBox');

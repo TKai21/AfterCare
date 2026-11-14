@@ -1,5 +1,6 @@
 // Doctor page (/doctor): the question queue and "My guidance".
 import {api, clearSession, confirmDialog, escapeHtml} from '/static/api.js';
+import {enter, initials, syncTabs} from '/static/shell.js';
 
 const esc = escapeHtml;
 const SUGGEST_DELAY_MS = 800;
@@ -91,7 +92,7 @@ function contextHtml(q) {
   if (items.length) {
     panels.push(`<details class="doctor-context" data-key="${q.id}:items" ${isOpen(q.id, 'items')}><summary>Confirmed instructions</summary>
       <ul class="doctor-context-body doctor-context-list">${items.map(i =>
-        `<li><span class="doctor-context-cat">${esc(i.category)}</span> ${esc(i.text)}</li>`).join('')}</ul></details>`);
+        `<li><span class="doctor-context-cat">${esc(String(i.category || '').replace(/_/g, ' '))}</span> ${esc(i.text)}</li>`).join('')}</ul></details>`);
   }
   if (convo.length) {
     panels.push(`<details class="doctor-context" data-key="${q.id}:convo" ${isOpen(q.id, 'convo')}><summary>Recent conversation (last ${convo.length} messages)</summary>
@@ -170,7 +171,12 @@ function renderQuestions() {
     : `<div class="card empty-inline"><p class="section-title">No open questions</p>
          <p class="section-text">Questions your AI clone cannot answer for patients show up here.</p></div>`;
   main.innerHTML = `
-    <div class="page-head"><h1 class="page-title">Questions</h1></div>
+    <div class="split">
+    <div class="split-aside">
+    <div class="page-head"><p class="eyebrow">Inbox</p><h1 class="page-title">Patient <em>questions</em></h1>
+      <p class="lead">Your answer goes to the patient. Mark it general and your AI clone can use it for others too.</p></div>
+    </div>
+    <div class="split-main">
     <p class="doctor-notice" role="status">${esc(state.notice)}</p>
     ${state.queueError ? `<p class="form-error" role="alert">${esc(state.queueError)}</p>` : ''}
     ${cards}
@@ -178,7 +184,9 @@ function renderQuestions() {
       <details class="doctor-answered" ${state.answeredOpen ? 'open' : ''}>
         <summary class="resolved-summary">Answered <span class="count">${state.answered.length}</span></summary>
         <ul class="item-list doctor-list">${state.answered.map(answeredCardHtml).join('')}</ul>
-      </details>` : ''}`;
+      </details>` : ''}
+    </div>
+    </div>`;
   state.open.forEach(q => updateSend(q.id));
 }
 
@@ -423,7 +431,9 @@ function renderGuidance() {
   const f = state.filters;
   const opt = (v, cur, label) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${label}</option>`;
   main.innerHTML = `
-    <div class="page-head"><h1 class="page-title">My guidance</h1>
+    <div class="split">
+    <div class="split-aside">
+    <div class="page-head"><p class="eyebrow">Your AI clone</p><h1 class="page-title">My <em>guidance</em></h1>
       <p class="lead">Editing changes your AI clone's future answers only. Past chat messages keep the text they showed.</p></div>
     <div class="doctor-filters">
       <div class="field"><label for="fScope">Scope</label>
@@ -431,8 +441,12 @@ function renderGuidance() {
       <div class="field"><label for="fStatus">Status</label>
         <select id="fStatus">${opt('active', f.status, 'Active')}${opt('retired', f.status, 'Retired')}</select></div>
     </div>
+    </div>
+    <div class="split-main">
     ${state.guidanceError && state.guidance ? `<p class="form-error" role="alert">${esc(state.guidanceError)}</p>` : ''}
-    ${body}`;
+    ${body}
+    </div>
+    </div>`;
 }
 
 async function loadGuidance() {
@@ -586,11 +600,25 @@ function bindShared() {
 // ---------- shell ----------
 
 function renderTabs() {
-  document.getElementById('tabQuestions').textContent = `Questions (${state.open.length})`;
+  const tabQuestions = document.getElementById('tabQuestions');
+  let badge = tabQuestions.querySelector('.tab-badge');
+  if (!state.open.length) {
+    if (badge) badge.remove();
+  } else {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'tab-badge';
+      badge.setAttribute('role', 'img');
+      tabQuestions.append(badge);
+    }
+    badge.textContent = String(state.open.length);
+    badge.setAttribute('aria-label', state.open.length === 1 ? '1 open question' : `${state.open.length} open questions`);
+  }
   document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === state.tab) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   });
+  syncTabs(document.querySelector('.tabs'));
 }
 
 async function loadQueue() {
@@ -607,7 +635,12 @@ async function loadQueue() {
 }
 
 function route() {
+  const previous = state.tab;
   state.tab = tabFromHash();
+  if (previous !== state.tab || !main.dataset.entered) {
+    main.dataset.entered = 'true';
+    enter(main);
+  }
   renderTabs();
   if (state.tab === 'guidance') {
     renderGuidance();
@@ -632,7 +665,9 @@ async function boot() {
     return;
   }
   if (me.role !== 'doctor') { window.location.replace('/app'); return; }
-  document.getElementById('brandName').textContent = `${me.display_name || me.username} · AfterCare`;
+  const name = me.display_name || me.username;
+  document.getElementById('brandName').textContent = name;
+  document.getElementById('avatar').textContent = initials(name);
   bindQuestions();
   bindGuidance();
   bindShared();
