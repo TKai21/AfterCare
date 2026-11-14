@@ -43,12 +43,61 @@
     "split": "test"
   },
   {
+    "id": "gout-who",
+    "question": "Why do men in middle age get gout more often than other people?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "gout-water-pill-aspirin",
+    "question": "Can my water pill or a baby aspirin raise my risk of gout?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "gout-flare-length",
+    "question": "How long does a gout attack usually last?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "gout-kidney-stones",
+    "question": "Can gout cause kidney stones too?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout",
+      "nkf-kidney-stones"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "gout-soda",
+    "question": "Does drinking soda or sugary drinks make gout worse?",
+    "expected": [
+      "medlineplus-gout",
+      "niams-gout"
+    ],
+    "split": "test"
+  },
+  {
     "id": "stones-water",
     "question": "How much water should I drink so I don't get another kidney stone?",
     "expected": [
       "curated-kidney-stones-diet",
+      "niddk-kidney-stones-diet",
+      "niddk-kidney-stones-treatment",
       "nkf-kidney-stone-diet",
-      "niddk-kidney-stones-diet"
+      "nkf-kidney-stones",
+      "upmc-low-oxalate-diet"
     ],
     "split": "tune"
   },
@@ -57,9 +106,10 @@
     "question": "My stone was calcium, so should I stop eating dairy?",
     "expected": [
       "curated-kidney-stones-diet",
-      "nkf-kidney-stone-diet",
-      "niddk-kidney-stones-diet",
       "curated-uchicago-oxalate-table-use",
+      "niddk-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "nkf-kidney-stones",
       "uchicago-low-oxalate-diet"
     ],
     "split": "test"
@@ -86,7 +136,8 @@
     "question": "How many milligrams of oxalate a day should I aim for?",
     "expected": [
       "curated-uchicago-oxalate-table-use",
-      "uchicago-low-oxalate-diet"
+      "uchicago-low-oxalate-diet",
+      "upmc-low-oxalate-diet"
     ],
     "split": "tune"
   },
@@ -95,13 +146,89 @@
     "question": "Is spinach okay to eat if I keep forming stones?",
     "expected": [
       "curated-kidney-stones-diet",
-      "nkf-kidney-stone-diet",
-      "niddk-kidney-stones-diet",
       "curated-uchicago-oxalate-table-use",
+      "niddk-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
       "uchicago-low-oxalate-diet",
       "upmc-low-oxalate-diet"
     ],
     "split": "test"
+  },
+  {
+    "id": "stones-side-pain",
+    "question": "When does pain in my side mean my stone needs a doctor?",
+    "expected": [
+      "medlineplus-kidney-stones",
+      "niddk-kidney-stones-treatment",
+      "nkf-kidney-stones"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-what",
+    "question": "What exactly is a kidney stone made of?",
+    "expected": [
+      "medlineplus-kidney-stones",
+      "nkf-kidney-stone-diet",
+      "nkf-kidney-stones",
+      "upmc-low-oxalate-diet"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-salt",
+    "question": "Does eating less salt help prevent kidney stones?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "niddk-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "nkf-kidney-stones",
+      "uchicago-low-oxalate-diet",
+      "upmc-low-oxalate-diet"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-vitamin-c",
+    "question": "Is it okay to take vitamin C pills if I get stones?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "nkf-kidney-stone-diet",
+      "upmc-low-oxalate-diet"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-lemonade",
+    "question": "Does lemonade help keep stones away?",
+    "expected": [
+      "curated-kidney-stones-diet",
+      "niddk-kidney-stones-treatment",
+      "nkf-kidney-stone-diet",
+      "uchicago-low-oxalate-diet",
+      "upmc-low-oxalate-diet"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "stones-24h-urine",
+    "question": "Why would they ask me to collect my urine for a whole day after the stone?",
+    "expected": [
+      "niddk-kidney-stones-treatment",
+      "nkf-kidney-stones"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "stones-types",
+    "question": "What kinds of kidney stones are there?",
+    "expected": [
+      "niddk-kidney-stones-diet",
+      "niddk-kidney-stones-treatment",
+      "nkf-kidney-stone-diet",
+      "nkf-kidney-stones"
+    ],
+    "split": "tune"
   },
   {
     "id": "hf-swelling",
@@ -117,6 +244,7 @@
     "id": "hf-salt-fluids",
     "question": "Do I need to cut back on salt and fluids with heart failure?",
     "expected": [
+      "cdc-heart-failure",
       "curated-heart-failure-sodium-fluids",
       "medlineplus-heart-failure"
     ],
@@ -132,12 +260,57 @@
     "split": "tune"
   },
   {
+    "id": "sodium-daily-limit",
+    "question": "What is the most sodium an adult should have in a day?",
+    "expected": [
+      "cdc-sodium",
+      "medlineplus-sodium"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "hf-heart-stopped",
+    "question": "Does heart failure mean my heart has stopped working?",
+    "expected": [
+      "medlineplus-heart-failure"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "hf-bnp",
+    "question": "What is the BNP blood test for?",
+    "expected": [
+      "medlineplus-heart-failure"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "hf-track-symptoms",
+    "question": "Should I keep track of my symptoms every day with heart failure?",
+    "expected": [
+      "cdc-heart-failure",
+      "curated-heart-failure-sodium-fluids",
+      "medlineplus-heart-failure"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "sodium-hidden",
+    "question": "Where does most of the salt in my diet actually come from?",
+    "expected": [
+      "cdc-sodium",
+      "curated-kidney-stones-diet",
+      "niddk-kidney-stones-diet"
+    ],
+    "split": "test"
+  },
+  {
     "id": "copd-exercise",
     "question": "Is it safe for me to work out when my lungs are this bad?",
     "expected": [
+      "cdc-copd",
       "curated-copd-activity",
-      "medlineplus-copd",
-      "cdc-copd"
+      "medlineplus-copd"
     ],
     "split": "tune"
   },
@@ -145,9 +318,47 @@
     "id": "copd-rehab",
     "question": "What is pulmonary rehabilitation?",
     "expected": [
+      "cdc-copd",
       "curated-copd-activity",
+      "medlineplus-copd"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "copd-vaccines",
+    "question": "Which shots should I get because I have emphysema?",
+    "expected": [
+      "cdc-copd",
       "medlineplus-copd",
-      "cdc-copd"
+      "medlineplus-pneumonia"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "copd-breathing-test",
+    "question": "What breathing test shows how much air I can blow out of my lungs?",
+    "expected": [
+      "cdc-copd",
+      "medlineplus-copd"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "copd-most-important",
+    "question": "What is the single most important thing I can do for my COPD?",
+    "expected": [
+      "cdc-copd",
+      "curated-copd-activity",
+      "medlineplus-copd"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "copd-oxygen",
+    "question": "Will I need oxygen at home for my lungs?",
+    "expected": [
+      "cdc-copd",
+      "medlineplus-copd"
     ],
     "split": "test"
   },
@@ -164,17 +375,52 @@
     "id": "pneumonia-symptoms",
     "question": "I have a fever, chills and a cough bringing up thick mucus. Could it be a lung infection?",
     "expected": [
-      "medlineplus-pneumonia",
-      "cdc-pneumonia"
+      "cdc-pneumonia",
+      "medlineplus-pneumonia"
     ],
     "split": "tune"
+  },
+  {
+    "id": "pneumonia-recovery",
+    "question": "How long will it take me to get over pneumonia?",
+    "expected": [
+      "medlineplus-pneumonia"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "pneumonia-vaccine",
+    "question": "Can a vaccine stop me from getting pneumonia?",
+    "expected": [
+      "cdc-copd",
+      "cdc-pneumonia",
+      "medlineplus-copd",
+      "medlineplus-pneumonia"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "pneumonia-tests",
+    "question": "What tests will the doctor do to check for pneumonia?",
+    "expected": [
+      "medlineplus-pneumonia"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "pneumonia-viral-antibiotics",
+    "question": "Will antibiotics work if my pneumonia is from a virus?",
+    "expected": [
+      "medlineplus-pneumonia"
+    ],
+    "split": "test"
   },
   {
     "id": "cellulitis-wound",
     "question": "How do I take care of the cut on my leg while it heals?",
     "expected": [
-      "curated-cellulitis-wound-care",
-      "cdc-group-a-strep-prevention"
+      "cdc-group-a-strep-prevention",
+      "curated-cellulitis-wound-care"
     ],
     "split": "tune"
   },
@@ -184,6 +430,39 @@
     "expected": [
       "cdc-cellulitis",
       "medlineplus-cellulitis"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "cellulitis-hot-tub",
+    "question": "Can I go in a hot tub or the ocean while the sore on my leg is still open?",
+    "expected": [
+      "cdc-group-a-strep-prevention",
+      "curated-cellulitis-wound-care"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "cellulitis-elevate",
+    "question": "Should I keep my leg raised to help the cellulitis swelling go down?",
+    "expected": [
+      "cdc-cellulitis"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "cellulitis-spreading",
+    "question": "The red patch on my leg is getting bigger fast. When should I get help right away?",
+    "expected": [
+      "cdc-cellulitis"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "cellulitis-contagious",
+    "question": "Can my family catch cellulitis from me?",
+    "expected": [
+      "cdc-cellulitis"
     ],
     "split": "test"
   },
@@ -200,9 +479,42 @@
     "id": "uti-burning",
     "question": "It burns when I pee and I need to go all the time. What could cause that?",
     "expected": [
-      "medlineplus-uti",
+      "cdc-uti",
+      "medlineplus-uti"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "uti-home-relief",
+    "question": "What can I do at home to ease the pain of a bladder infection?",
+    "expected": [
       "cdc-uti",
       "niddk-uti-treatment"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "uti-kidney-signs",
+    "question": "What signs mean my bladder infection has spread to my kidneys?",
+    "expected": [
+      "cdc-uti"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "uti-men-longer",
+    "question": "Why do men need antibiotics for longer with a bladder infection?",
+    "expected": [
+      "niddk-uti-treatment"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "uti-women",
+    "question": "Why do women get urinary infections more often than men?",
+    "expected": [
+      "cdc-uti",
+      "medlineplus-uti"
     ],
     "split": "test"
   },
@@ -210,8 +522,9 @@
     "id": "diabetes-plate",
     "question": "What is the plate method for planning meals?",
     "expected": [
+      "cdc-diabetes-meal-planning",
       "curated-diabetes-diet-basics",
-      "cdc-diabetes-meal-planning"
+      "niddk-healthy-living-diabetes"
     ],
     "split": "tune"
   },
@@ -236,6 +549,50 @@
     "question": "What everyday habits help prevent high blood pressure?",
     "expected": [
       "cdc-high-blood-pressure-prevention"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "bp-stage",
+    "question": "Is a blood pressure of 135 over 85 considered high?",
+    "expected": [
+      "medlineplus-high-blood-pressure"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "bp-alcohol",
+    "question": "How many alcoholic drinks a day are too many for my blood pressure?",
+    "expected": [
+      "cdc-high-blood-pressure-prevention"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "diabetes-thirst",
+    "question": "I'm always thirsty and peeing a lot. Could that be diabetes?",
+    "expected": [
+      "medlineplus-diabetes-type-2"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "diabetes-juice",
+    "question": "Is fruit juice okay to drink if I have diabetes?",
+    "expected": [
+      "cdc-diabetes-meal-planning",
+      "curated-diabetes-diet-basics",
+      "medlineplus-diabetic-diet",
+      "niddk-healthy-living-diabetes"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "exercise-minutes",
+    "question": "How many minutes of exercise a week should I aim for?",
+    "expected": [
+      "cdc-high-blood-pressure-prevention",
+      "niddk-healthy-living-diabetes"
     ],
     "split": "tune"
   },
@@ -288,6 +645,166 @@
     "split": "test"
   },
   {
+    "id": "drug-metformin-start",
+    "question": "What is the starting dose of metformin?",
+    "expected": [
+      "dailymed-metformin"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-lisinopril-hf",
+    "question": "What dose of lisinopril do they start with for heart failure?",
+    "expected": [
+      "dailymed-lisinopril"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "drug-amlodipine-max",
+    "question": "What is the highest dose of amlodipine?",
+    "expected": [
+      "dailymed-amlodipine"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-cephalexin-days",
+    "question": "How many days do I usually take cephalexin?",
+    "expected": [
+      "dailymed-cephalexin"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "drug-spiriva-swallow",
+    "question": "Can I swallow the Spiriva capsule instead of using the inhaler?",
+    "expected": [
+      "dailymed-tiotropium"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-amlodipine-missed",
+    "question": "I forgot my amlodipine this morning. What should I do?",
+    "expected": [
+      "dailymed-amlodipine"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "drug-metoprolol-missed",
+    "question": "I missed a dose of my Toprol-XL. Should I take two next time?",
+    "expected": [
+      "dailymed-metoprolol-succinate"
+    ],
+    "split": "tune"
+  },
+  {
+    "id": "drug-azithromycin-days",
+    "question": "How do I take azithromycin over five days?",
+    "expected": [
+      "dailymed-azithromycin"
+    ],
+    "split": "test"
+  },
+  {
+    "id": "label-colchicine-missed",
+    "question": "What should I do if I miss a colchicine dose?",
+    "expected": [
+      "dailymed-rxcui-2683"
+    ],
+    "split": "tune",
+    "rxcuis": [
+      "2683",
+      "7258"
+    ]
+  },
+  {
+    "id": "label-colchicine-grapefruit",
+    "question": "Can I have grapefruit juice while I'm on colchicine?",
+    "expected": [
+      "dailymed-rxcui-2683"
+    ],
+    "split": "test",
+    "rxcuis": [
+      "2683",
+      "7258"
+    ]
+  },
+  {
+    "id": "label-colchicine-muscle",
+    "question": "My muscles feel weak and my toes tingle since I started colchicine. Is that serious?",
+    "expected": [
+      "dailymed-rxcui-2683"
+    ],
+    "split": "tune",
+    "rxcuis": [
+      "2683"
+    ]
+  },
+  {
+    "id": "label-naproxen-max",
+    "question": "How many naproxen tablets can I take in a day?",
+    "expected": [
+      "dailymed-rxcui-7258"
+    ],
+    "split": "test",
+    "rxcuis": [
+      "2683",
+      "7258"
+    ]
+  },
+  {
+    "id": "label-naproxen-food",
+    "question": "Should I take my naproxen with food?",
+    "expected": [
+      "dailymed-rxcui-7258"
+    ],
+    "split": "tune",
+    "rxcuis": [
+      "2683",
+      "7258"
+    ]
+  },
+  {
+    "id": "label-naproxen-bleeding",
+    "question": "What are the signs of stomach bleeding from naproxen?",
+    "expected": [
+      "dailymed-rxcui-7258"
+    ],
+    "split": "test",
+    "rxcuis": [
+      "7258"
+    ]
+  },
+  {
+    "id": "label-tamsulosin-cataract",
+    "question": "I take tamsulosin and I'm having cataract surgery soon. What should I tell the eye doctor?",
+    "expected": [
+      "dailymed-rxcui-77492",
+      "dailymed-tamsulosin"
+    ],
+    "split": "tune",
+    "rxcuis": [
+      "77492",
+      "5640"
+    ]
+  },
+  {
+    "id": "label-ibuprofen-max",
+    "question": "How many ibuprofen tablets can I take in 24 hours?",
+    "expected": [
+      "dailymed-ibuprofen",
+      "dailymed-rxcui-5640"
+    ],
+    "split": "test",
+    "rxcuis": [
+      "77492",
+      "5640"
+    ]
+  },
+  {
     "id": "none-cast",
     "question": "How do I take care of my cast after breaking my wrist?",
     "expected": [],
@@ -334,5 +851,92 @@
     "question": "When can I drive again after cataract surgery?",
     "expected": [],
     "split": "test"
+  },
+  {
+    "id": "none-shingles",
+    "question": "What is the best treatment for shingles pain?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-levothyroxine",
+    "question": "What dose of levothyroxine should I take for my thyroid?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-warfarin",
+    "question": "Which foods should I avoid while I'm on warfarin?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-allopurinol-dose",
+    "question": "What dose of allopurinol will I start on for gout?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-atorvastatin",
+    "question": "What are the side effects of atorvastatin?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-insulin-injection",
+    "question": "How do I inject insulin into my belly?",
+    "expected": [],
+    "split": "test"
+  },
+  {
+    "id": "none-hf-weight-gain",
+    "question": "How many pounds of weight gain in one day means I should call my heart doctor?",
+    "expected": [],
+    "split": "tune"
+  },
+  {
+    "id": "none-colchicine-missed-no-label",
+    "question": "What should I do if I miss a colchicine dose?",
+    "expected": [],
+    "split": "test",
+    "rxcuis": [
+      "7258"
+    ]
+  },
+  {
+    "id": "none-colchicine-grapefruit-no-label",
+    "question": "Can I have grapefruit juice while I'm on colchicine?",
+    "expected": [],
+    "split": "tune",
+    "rxcuis": [
+      "7258"
+    ]
+  },
+  {
+    "id": "none-colchicine-muscle-no-label",
+    "question": "My muscles feel weak and my toes tingle since I started colchicine. Is that serious?",
+    "expected": [],
+    "split": "test",
+    "rxcuis": [
+      "5640"
+    ]
+  },
+  {
+    "id": "none-naproxen-max-no-label",
+    "question": "How many naproxen tablets can I take in a day?",
+    "expected": [],
+    "split": "tune",
+    "rxcuis": [
+      "2683"
+    ]
+  },
+  {
+    "id": "none-naproxen-food-no-label",
+    "question": "Should I take my naproxen with food?",
+    "expected": [],
+    "split": "test",
+    "rxcuis": [
+      "2683"
+    ]
   }
 ]

@@ -78,7 +78,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
-| `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -4.5 | Library reranker, see [Library search](#library-search) |
+| `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
 | `GUIDANCE_MIN_SIMILARITY` | 0.45 | Minimum cosine similarity for a doctor guidance entry |
 | `FOODS_PATH` | `data/foods.json` | Food table |
 | `LABEL_FIXTURES` | empty | Dev only: `1` answers RxNav and DailyMed from the recorded `demo/labels` fixtures (offline). Leave it unset in production |
@@ -103,14 +103,17 @@ The index `knowledge/index.sqlite3` is not in git: build it locally with `index`
 
 ## Library search
 
-A library search (the agent's `search_education_library` tool) works in four steps:
+A library search (the agent's `search_education_library` tool) always starts by filtering. Only manifest sources and the approved drug labels for this patient's own drugs are eligible. The RxCUI filter runs in SQL before any scoring, so another patient's drug label never reaches BM25 or the reranker. What happens next depends on whether the reranker is on.
 
-1. **Filter.** Only manifest sources and the approved drug labels for this patient's own drugs are eligible. The RxCUI filter runs in SQL before any scoring, so another patient's drug label never reaches BM25 or the reranker.
-2. **Two candidate lists.** The top 20 passages by embedding cosine similarity, and the top 20 by BM25 keyword score (`backend/search.py`; IDF and average length come from the whole index and are rebuilt when the index changes).
-3. **Fusion.** The two lists are merged by reciprocal rank fusion (k = 60) into one list without duplicates.
-4. **Rerank.** With the reranker on, the first 20 fused passages are scored by a local cross-encoder (`ms-marco-MiniLM-L-6-v2`, run through ONNX Runtime, no PyTorch, no patient text leaves the server). The best 5 with a score of at least `RAG_MIN_RERANK` are returned.
+**Reranker off (the default): embedding-only search.** The best 5 passages by embedding cosine similarity, above the floor `RAG_MIN_SIMILARITY`. This is the search AfterCare has always used.
 
-**Fallback.** With the reranker off, missing, or failing (an exception, the wrong number of scores, a NaN), the search returns the fused order above the cosine floor `RAG_MIN_SIMILARITY` (this is the "hybrid" mode). A failure is logged once per store and never fails the patient's turn. `manage_knowledge.py status` and the startup log say whether the reranker is on, and why not.
+**Reranker on (`RERANK_ENABLED=1`):**
+
+1. **Two candidate lists.** The top 20 passages by embedding cosine similarity, and the top 20 by BM25 keyword score (`backend/search.py`; IDF and average length come from the whole index and are rebuilt when the index changes).
+2. **Fusion.** The two lists are merged by reciprocal rank fusion (k = 60) into one list without duplicates.
+3. **Rerank.** The first 20 fused passages are scored by a local cross-encoder (`ms-marco-MiniLM-L-6-v2`, run through ONNX Runtime, no PyTorch, no patient text leaves the server). The best 5 with a score of at least `RAG_MIN_RERANK` are returned. There is no cosine floor here, so a passage that only BM25 found can be returned when the reranker scores it high enough.
+
+**Fallback.** If the reranker is missing or fails (an exception, the wrong number of scores, a NaN), the search returns the embedding-only result. A failure is logged once per store and never fails the patient's turn. `manage_knowledge.py status` and the startup log say whether the reranker is on, and why not. Fusion without the reranker ("hybrid") is kept only as an explicit mode for the evaluation, because it measured worse than embedding-only search.
 
 The model is downloaded once, by hand; the server never downloads anything:
 
@@ -122,47 +125,55 @@ python backend/manage_knowledge.py fetch-reranker   # into models/<RERANK_MODEL>
 |----------|---------|---------|
 | `RERANK_ENABLED` | off | `1` turns the reranker on (it needs the model files from `fetch-reranker`); any other value, or unset, leaves it off |
 | `RERANK_MODEL` | `ms-marco-MiniLM-L-6-v2` | Reranker name from `reranker.RERANKERS` |
-| `RAG_MIN_RERANK` | -4.5 | Lowest reranker score (a logit) a passage needs to be returned |
+| `RAG_MIN_RERANK` | -6.5 | Lowest reranker score (a logit) a passage needs to be returned |
 
 ### Evaluation
 
-`eval/library_questions.json` has 40 English questions: 32 that a library source answers (gout, kidney stones, heart failure and sodium, COPD, pneumonia, cellulitis, UTI, diabetes, blood pressure, drug doses from the manifest's DailyMed labels, test names, and patient-style paraphrases), and 8 the library cannot answer. Each answerable question lists every source that answers it, checked against the snapshot in `knowledge/sources/`. The questions alternate between a `tune` split (20, used only to pick `RAG_MIN_RERANK`) and a `test` split (20). Run it on demand against the real index and embedding API (it is not part of pytest):
+`eval/library_questions.json` has 106 English questions.
+
+- **86 answerable.** They cover gout, kidney stones, heart failure and sodium, COPD, pneumonia, cellulitis, UTI, diabetes and blood pressure, doses and missed doses from the manifest's DailyMed labels, test names (A1C, BNP, joint fluid, spirometry), and paraphrases that share no words with the source ("hard bumps under the skin" for tophi, "water pill" for furosemide).
+- **8 of the 86 are about the demo patients' approved drug labels** (colchicine, naproxen, tamsulosin, ibuprofen). Each of these gives the patient's drug set (`rxcuis`).
+- **20 that the library cannot answer.** 15 are topics or drugs the library does not cover; some sit close to it, such as an allopurinol dose, a weight-gain threshold for heart failure, or insulin injection. 5 are near misses: a colchicine or naproxen question from a patient whose drug set leaves that drug out, so its label must not come back.
+
+Each answerable question lists every source whose text answers it. Labels were checked in both directions: the answering phrases of each question were searched in every snapshot in `knowledge/sources/` and every demo label, and each match was reviewed. A match was dropped only when its text is about another condition or drug (for example the ibuprofen label for a naproxen question). The questions are split into `tune` (54, used only to pick `RAG_MIN_RERANK`) and `test` (52), with every topic in both.
+
+By default the script adds the seed demo's four drug labels, read offline from the recorded fixtures in `demo/labels` through the app's own label code, to a temporary copy of the index. `knowledge/index.sqlite3` itself is never written. If the reranker fails during a rerank run, the script exits with an error instead of printing fallback numbers as rerank numbers. Run it on demand against the real index and embedding API (it is not part of pytest):
 
 ```bash
 .venv/bin/python scripts/eval_library.py --sweep         # calibrate RAG_MIN_RERANK on the tune split
-.venv/bin/python scripts/eval_library.py --split test    # or --split all
+.venv/bin/python scripts/eval_library.py --split test    # or --split all; --no-labels skips the demo labels
 ```
 
-hit@k and MRR are over the answerable questions (a hit is any listed source in the top k). "false" counts the no-answer questions that returned any passage. The rerank time is measured around the cross-encoder call only (20 passages), on the dev laptop (macOS, Apple silicon). Measured on 2026-11-14 with `text-embedding-3-small` and the 49 manifest documents (no drug labels approved, so no RxCUI was passed):
+hit@k and MRR are over the answerable questions (a hit is any listed source in the top k). "false" counts the no-answer questions that returned any passage. The rerank time is measured around the cross-encoder call only (20 passages), on the dev laptop (macOS, Apple silicon). Measured on 2026-11-14 with `text-embedding-3-small`, the 49 manifest documents and the 4 demo labels:
 
-Test split (16 answerable, 4 no-answer):
-
-| mode | hit@1 | hit@5 | MRR | false | rerank ms (median / worst) |
-|------|------:|------:|----:|------:|---------------------------:|
-| embedding | 0.750 | 1.000 | 0.856 | 4/4 | - |
-| hybrid | 0.812 | 0.938 | 0.844 | 4/4 | - |
-| rerank | 0.875 | 0.938 | 0.906 | 0/4 | 253 / 301 |
-
-All 40 questions (32 answerable, 8 no-answer):
+Test split (42 answerable, 10 no-answer):
 
 | mode | hit@1 | hit@5 | MRR | false | rerank ms (median / worst) |
 |------|------:|------:|----:|------:|---------------------------:|
-| embedding | 0.844 | 1.000 | 0.912 | 8/8 | - |
-| hybrid | 0.875 | 0.969 | 0.898 | 8/8 | - |
-| rerank | 0.938 | 0.969 | 0.953 | 0/8 | 244 / 351 |
+| embedding | 0.857 | 1.000 | 0.917 | 10/10 | - |
+| hybrid | 0.810 | 0.976 | 0.883 | 10/10 | - |
+| rerank | 0.952 | 0.976 | 0.964 | 7/10 | 245 / 378 |
 
-**`RAG_MIN_RERANK` = -4.5.** The rule: the highest cut, from -10 to 10 in steps of 0.5, whose tune-split hit@5 equals hit@5 with no cut. On the tune split hit@5 is 1.000 from no cut up to -4.5 and drops to 0.938 at -4.0. No-answer false hits fall from 4/4 to 0/4 between -8.5 and -7.0, so -4.5 removes them with some margin.
+All 106 questions (86 answerable, 20 no-answer):
 
-**Ship decision: the reranker is off by default.** The ship rule (from the design spec) keeps rerank on only if, on the test split, it is not worse than embedding-only search on hit@5 and MRR and has no more no-answer false hits. Rerank wins on MRR (0.906 against 0.856), hit@1 and false hits (0 against 4), but loses on hit@5 (0.938 against 1.000): one question, "I get lightheaded when I stand up since starting my water pill", where embedding search ranks the furosemide (Lasix) label fifth and neither hybrid nor rerank returns it. So `RERANK_ENABLED` defaults to off and library search runs in hybrid mode. Set `RERANK_ENABLED=1` to use the calibrated reranker. Rerank did not lose to hybrid on the test split (equal hit@5, better MRR and false hits), so the alternative model `bge-reranker-base` was not tried.
+| mode | hit@1 | hit@5 | MRR | false | rerank ms (median / worst) |
+|------|------:|------:|----:|------:|---------------------------:|
+| embedding | 0.930 | 1.000 | 0.960 | 20/20 | - |
+| hybrid | 0.884 | 0.977 | 0.922 | 20/20 | - |
+| rerank | 0.965 | 0.988 | 0.975 | 11/20 | 234 / 358 |
 
-Note that hybrid, today's default, also scores below embedding-only on the test split (hit@5 0.938, MRR 0.844).
+**`RAG_MIN_RERANK` = -6.5.** The rule is the highest cut, from -10 to 10 in steps of 0.5, whose tune-split hit@5 equals hit@5 with no cut. On the tune split hit@5 is 1.000 from no cut up to -6.5 and drops to 0.977 at -6.0. At -6.5, 4 of the 10 tune no-answer questions still return passages. A cut of 1.0 would remove them all, but hit@5 would fall to 0.841.
+
+**Ship decision: the reranker stays off by default.** The ship rule (from the design spec) keeps rerank on only if, on the test split, it is not worse than embedding-only search on hit@5 and MRR, and returns no more no-answer false hits. Rerank wins on hit@1 (0.952 against 0.857), MRR (0.964 against 0.917) and false hits (7 against 10), but loses on hit@5 (0.976 against 1.000). The loss is one question, "I get lightheaded when I stand up since starting my water pill": embedding search ranks the furosemide (Lasix) label fifth, and neither hybrid nor rerank returns it. This is the same question that decided the first, 40-question round. So `RERANK_ENABLED` defaults to off and library search is embedding-only, as before this work. Set `RERANK_ENABLED=1` to use the calibrated reranker. Rerank did not lose to hybrid on the test split (equal hit@5, better hit@1, MRR and false hits), so the alternative model `bge-reranker-base` was not tried.
+
+The label filter held in every mode: no near-miss question returned the label of a drug outside the patient's set.
 
 Limits of this evaluation:
 
 - The builder wrote the questions and labels; the team has not reviewed them yet. Some patient wording is borrowed from the teammate's 15 gout questions, which are about a discharge PDF that AfterCare does not search.
-- 20 tune and 20 test questions are few: one question moves hit@5 by 0.06. The split limits overfitting of `RAG_MIN_RERANK` but does not remove it, since the same person wrote both halves.
-- The no-answer questions are on topics far from the library (a cast, chemotherapy, cataract surgery). A near miss is harder: "What should I do if I miss a colchicine dose?" has no answer in today's index (no colchicine label is approved), yet rerank at -4.5 still returns other drugs' labels (best score -0.05). In the end-to-end check the agent correctly answered `not_covered` and sent the question to the doctor, with the reranker on and off.
-- The worst reranker time (351 ms) is just above the 300 ms budget.
+- 42 answerable test questions are still few: one question moves hit@5 by 0.024, and that one question decides the ship rule. The split limits overfitting of `RAG_MIN_RERANK` but does not remove it, since the same person wrote both halves.
+- Near-miss no-answer questions are hard for every mode. Embedding and hybrid return passages for all 20 no-answer questions. Rerank at -6.5 still returns passages for 11 of them, for example other drugs' labels for "What should I do if I miss a colchicine dose?" from a patient without colchicine (best score -0.05). In the end-to-end check, run before this round, the agent correctly answered `not_covered` for that question and sent it to the doctor.
+- The worst reranker time (358 ms over all questions, 378 ms on the test split) is above the 300 ms budget; the median is about 240 ms.
 - The doctor guidance memory (`GUIDANCE_MIN_SIMILARITY`) is out of scope; it is unchanged and not evaluated here.
 
 ## Drug labels
@@ -250,7 +261,7 @@ The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine simil
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 664 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 667 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

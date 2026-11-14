@@ -28,10 +28,11 @@ class Settings:
     label_fixtures: bool = False
     rerank_model: str = "ms-marco-MiniLM-L-6-v2"
     # Off by default: on the evaluation set's test split the reranker lost one
-    # hit@5 to embedding-only search (README, "Library search"). RERANK_ENABLED=1 turns it on.
+    # hit@5 to embedding-only search (README, "Library search"). RERANK_ENABLED=1
+    # turns it on. Without it, library search is embedding-only.
     rerank_enabled: bool = False
     # Calibrated by scripts/eval_library.py --sweep on the tune split.
-    rag_min_rerank: float = -4.5
+    rag_min_rerank: float = -6.5
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.

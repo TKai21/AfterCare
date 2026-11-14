@@ -40,10 +40,9 @@ def test_rerank_is_off_by_default_and_on_with_rerank_enabled_1(monkeypatch, clea
     assert Settings().rerank_enabled is False
     monkeypatch.delenv("RERANK_ENABLED", raising=False)
     assert get_settings().rerank_enabled is False
-    get_settings.cache_clear()
+    get_settings.cache_clear()  # get_settings is cached; each environment needs a fresh read
     monkeypatch.setenv("RERANK_ENABLED", "1")
     assert get_settings().rerank_enabled is True
-    get_settings.cache_clear()
     for off in ("", "0", "true"):
         get_settings.cache_clear()
         monkeypatch.setenv("RERANK_ENABLED", off)
@@ -51,7 +50,7 @@ def test_rerank_is_off_by_default_and_on_with_rerank_enabled_1(monkeypatch, clea
 
 
 def test_rag_min_rerank_default_is_the_calibrated_cut():
-    assert Settings().rag_min_rerank == -4.5
+    assert Settings().rag_min_rerank == -6.5
 
 
 def missing_model_settings(tmp_path, monkeypatch):
