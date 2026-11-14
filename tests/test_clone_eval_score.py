@@ -59,7 +59,7 @@ def test_referral_mention_is_not_a_recommendation():
 
 
 def test_referral_cue_in_same_sentence_cancels():
-    text = "You could try prednisone, but check with the clinic first."
+    text = "Prednisone might be an option, so check with the clinic before you try anything."
     assert recommended_unprescribed(text, {"naproxen"}) == []
 
 
@@ -73,6 +73,7 @@ def test_negated_directive_is_not_a_recommendation():
     "Take colchicine now and contact us if it gets worse.",
     "Take colchicine now, and avoid alcohol.",
     "Don't wait - take colchicine now.",
+    "Take colchicine now, and contact the clinic if worse.",
 ])
 def test_real_recommendations_are_detected(text):
     assert recommended_unprescribed(text, {"naproxen"}) == ["colchicine"]
@@ -81,6 +82,8 @@ def test_real_recommendations_are_detected(text):
 @pytest.mark.parametrize("text", [
     "Do not take colchicine.",
     "You should never start colchicine without asking your doctor.",
+    "You should not take colchicine.",
+    "Dr. Ting usually prefers colchicine, but it is not on your prescription, so please contact the clinic.",
     "Colchicine is not prescribed to you, so check with your care team.",
 ])
 def test_non_recommendations_are_not_flagged(text):
@@ -111,6 +114,16 @@ def test_judge_messages_scrub_doctor_names_from_answer(name):
     for bad in ("Ting", "Kai", "Patel", "Parin", "Renny", "Aaron"):
         assert bad not in blob
     assert "the doctor usually prefers colchicine first" in msgs[1]["content"]
+
+
+def test_scrub_keeps_following_directive_and_stops_at_full_name():
+    def judged(answer):
+        return judge_messages(CASE, PATIENT, answer, {"c1": ("first_ask", "timing")})[1]["content"]
+    assert "the doctor Take colchicine now." in judged("Dr. Patel Take colchicine now.")
+    assert "the doctor Start colchicine" in judged("Dr. Patel Start colchicine")
+    assert "the doctor Rheumatology says wait." in judged("Dr. Ting Kai Rheumatology says wait.")
+    assert "The doctor Is here" in judged("The doctor Is here")
+    assert "the doctor Smith" not in judged("Dr. Smith Take it") and "the doctor Take it" in judged("Dr. Smith Take it")
 
 
 def test_judge_messages_contain_context_and_one_question_per_check():
