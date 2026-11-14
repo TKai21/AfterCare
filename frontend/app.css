@@ -1355,6 +1355,7 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .doctor-list { list-style: none; padding: 0; }
 .doctor-card { padding: var(--space-2); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .doctor-meta { color: var(--text-muted); font-size: 14px; overflow-wrap: anywhere; }
+.doctor-meta-label { font-weight: 650; }
 .doctor-question { font-size: 17px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
 .doctor-reason, .doctor-answer-text { color: var(--text-muted); font-size: 15px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .doctor-answer-text { color: var(--text); }

@@ -121,13 +121,20 @@ function generalHtml(q, d) {
     </div>`;
 }
 
+function metaLabelsHtml(q) {
+  const labels = [];
+  if (q.source === 'patient') labels.push('Asked by the patient');
+  if (q.doctor_id == null) labels.push('Unassigned');
+  return labels.map(l => ` &middot; <span class="doctor-meta-label">${l}</span>`).join('');
+}
+
 function openCardHtml(q) {
   const d = draftFor(q);
   return `
     <li class="card doctor-card" data-id="${q.id}">
-      <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}</p>
+      <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
       <p class="doctor-question">${esc(q.question)}</p>
-      ${q.reason ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
+      ${q.source === 'patient' ? '' : q.reason ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
       <div class="field">
         <label for="answer-${q.id}">Your answer</label>
