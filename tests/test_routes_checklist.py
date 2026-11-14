@@ -1,5 +1,5 @@
 from conftest import auth_headers
-from test_routes_documents import DOC, extraction, upload_text
+from test_routes_documents import upload_text
 
 ITEMS = [
     {

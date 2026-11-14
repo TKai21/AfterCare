@@ -81,7 +81,7 @@ async def test_resolve_keeps_answer(client, fake_llm):
 
 
 async def test_add_question_dedupe(client):
-    h = await auth_headers(client)
+    await auth_headers(client)  # creates alice
     async with client.app.state.session_factory() as s:
         uid = (await s.scalar(select(User).where(User.username == "alice"))).id
         args = dict(document_id=None, question="Q?", reason="R", source="agent")

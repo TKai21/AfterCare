@@ -1,7 +1,6 @@
 import asyncio
 import json
 
-import pytest
 from sqlalchemy import select
 
 from conftest import auth_headers, doctor_headers

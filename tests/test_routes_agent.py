@@ -4,7 +4,7 @@ import httpx
 import pytest_asyncio
 from sqlalchemy import select, text, update
 
-from agent import FALLBACK, fallback_answer
+from agent import fallback_answer
 from app import create_app
 from auth import create_doctor
 from config import Settings
@@ -620,7 +620,7 @@ async def test_history_is_per_doctor(client, fake_llm):
 
 async def test_not_covered_goes_to_that_doctor(client, fake_llm):
     h = await confirmed(client, fake_llm)
-    a = await make_doctor(client, username="dr.a", display_name="Dr. A")
+    await make_doctor(client, username="dr.a", display_name="Dr. A")
     b = await make_doctor(client, username="dr.b", display_name="Dr. B")
     fake_llm.script(answer("I could not find this.", [], kind="not_covered"))
     assert (await post_ask(client, h, "Can I swim?", b)).status_code == 200
