@@ -68,6 +68,8 @@ async def test_list_shows_pending_with_sources(client, fake_llm):
         "candidates", "sources", "reviewed_by_name", "reviewed_at"}
     assert colchicine["status"] == "pending" and colchicine["rxcui"] == "2683"
     assert colchicine["setid"] == COLCHICINE_SETID
+    # One DailyMed URL: the doctor's link is the page the library record cites.
+    assert colchicine["url"] == f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={COLCHICINE_SETID}"
     assert colchicine["sources"] == [{"medication": "Take Colchicine 0.6 mg", "username": "gout-patient"}]
     assert colchicine["text"] and colchicine["candidates"] and colchicine["reviewed_by_name"] is None
 
@@ -351,3 +353,35 @@ async def test_startup_drops_library_labels_that_are_not_approved(tmp_path, fake
                      llm=fake_llm, store=store, label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     async with app.router.lifespan_context(app):
         assert sorted(d["id"] for d in store.status()["documents"]) == ["dailymed-rxcui-2683", "gout"]
+
+
+async def test_failed_pick_is_retried_with_the_chosen_label(client, fake_llm):
+    """A pick that fails keeps the doctor's choice, and Try again fetches that one."""
+    _, _, doctor = await setup(client, fake_llm)
+    colchicine = await label_by_ingredient(client, "colchicine")
+    path = f"/api/doctor/labels/{colchicine.id}"
+    real = client.app.state.label_client
+    client.app.state.label_client = LabelClient(failing_transport())
+    resp = await client.post(f"{path}/candidate", json={"setid": HIKMA_SETID}, headers=doctor)
+    await client.app.state.label_client.aclose()
+    assert resp.status_code == 200, resp.text
+    view = resp.json()
+    assert (view["status"], view["setid"], view["text"]) == ("failed", HIKMA_SETID, None)
+    assert view["error"] and view["candidates"]
+    client.app.state.label_client = real
+    resp = await client.post(f"{path}/retry", headers=doctor)
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["status"], resp.json()["setid"]) == ("pending", HIKMA_SETID)
+    assert resp.json()["labeler"] == "HIKMA PHARMACEUTICALS USA INC."
+
+
+async def test_retry_without_a_chosen_label_takes_the_newest(client, fake_llm):
+    _, _, doctor = await setup(client, fake_llm)
+    colchicine = await label_by_ingredient(client, "colchicine")
+    async with client.app.state.session_factory() as session:
+        await session.execute(update(DrugLabel).where(DrugLabel.id == colchicine.id)
+                              .values(status="failed", error="down", setid=None, text=None))
+        await session.commit()
+    resp = await client.post(f"/api/doctor/labels/{colchicine.id}/retry", headers=doctor)
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["status"], resp.json()["setid"]) == ("pending", colchicine.candidates[0]["setid"])

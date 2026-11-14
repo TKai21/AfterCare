@@ -165,6 +165,7 @@ function failedLabelCardHtml(label) {
       ${headHtml(ingredientName(label), statusBadge(failed ? 'Lookup failed' : 'No label found', 'problem'))}
       ${sourcesHtml(label.sources)}
       <p class="label-problem">${esc(failed ? (label.error || 'The lookup failed.') : NO_LABEL)}</p>
+      ${pickHtml(label, busy)}
       ${errorHtml(key)}
       <div class="form-actions">${button('retry', 'Try again', 'btn-secondary', busy)}</div>
     </li>`;

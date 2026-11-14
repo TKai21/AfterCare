@@ -23,7 +23,8 @@ from models import DischargeDocument, DocumentDrug, DrugLabel, ExtractedItem
 logger = logging.getLogger(__name__)
 
 DEMO_LABELS = Path(__file__).resolve().parent.parent / "demo" / "labels"
-DAILYMED_PAGE = "https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid={setid}"
+# The page a doctor opens and the library record links to (one URL for both).
+LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
 INTERRUPTED = "Interrupted, try again"
 UNEXPECTED = "Unexpected error, try again"
 
@@ -219,7 +220,10 @@ async def _find_candidates(client: LabelClient, resolution: Resolution, rxcui: s
 
 async def fetch_label(session_factory, client: LabelClient, label_id: int, setid: str | None = None) -> None:
     """Fetch the text of one label (the newest candidate unless `setid` is given)
-    and leave it pending, no_label or failed. Never raises."""
+    and leave it pending, no_label or failed. Never raises.
+
+    A failed fetch of a known candidate keeps that candidate as the row's setid
+    (without text), so "Try again" fetches the label the doctor chose."""
     try:
         async with session_factory() as session:
             label = await session.get(DrugLabel, label_id)
@@ -228,6 +232,7 @@ async def fetch_label(session_factory, client: LabelClient, label_id: int, setid
             label.status, label.error = "fetching", None
             rxcui, ingredient, candidates = label.rxcui, label.ingredient, list(label.candidates or [])
             await session.commit()
+        chosen = None
         try:
             if not candidates:
                 candidates = await client.candidates(rxcui, ingredient)
@@ -243,13 +248,24 @@ async def fetch_label(session_factory, client: LabelClient, label_id: int, setid
             title = next((c["title"] for c in candidates if c["setid"] == chosen), "")
             text = await client.label_text(chosen)
         except LabelServiceError as error:
-            await _set_status(session_factory, DrugLabel, label_id, "failed", str(error))
+            if chosen is None:
+                await _set_status(session_factory, DrugLabel, label_id, "failed", str(error))
+                return
+            async with session_factory() as session:
+                await session.execute(
+                    update(DrugLabel).where(DrugLabel.id == label_id).values(
+                        status="failed", error=str(error), setid=chosen, title=title,
+                        url=LABEL_URL.format(setid=chosen), text=None, sha256=None,
+                        collected_at=None, reviewed_by=None, reviewed_at=None,
+                    )
+                )
+                await session.commit()
             return
         async with session_factory() as session:
             await session.execute(
                 update(DrugLabel).where(DrugLabel.id == label_id).values(
                     status="pending", error=None, setid=chosen, title=title,
-                    url=DAILYMED_PAGE.format(setid=chosen), text=text,
+                    url=LABEL_URL.format(setid=chosen), text=text,
                     sha256=hashlib.sha256(text.encode()).hexdigest(),
                     collected_at=datetime.now(timezone.utc).replace(tzinfo=None),
                     reviewed_by=None, reviewed_at=None,
@@ -422,7 +438,6 @@ async def approved_rxcuis(session_factory) -> frozenset[str]:
 
 
 LABEL_TOPIC = "Medications"
-LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
 
 
 def label_record(label: DrugLabel) -> dict:

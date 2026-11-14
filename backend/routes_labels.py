@@ -226,9 +226,10 @@ async def retry_label(
     doctor: User = Depends(current_doctor),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_label(session, label_id)
+    label = await _get_label(session, label_id)
+    chosen = label.setid  # the label last chosen, else (None) the newest candidate
     await _claim(session, DrugLabel, label_id, ("failed", "no_label"), "Only a failed lookup can be retried.")
-    await fetch_label(request.app.state.session_factory, request.app.state.label_client, label_id)
+    await fetch_label(request.app.state.session_factory, request.app.state.label_client, label_id, chosen)
     return await _fresh_view(session, label_id)
 
 
