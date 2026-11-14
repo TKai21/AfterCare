@@ -6,11 +6,12 @@ from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import current_doctor
 from db import get_session
+from doctors import doctor_labels
 from documents import paragraphs
 from extraction import normalize
 from guidance import embed_entry
@@ -74,11 +75,9 @@ def _llm(request: Request):
 
 
 async def doctor_names(session: AsyncSession, questions) -> dict[int, str]:
-    ids = {q.answered_by for q in questions if q.answered_by}
-    if not ids:
-        return {}
-    rows = await session.scalars(select(User).where(User.id.in_(ids)))
-    return {u.id: u.display_name or u.username for u in rows}
+    return await doctor_labels(
+        session, {i for q in questions for i in (q.answered_by, q.doctor_id)}
+    )
 
 
 async def document_context(session: AsyncSession, document_id: int | None) -> dict:
@@ -100,14 +99,21 @@ async def document_context(session: AsyncSession, document_id: int | None) -> di
 async def list_questions(
     user: User = Depends(current_doctor), session: AsyncSession = Depends(get_session)
 ):
+    mine_or_unassigned = or_(
+        CareTeamQuestion.doctor_id == user.id, CareTeamQuestion.doctor_id.is_(None)
+    )
     open_rows = list(await session.scalars(
         select(CareTeamQuestion)
-        .where(CareTeamQuestion.status == "open", CareTeamQuestion.answer.is_(None))
+        .where(
+            CareTeamQuestion.status == "open",
+            CareTeamQuestion.answer.is_(None),
+            mine_or_unassigned,
+        )
         .order_by(CareTeamQuestion.id)
     ))
     answered_rows = list(await session.scalars(
         select(CareTeamQuestion)
-        .where(CareTeamQuestion.answer.is_not(None))
+        .where(CareTeamQuestion.answer.is_not(None), mine_or_unassigned)
         .order_by(CareTeamQuestion.answered_at.desc(), CareTeamQuestion.id.desc())
         .limit(ANSWERED_LIMIT)
     ))
@@ -206,7 +212,7 @@ async def answer_question(
 ):
     llm = _llm(request)
     q = await session.get(CareTeamQuestion, question_id)
-    if q is None:
+    if q is None or q.doctor_id not in (None, doctor.id):
         raise HTTPException(status_code=404, detail="Question not found")
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
     if body.general and not drug_tags and not condition_tags:
@@ -218,6 +224,7 @@ async def answer_question(
         .values(
             answer=body.answer,
             answered_by=doctor.id,
+            doctor_id=func.coalesce(CareTeamQuestion.doctor_id, doctor.id),
             answered_at=utcnow(),
             status=case((CareTeamQuestion.status == "resolved", "resolved"), else_="answered"),
         )
@@ -245,7 +252,7 @@ async def answer_question(
     await session.refresh(q)
     await session.refresh(entry)
     return {
-        "question": question_view(q, {doctor.id: doctor.display_name or doctor.username}),
+        "question": question_view(q, await doctor_names(session, [q])),
         "guidance": await guidance_view(session, llm, entry),
     }
 
@@ -312,14 +319,18 @@ async def list_guidance(
     session: AsyncSession = Depends(get_session),
 ):
     entries = list(await session.scalars(
-        select(DoctorGuidance).order_by(DoctorGuidance.id.desc())
+        select(DoctorGuidance)
+        .where(DoctorGuidance.doctor_id == doctor.id)
+        .order_by(DoctorGuidance.id.desc())
     ))
     return {"entries": await guidance_views(session, _llm(request), entries)}
 
 
-async def get_entry(session: AsyncSession, guidance_id: int) -> DoctorGuidance:
+async def get_entry(
+    session: AsyncSession, guidance_id: int, doctor: User
+) -> DoctorGuidance:
     entry = await session.get(DoctorGuidance, guidance_id)
-    if entry is None:
+    if entry is None or entry.doctor_id != doctor.id:
         raise HTTPException(status_code=404, detail="Guidance not found")
     return entry
 
@@ -333,7 +344,7 @@ async def patch_guidance(
     session: AsyncSession = Depends(get_session),
 ):
     llm = _llm(request)
-    entry = await get_entry(session, guidance_id)
+    entry = await get_entry(session, guidance_id, doctor)
     sent = body.model_fields_set
     scope = body.scope if "scope" in sent and body.scope else entry.scope
     drug_tags = clean_tags(body.drug_tags) if body.drug_tags is not None else list(entry.drug_tags or [])
@@ -381,7 +392,7 @@ async def embed_guidance(
     llm = _llm(request)
     if llm is None:
         raise HTTPException(status_code=503, detail="No model is configured.")
-    entry = await get_entry(session, guidance_id)
+    entry = await get_entry(session, guidance_id, doctor)
     await embed_entry(llm, entry)
     await session.commit()
     await session.refresh(entry)

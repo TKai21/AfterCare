@@ -14,14 +14,13 @@ from db import get_session
 from guidance import retrieve
 from llm import LLMError
 from models import ChatMessage, DoctorGuidance, User
-from routes_care_team import add_question
+from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import detect_emergency, warning_terms
 
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-MAX_QUESTION_CHARS = 2000
 # A care-team question with this reason is added at most once while open.
 SOURCES_DISAGREE = "Sources disagree"
 

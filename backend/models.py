@@ -114,6 +114,10 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # The doctor whose clone this conversation is with (NULL for older messages).
+    doctor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -136,6 +140,10 @@ class CareTeamQuestion(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # The doctor this question is for; NULL means any doctor may answer it.
+    doctor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

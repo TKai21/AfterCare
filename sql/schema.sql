@@ -91,10 +91,13 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   role VARCHAR(20) NOT NULL,                              -- user | assistant
   content TEXT NOT NULL,
   payload JSON NULL,
+  doctor_id INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_chat_messages_document_id (document_id),
-  FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE CASCADE
+  KEY ix_chat_messages_doctor_id (doctor_id),
+  FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE CASCADE,
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS care_team_questions (
@@ -108,9 +111,12 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   answer TEXT NULL,
   answered_by INT NULL,
   answered_at DATETIME NULL,
+  doctor_id INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_care_team_questions_user_id (user_id),
+  KEY ix_care_team_questions_doctor_id (doctor_id),
+  FOREIGN KEY (doctor_id) REFERENCES users (id) ON DELETE SET NULL,
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   FOREIGN KEY (answered_by) REFERENCES users (id) ON DELETE SET NULL,
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL

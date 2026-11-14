@@ -386,3 +386,65 @@ async def test_patient_entry_without_a_document_is_stale(client, fake_llm):
         await s.commit()
     (e,) = (await client.get("/api/doctor/guidance", headers=dh)).json()["entries"]
     assert e["scope"] == "patient" and e["stale"] is True
+
+
+async def test_queue_shows_own_and_unassigned_only(client, fake_llm):
+    ha = await doctor_headers(client, "dr.a", "Dr. A")
+    hb = await doctor_headers(client, "dr.b", "Dr. B")
+    async with client.app.state.session_factory() as s:
+        ids = {u.username: u.id for u in await s.scalars(select(User).where(User.role == "doctor"))}
+    h = await auth_headers(client)
+    for doctor_id, text in ((ids["dr.a"], "For A?"), (ids["dr.b"], "For B?")):
+        r = await client.post("/api/care-team", headers=h, json={"doctor_id": doctor_id, "question": text})
+        assert r.status_code == 200
+    async with client.app.state.session_factory() as s:
+        from models import CareTeamQuestion
+        alice_id = (await s.scalar(select(User).where(User.username == "alice"))).id
+        s.add(CareTeamQuestion(user_id=alice_id, question="For anyone?", reason="r", source="agent"))
+        await s.commit()
+    data = (await client.get("/api/doctor/questions", headers=ha)).json()
+    assert [q["question"] for q in data["open"]] == ["For A?", "For anyone?"]
+    assert data["open"][0]["doctor_name"] == "Dr. A"
+    data = (await client.get("/api/doctor/questions", headers=hb)).json()
+    assert [q["question"] for q in data["open"]] == ["For B?", "For anyone?"]
+
+
+async def test_answering_unassigned_assigns_it(client, fake_llm):
+    h, doc, qid = await asked(client, fake_llm)
+    dh = await doctor_headers(client)
+    resp = await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh, json=answer_body())
+    assert resp.status_code == 200
+    q = resp.json()["question"]
+    assert q["doctor_id"] is not None and q["doctor_name"] == "Dr. Ting Kai"
+    other = await doctor_headers(client, "dr.b", "Dr. B")
+    data = (await client.get("/api/doctor/questions", headers=other)).json()
+    assert data["answered"] == [] and data["open"] == []
+
+
+async def test_answer_to_another_doctors_question_is_404(client, fake_llm):
+    ha = await doctor_headers(client, "dr.a", "Dr. A")
+    hb = await doctor_headers(client, "dr.b", "Dr. B")
+    async with client.app.state.session_factory() as s:
+        b_id = (await s.scalar(select(User).where(User.username == "dr.b"))).id
+    h = await auth_headers(client)
+    qid = (await client.post("/api/care-team", headers=h,
+                             json={"doctor_id": b_id, "question": "For B?"})).json()["question"]["id"]
+    resp = await client.post(f"/api/doctor/questions/{qid}/answer", headers=ha, json=answer_body())
+    assert resp.status_code == 404
+    assert (await client.post(f"/api/doctor/questions/{qid}/answer", headers=hb,
+                              json=answer_body())).status_code == 200
+
+
+async def test_guidance_of_another_doctor_is_404(client, fake_llm):
+    h, doc, qid = await asked(client, fake_llm)
+    ha = await doctor_headers(client, "dr.a", "Dr. A")
+    hb = await doctor_headers(client, "dr.b", "Dr. B")
+    gid = (await client.post(f"/api/doctor/questions/{qid}/answer", headers=ha,
+                             json=answer_body())).json()["guidance"]["id"]
+    assert [e["id"] for e in (await client.get("/api/doctor/guidance", headers=ha)).json()["entries"]] == [gid]
+    assert (await client.get("/api/doctor/guidance", headers=hb)).json()["entries"] == []
+    resp = await client.patch(f"/api/doctor/guidance/{gid}", headers=hb, json={"answer": "Hijacked."})
+    assert resp.status_code == 404
+    assert (await client.post(f"/api/doctor/guidance/{gid}/embed", headers=hb)).status_code == 404
+    async with client.app.state.session_factory() as s:
+        assert (await s.get(DoctorGuidance, gid)).answer == "Take it with food."
