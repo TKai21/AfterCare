@@ -102,11 +102,10 @@ async def _get_label(session: AsyncSession, label_id: int) -> DrugLabel:
     return label
 
 
-async def _claim(session: AsyncSession, model, row_id: int, allowed, detail: str, extra=None) -> None:
+async def _claim(session: AsyncSession, model, row_id: int, allowed: tuple[str, ...], detail: str) -> None:
     """Move the row to `fetching` only if it is still in one of `allowed`; else 409."""
-    condition = model.status.in_(allowed) if isinstance(allowed, (list, tuple, set)) else model.status == allowed
     result = await session.execute(
-        update(model).where(model.id == row_id, condition)
+        update(model).where(model.id == row_id, model.status.in_(allowed))
         .values(status="fetching", error=None)
         .execution_options(synchronize_session=False)
     )
