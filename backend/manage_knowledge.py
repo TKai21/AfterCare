@@ -12,7 +12,7 @@ import sys
 from urllib.parse import urlparse
 
 from sqlalchemy import make_url
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 from config import Settings, get_settings
 from druglabels import approved_label_records
@@ -26,6 +26,14 @@ KEYED_HOSTS = frozenset({"api.openai.com"})
 def needs_key(settings: Settings) -> bool:
     """Hosted APIs need a key; a self-hosted embeddings server (vLLM) may not."""
     return (urlparse(settings.embedding_api_base).hostname or "") in KEYED_HOSTS
+
+
+def masked_url(database_url: str) -> str:
+    """DATABASE_URL without its password, or a placeholder when it does not parse."""
+    try:
+        return make_url(database_url).render_as_string(hide_password=True)
+    except ArgumentError:
+        return "an unreadable DATABASE_URL"
 
 
 def run(argv: list[str], settings: Settings | None = None) -> int:
@@ -58,13 +66,18 @@ def run(argv: list[str], settings: Settings | None = None) -> int:
         if args.command == "index":
             try:
                 labels = asyncio.run(approved_label_records(settings.database_url))
+            except ImportError as exc:
+                driver = exc.name or "the database driver"
+                print(f"Cannot read approved drug labels from {masked_url(settings.database_url)}: "
+                      f"the database driver {driver} is not installed. Install the requirements "
+                      "into this environment.", file=sys.stderr)
+                return 1
             except (SQLAlchemyError, OSError) as exc:
                 # No fallback to an empty list: the index is a full rebuild, so
                 # that would silently drop the labels already indexed.
-                shown = make_url(settings.database_url).render_as_string(hide_password=True)
-                print(f"Cannot read approved drug labels from {shown}: {type(exc).__name__}. "
-                      "Check DATABASE_URL and that the database is running and initialised.",
-                      file=sys.stderr)
+                print(f"Cannot read approved drug labels from {masked_url(settings.database_url)}: "
+                      f"{type(exc).__name__}. Check DATABASE_URL and that the database is "
+                      "running and initialised.", file=sys.stderr)
                 return 1
             result = asyncio.run(index_sources(store, DATA, extra_records=labels))
             for source_id, chunks in result["indexed"].items():

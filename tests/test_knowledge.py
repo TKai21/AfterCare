@@ -235,8 +235,10 @@ async def test_collect_only_rejects_unknown_ids(tmp_path):
         await knowledge.collect_sources(tmp_path, only=["nope"])
 
 
-def test_cli_collect_only_unknown_id_exits_2(capsys):
-    assert manage_knowledge.run(["collect", "--only", "no-such-source"]) == 2
+def test_cli_collect_only_unknown_id_exits_2(tmp_path, capsys):
+    # A Settings object, so the test never reads the project .env.
+    settings = Settings(rag_db_path=str(tmp_path / "index.sqlite3"))
+    assert manage_knowledge.run(["collect", "--only", "no-such-source"], settings) == 2
     assert "no-such-source" in capsys.readouterr().err
 
 
@@ -413,6 +415,37 @@ def test_cli_index_fails_loudly_when_labels_cannot_be_read(tmp_path, capsys, mon
     assert manage_knowledge.run(["index"], settings) == 1
     err = capsys.readouterr().err
     assert "Cannot read approved drug labels" in err and "OperationalError" in err
+    assert "s3cret" not in err
+
+
+def keyless(tmp_path, database_url):
+    return Settings(rag_db_path=str(tmp_path / "index.sqlite3"), llm_api_base="http://gpu-box:8000/v1",
+                    llm_model="served-model", llm_api_key="", embedding_api_key="", database_url=database_url)
+
+
+def test_cli_index_with_an_unparseable_database_url_fails_clearly(tmp_path, capsys, monkeypatch):
+    async def never_index(*args, **kwargs):
+        raise AssertionError("a full rebuild must not run without the labels")
+
+    monkeypatch.setattr(manage_knowledge, "index_sources", never_index)
+    assert manage_knowledge.run(["index"], keyless(tmp_path, "not a database url")) == 1
+    err = capsys.readouterr().err
+    assert "Cannot read approved drug labels" in err and "DATABASE_URL" in err
+
+
+def test_cli_index_without_the_database_driver_fails_clearly(tmp_path, capsys, monkeypatch):
+    async def no_driver(database_url):
+        raise ModuleNotFoundError("No module named 'asyncmy'", name="asyncmy")
+
+    async def never_index(*args, **kwargs):
+        raise AssertionError("a full rebuild must not run without the labels")
+
+    monkeypatch.setattr(manage_knowledge, "approved_label_records", no_driver)
+    monkeypatch.setattr(manage_knowledge, "index_sources", never_index)
+    url = "mysql+asyncmy://user:s3cret@db.example:3306/aftercare"
+    assert manage_knowledge.run(["index"], keyless(tmp_path, url)) == 1
+    err = capsys.readouterr().err
+    assert "Cannot read approved drug labels" in err and "asyncmy" in err and "driver" in err
     assert "s3cret" not in err
 
 
