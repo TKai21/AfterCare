@@ -1,13 +1,15 @@
 // Ask tab: the cited Q&A conversation about the confirmed discharge document.
 import {api, escapeHtml, registerTab} from '/static/api.js';
 import {refreshCareTeam} from '/static/careteam.js';
+import {
+  EMERGENCY_COPY, MAX_QUESTION, askDoctorDirectly, emergencyHtml as sharedEmergencyHtml,
+  loadDoctors, pickDoctor, rememberDoctor, warningSignsOf,
+} from '/static/doctors.js';
 
 const esc = escapeHtml;
 
-const EMERGENCY_COPY = 'If you are having this symptom now, call 911 or follow the emergency instructions in your discharge document.';
 const UNCONFIGURED = 'The assistant is not configured on this server yet.';
 const TEMPORARY = 'The assistant could not answer right now. Please try again.';
-const MAX_QUESTION = 2000;
 const SUGGESTIONS = [
   'What warning signs should I watch for?',
   'What does my document say about what I can eat?',
@@ -23,6 +25,10 @@ const view = {
   busy: false,
   notice: null,      // {kind: 'unconfigured' | 'error', text}
   draft: '',
+  doctors: [],       // [{id, name}]
+  doctorId: null,    // the doctor whose clone is shown
+  drafts: {},        // unsent text of the other doctors' tabs
+  direct: {},        // per doctor: {open, text, touched, sending, sent, emergency, error}
   open: new Set(),   // 'messageIndex:sourceNumber' of expanded sources
 };
 
@@ -38,6 +44,8 @@ function show(panel, ctx) {
     view.status = 'idle';
     view.messages = [];
     view.notice = null;
+    view.drafts = {};
+    view.direct = {};
     view.open.clear();
   }
   renderShell(panel);
@@ -56,13 +64,25 @@ function noticeFor(error) {
   return {kind: 'error', text: error.message};
 }
 
+const currentDoctor = () => view.doctors.find(d => d.id === view.doctorId) || null;
+const doctorName = () => (currentDoctor() ? currentDoctor().name : 'your doctor');
+
 async function loadConversation(docId) {
   view.status = 'loading';
   view.notice = null;
   update();
   try {
-    const data = await api('/api/conversation');
-    if (view.docId !== docId) return;
+    if (!view.doctors.length) {
+      view.doctors = await loadDoctors();
+      if (view.docId !== docId) return;
+      const picked = pickDoctor(view.doctors);
+      if (!picked) throw new Error('No doctors are available yet.');
+      view.doctorId = picked.id;
+      view.draft = view.drafts[picked.id] || '';
+    }
+    const doctorId = view.doctorId;
+    const data = await api('/api/conversation?doctor_id=' + encodeURIComponent(doctorId));
+    if (view.docId !== docId || view.doctorId !== doctorId) return;
     view.messages = (data && data.messages) || [];
     view.status = 'ready';
   } catch (error) {
@@ -74,8 +94,22 @@ async function loadConversation(docId) {
   if (view.messages.length) scrollToLatest('auto');
 }
 
+function switchDoctor(id) {
+  if (id === view.doctorId || view.busy) return;
+  view.drafts[view.doctorId] = view.draft;
+  view.doctorId = id;
+  view.draft = view.drafts[id] || '';
+  view.messages = [];
+  view.notice = null;
+  view.open.clear();
+  rememberDoctor(id);
+  renderShell(panelRef);
+  loadConversation(view.docId);
+}
+
 async function ask(question) {
   const docId = view.docId;
+  const doctorId = view.doctorId;
   const pending = {role: 'user', content: question};
   view.messages.push(pending);
   view.busy = true;
@@ -84,8 +118,8 @@ async function ask(question) {
   update({clearInput: true});
   scrollToLatest('smooth');
   try {
-    const payload = await api('/api/ask', {method: 'POST', json: {question}});
-    if (view.docId !== docId) return;
+    const payload = await api('/api/ask', {method: 'POST', json: {question, doctor_id: doctorId}});
+    if (view.docId !== docId || view.doctorId !== doctorId) return;
     view.messages.push({role: 'assistant', content: payload.answer, payload});
     view.busy = false;
     update();
@@ -93,7 +127,7 @@ async function ask(question) {
     announce('Answer received.');
     scrollToLatest('smooth');
   } catch (error) {
-    if (view.docId !== docId) return;
+    if (view.docId !== docId || view.doctorId !== doctorId) return;
     view.messages = view.messages.filter(m => m !== pending);
     view.busy = false;
     view.notice = noticeFor(error);
@@ -146,15 +180,8 @@ function doctorLabel(title) {
   return match ? `${match[1]} (${match[2]})` : (text || 'Doctor advice');
 }
 
-function doctorNote(payload, sources) {
-  if (!sources.some(s => s.kind === 'doctor')) return '';
-  const name = payload.doctor_name || 'your doctor';
-  return `<p class="doctor-note">The AfterCare assistant answered using ${esc(name)}'s earlier advice.</p>`;
-}
-
 const EXTERNAL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const ALERT_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1.2" fill="currentColor"/></svg>';
 const INFO_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="6.3" r="1.1" fill="currentColor"/></svg>';
 const SEND_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 16V4m0 0L5 9m5-5l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -189,25 +216,8 @@ function sourcesHtml(index, sources) {
     </section>`;
 }
 
-function warningSigns() {
-  const doc = ctxRef && ctxRef.document;
-  if (!doc || !Array.isArray(doc.items)) return [];
-  return doc.items.filter(i => i.category === 'warning_signs' && i.status === 'active');
-}
-
 function emergencyHtml() {
-  const signs = warningSigns();
-  return `
-    <section class="emergency" aria-label="Emergency">
-      <span class="emergency-icon">${ALERT_ICON}</span>
-      <div class="emergency-body">
-        <p class="emergency-copy">${esc(EMERGENCY_COPY)}</p>
-        ${signs.length ? `
-          <p class="emergency-label">From your discharge document</p>
-          <ul class="emergency-list">${signs.map(s => `<li>${esc(s.text)}</li>`).join('')}</ul>` : ''}
-        <a class="btn btn-emergency" href="tel:911">Call 911</a>
-      </div>
-    </section>`;
+  return sharedEmergencyHtml(warningSignsOf(ctxRef && ctxRef.document));
 }
 
 function assistantHtml(message, index) {
@@ -223,10 +233,10 @@ function assistantHtml(message, index) {
   return `
     <li class="msg msg-assistant" data-index="${index}">
       ${emergency ? emergencyHtml() : ''}
-      <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AfterCare answer">
+      <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AI clone answer">
+        <p class="clone-label">AI clone of ${esc(payload.doctor_name || doctorName())}</p>
         <div class="answer-text">${answerTextHtml(payload.answer, numbers)}</div>
         ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
-        ${doctorNote(payload, sources)}
         ${sourcesHtml(index, sources)}
       </article>
     </li>`;
@@ -246,8 +256,9 @@ function renderShell(panel) {
     <div class="ask">
       <div class="page-head">
         <h1 class="page-title">Ask about your recovery</h1>
-        <p class="lead">Answers come from your discharge document and an approved education library, with numbered sources you can check.</p>
+        <p class="lead" id="askLead"></p>
       </div>
+      <div id="askTabs"></div>
       <div id="askBody"></div>
       <div id="askNotice"></div>
       <form class="composer" id="askForm" novalidate>
@@ -258,6 +269,7 @@ function renderShell(panel) {
         </div>
         <p class="composer-hint">Press Enter to send, Shift + Enter for a new line.</p>
       </form>
+      <div id="askDirect"></div>
       <p class="visually-hidden" role="status" id="askStatus"></p>
     </div>`;
 
@@ -278,6 +290,9 @@ function renderShell(panel) {
     event.preventDefault();
     submit();
   });
+  panel.querySelector('#askDirect').addEventListener('click', onDirectClick);
+  panel.querySelector('#askDirect').addEventListener('input', onDirectInput);
+  panel.querySelector('#askDirect').addEventListener('submit', onDirectSubmit);
   update();
 }
 
@@ -340,9 +355,136 @@ function noticeHtml() {
   return `<p class="notice" role="status">${INFO_ICON}<span>${esc(notice.text)}</span></p>`;
 }
 
+function renderTabs() {
+  const box = panelRef.querySelector('#askTabs');
+  if (!view.doctors.length) {
+    box.innerHTML = '';
+    return;
+  }
+  const sig = view.doctors.map(d => d.id + ':' + d.name).join('|') + '#' + view.doctorId + '#' + view.busy;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = `
+    <div class="doctor-picker" role="group" aria-label="Choose a doctor">
+      ${view.doctors.map(d => `
+        <button type="button" class="doctor-tab" data-id="${esc(d.id)}" aria-pressed="${d.id === view.doctorId}" ${view.busy ? 'disabled' : ''}>${esc(d.name)}</button>`).join('')}
+    </div>`;
+  box.querySelectorAll('.doctor-tab').forEach(button => {
+    button.addEventListener('click', () => {
+      const id = view.doctors.find(d => String(d.id) === button.dataset.id);
+      if (id) switchDoctor(id.id);
+    });
+  });
+}
+
+// ---------- ask the real doctor ----------
+
+const directState = () => {
+  if (!view.direct[view.doctorId]) {
+    view.direct[view.doctorId] = {open: false, text: '', touched: false, sending: false, sent: null, emergency: false, error: ''};
+  }
+  return view.direct[view.doctorId];
+};
+
+function lastQuestion() {
+  const users = view.messages.filter(m => m.role === 'user');
+  return users.length ? String(users[users.length - 1].content || '') : '';
+}
+
+function directHtml() {
+  if (view.status !== 'ready' || !currentDoctor()) return '';
+  const name = doctorName();
+  const state = directState();
+  if (state.sent) {
+    return `
+      <div class="direct">
+        ${state.emergency ? emergencyHtml() : ''}
+        <p class="direct-sent" role="status">${CHECK_ICON}<span>Sent to ${esc(state.sent)}. You'll see the reply in <a href="#careteam">Care team</a>.</span></p>
+      </div>`;
+  }
+  if (!state.open) {
+    return `
+      <div class="direct">
+        <p class="direct-line">Want the real ${esc(name)}? <button type="button" class="btn btn-secondary btn-small" data-direct="open">Ask ${esc(name)} directly</button></p>
+      </div>`;
+  }
+  return `
+    <form class="direct direct-form" novalidate>
+      <label class="direct-label" for="directInput">Your question for ${esc(name)}</label>
+      <textarea id="directInput" class="direct-input" rows="3" maxlength="${MAX_QUESTION}">${esc(state.text)}</textarea>
+      ${state.error ? `<p class="form-error" role="alert">${esc(state.error)}</p>` : ''}
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary btn-small" data-direct="cancel" ${state.sending ? 'disabled' : ''}>Cancel</button>
+        <button type="submit" class="btn btn-primary btn-small" id="directSend" ${state.sending || !state.text.trim() ? 'disabled' : ''}>${state.sending ? 'Sending...' : 'Send to ' + esc(name)}</button>
+      </div>
+    </form>`;
+}
+
+function renderDirect() {
+  const box = panelRef.querySelector('#askDirect');
+  const focused = document.activeElement && document.activeElement.id === 'directInput';
+  box.innerHTML = directHtml();
+  const input = box.querySelector('#directInput');
+  if (input && focused) input.focus();
+}
+
+function onDirectClick(event) {
+  const button = event.target.closest('[data-direct]');
+  if (!button) return;
+  const state = directState();
+  if (button.dataset.direct === 'open') {
+    state.open = true;
+    if (!state.touched) state.text = lastQuestion();
+    renderDirect();
+    const input = panelRef.querySelector('#directInput');
+    if (input) input.focus();
+  } else if (button.dataset.direct === 'cancel' && !state.sending) {
+    state.open = false;
+    renderDirect();
+  }
+}
+
+function onDirectInput(event) {
+  if (event.target.id !== 'directInput') return;
+  const state = directState();
+  state.text = event.target.value;
+  state.touched = true;
+  const send = panelRef.querySelector('#directSend');
+  if (send) send.disabled = state.sending || !state.text.trim();
+}
+
+async function onDirectSubmit(event) {
+  event.preventDefault();
+  const doctorId = view.doctorId;
+  const state = directState();
+  const question = state.text.trim();
+  if (!question || state.sending) return;
+  state.sending = true;
+  state.error = '';
+  renderDirect();
+  try {
+    const data = await askDoctorDirectly(doctorId, question);
+    state.sending = false;
+    state.sent = (data && data.question && data.question.doctor_name) || (view.doctors.find(d => d.id === doctorId) || {}).name || 'your doctor';
+    state.emergency = !!(data && data.emergency && data.emergency.banner);
+    refreshCareTeam();
+  } catch (error) {
+    state.sending = false;
+    state.error = error.message;
+  }
+  if (isVisible() && view.doctorId === doctorId) renderDirect();
+}
+
 function update({clearInput = false, restoreInput = false} = {}) {
   if (!isVisible()) return;
   const panel = panelRef;
+  const name = doctorName();
+  panel.querySelector('#askLead').textContent = currentDoctor()
+    ? `Answers come from your discharge document and ${name}'s earlier advice, given by ${name}'s AI clone.`
+    : 'Answers come from your discharge document and your doctor\'s earlier advice, given by an AI clone.';
+  panel.querySelector('#askInput').placeholder = currentDoctor() ? `Ask ${name}'s AI clone...` : 'Ask a question about your recovery';
+  renderTabs();
+  renderDirect();
   panel.querySelector('#askBody').innerHTML = bodyHtml();
   panel.querySelector('#askNotice').innerHTML = noticeHtml();
   const input = panel.querySelector('#askInput');

@@ -1303,11 +1303,51 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
   line-height: 20px;
   text-align: center;
 }
-.doctor-note {
-  margin-top: 12px;
-  color: var(--text-muted);
-  font-size: 13px;
+.clone-label {
+  margin-bottom: 8px;
+  color: var(--accent-hover);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
+.doctor-picker { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-2); min-width: 0; }
+.doctor-tab {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.doctor-tab:hover:not(:disabled) { border-color: var(--accent); }
+.doctor-tab[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.doctor-tab:disabled { cursor: not-allowed; opacity: 0.6; }
+.direct { margin-top: var(--space-2); min-width: 0; }
+.direct-line { color: var(--text-muted); overflow-wrap: anywhere; }
+.direct-line .btn { margin-left: var(--space-1); }
+.direct-form { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.direct-label { font-size: 15px; font-weight: 600; }
+.direct-input { min-height: 88px; }
+.direct-sent { display: flex; align-items: center; gap: 8px; margin-top: var(--space-1); color: var(--accent-hover); font-weight: 600; }
+.direct-sent a { color: inherit; }
+.direct-sent svg { flex: none; }
+.direct-box { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.direct-box select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  font-size: 16px;
+  max-width: 100%;
+}
+.direct-box textarea { min-height: 88px; }
 
 /* ---------- doctor page (/doctor) ---------- */
 
