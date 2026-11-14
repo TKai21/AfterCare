@@ -14,6 +14,7 @@ const state = {
   filters: {scope: 'all', status: 'active'},
   drafts: new Map(),    // open question id -> answer draft
   answeredOpen: false,
+  openPanels: new Set(), // expanded context panels, keyed id:kind
   editing: new Map(),   // guidance id -> edit draft
   rowErrors: new Map(), // guidance id -> message
   busyRows: new Set(),
@@ -46,15 +47,17 @@ function tabFromHash() {
   return window.location.hash === '#guidance' ? 'guidance' : 'questions';
 }
 
-function chipsHtml(kind, tags, label) {
+function chipItemsHtml(kind, tags) {
+  return tags.map((t, i) => `<li class="doctor-chip">${esc(t)}<button type="button" class="doctor-chip-x" data-action="remove-tag" data-kind="${kind}" data-index="${i}" aria-label="Remove ${esc(t)}">&times;</button></li>`).join('');
+}
+
+function chipsHtml(kind, tags, label, pending = '') {
   return `
     <div class="doctor-tag-row" data-kind="${kind}">
       <span class="doctor-tag-label">${label}</span>
-      <ul class="doctor-chips" aria-label="${label}">
-        ${tags.map((t, i) => `<li class="doctor-chip">${esc(t)}<button type="button" class="doctor-chip-x" data-action="remove-tag" data-kind="${kind}" data-index="${i}" aria-label="Remove ${esc(t)}">&times;</button></li>`).join('')}
-      </ul>
+      <ul class="doctor-chips" aria-label="${label}">${chipItemsHtml(kind, tags)}</ul>
       <span class="doctor-tag-add">
-        <input type="text" class="doctor-tag-input" data-kind="${kind}" maxlength="80" placeholder="Add" aria-label="Add to ${label.toLowerCase()}">
+        <input type="text" class="doctor-tag-input" data-kind="${kind}" maxlength="80" placeholder="Add" value="${esc(pending)}" aria-label="Add to ${label.toLowerCase()}">
         <button type="button" class="btn btn-secondary btn-small" data-action="add-tag" data-kind="${kind}">Add</button>
       </span>
     </div>`;
@@ -67,11 +70,13 @@ function draftFor(q) {
     state.drafts.set(q.id, {
       answer: '', general: false, savedQuestion: q.question,
       drugs: [], conditions: [], tagError: '', suggesting: false,
-      sending: false, error: '', lastSuggested: null, timer: null, seq: 0,
+      pending: {drugs: '', conditions: ''}, sending: false, error: '', lastSuggested: null, timer: null, seq: 0,
     });
   }
   return state.drafts.get(q.id);
 }
+
+const isOpen = (id, kind) => state.openPanels.has(id + ':' + kind) ? 'open' : '';
 
 function contextHtml(q) {
   const c = q.context || {};
@@ -80,20 +85,25 @@ function contextHtml(q) {
   const convo = c.conversation || [];
   const panels = [];
   if (paragraphs.length) {
-    panels.push(`<details class="doctor-context"><summary>Discharge document</summary>
+    panels.push(`<details class="doctor-context" data-key="${q.id}:doc" ${isOpen(q.id, 'doc')}><summary>Discharge document</summary>
       <div class="doctor-context-body">${paragraphs.map(p => `<p>${esc(p)}</p>`).join('')}</div></details>`);
   }
   if (items.length) {
-    panels.push(`<details class="doctor-context"><summary>Confirmed instructions</summary>
+    panels.push(`<details class="doctor-context" data-key="${q.id}:items" ${isOpen(q.id, 'items')}><summary>Confirmed instructions</summary>
       <ul class="doctor-context-body doctor-context-list">${items.map(i =>
         `<li><span class="doctor-context-cat">${esc(i.category)}</span> ${esc(i.text)}</li>`).join('')}</ul></details>`);
   }
   if (convo.length) {
-    panels.push(`<details class="doctor-context"><summary>Recent conversation (last ${convo.length} messages)</summary>
+    panels.push(`<details class="doctor-context" data-key="${q.id}:convo" ${isOpen(q.id, 'convo')}><summary>Recent conversation (last ${convo.length} messages)</summary>
       <ul class="doctor-context-body doctor-context-list">${convo.map(m =>
         `<li><span class="doctor-context-cat">${m.role === 'user' ? 'Patient' : 'Assistant'}</span> ${esc(m.content)}</li>`).join('')}</ul></details>`);
   }
   return panels.join('');
+}
+
+function suggestStatusHtml(d) {
+  if (d.suggesting) return '<p class="busy-note"><span class="spinner" aria-hidden="true"></span>Suggesting tags...</p>';
+  return d.tagError ? `<p class="doctor-hint">${esc(d.tagError)}</p>` : '';
 }
 
 function generalHtml(q, d) {
@@ -105,10 +115,9 @@ function generalHtml(q, d) {
         <input type="text" id="saved-${q.id}" class="doctor-saved-question" value="${esc(d.savedQuestion)}">
         <span class="field-hint">Rewrite it so nothing specific to this patient is shared.</span>
       </div>
-      ${chipsHtml('drugs', d.drugs, 'Drugs')}
-      ${chipsHtml('conditions', d.conditions, 'Conditions')}
-      ${d.suggesting ? '<p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Suggesting tags...</p>' : ''}
-      ${d.tagError ? `<p class="doctor-hint" role="status">${esc(d.tagError)}</p>` : ''}
+      ${chipsHtml('drugs', d.drugs, 'Drugs', d.pending.drugs)}
+      ${chipsHtml('conditions', d.conditions, 'Conditions', d.pending.conditions)}
+      <div class="doctor-suggest-status" role="status">${suggestStatusHtml(d)}</div>
     </div>`;
 }
 
@@ -179,7 +188,19 @@ function rerenderGeneral(id) {
   const card = cardEl(id);
   if (!q || !card) return;
   const d = state.drafts.get(id);
-  card.querySelector('.doctor-general').innerHTML = generalHtml(q, d);
+  const panel = card.querySelector('.doctor-general');
+  const fields = panel.querySelector('.doctor-general-fields');
+  if (!d.general || !fields) {
+    // Ticking or unticking: build or remove the whole panel.
+    panel.innerHTML = generalHtml(q, d);
+  } else {
+    // Patch only the chips and the status line: inputs keep focus, caret and text.
+    fields.querySelectorAll('.doctor-tag-row').forEach(row => {
+      const kind = row.dataset.kind;
+      row.querySelector('.doctor-chips').innerHTML = chipItemsHtml(kind, d[kind]);
+    });
+    fields.querySelector('.doctor-suggest-status').innerHTML = suggestStatusHtml(d);
+  }
   updateSend(id);
 }
 
@@ -222,6 +243,8 @@ async function suggestTags(q, d) {
 
 function scheduleSuggest(q, d) {
   clearTimeout(d.timer);
+  d.seq++;  // an in-flight suggestion for older text must not merge
+  if (d.suggesting) d.lastSuggested = null;
   if (!d.general) return;
   d.timer = setTimeout(() => suggestTags(q, d), SUGGEST_DELAY_MS);
 }
@@ -232,6 +255,8 @@ function addTag(id, kind, input) {
   if (!value) return;
   const field = kind === 'drugs' ? 'drugs' : 'conditions';
   d[field] = uniqueTags([...d[field], value]);
+  d.pending[field] = '';
+  input.value = '';
   rerenderGeneral(id);
   const next = cardEl(id).querySelector(`.doctor-tag-input[data-kind="${kind}"]`);
   if (next) next.focus();
@@ -293,6 +318,8 @@ function bindQuestions() {
       scheduleSuggest(q, d);
     } else if (event.target.classList.contains('doctor-saved-question')) {
       d.savedQuestion = event.target.value;
+    } else if (event.target.classList.contains('doctor-tag-input')) {
+      d.pending[event.target.dataset.kind] = event.target.value;
     }
   });
   main.addEventListener('change', event => {
@@ -307,6 +334,10 @@ function bindQuestions() {
   });
   main.addEventListener('toggle', event => {
     if (event.target.classList.contains('doctor-answered')) state.answeredOpen = event.target.open;
+    const key = event.target.dataset && event.target.dataset.key;
+    if (key && event.target.classList.contains('doctor-context')) {
+      if (event.target.open) state.openPanels.add(key); else state.openPanels.delete(key);
+    }
   }, true);
 }
 
@@ -335,7 +366,7 @@ function editHtml(e, ed) {
         <option value="general" ${ed.scope === 'general' ? 'selected' : ''}>General (all patients)</option>
         <option value="patient" ${ed.scope === 'patient' ? 'selected' : ''}>Patient-specific</option>
       </select></div>
-    ${ed.scope === 'general' ? chipsHtml('drugs', ed.drugs, 'Drugs') + chipsHtml('conditions', ed.conditions, 'Conditions') : ''}`;
+    ${ed.scope === 'general' ? chipsHtml('drugs', ed.drugs, 'Drugs', ed.pending.drugs) + chipsHtml('conditions', ed.conditions, 'Conditions', ed.pending.conditions) : ''}`;
 }
 
 function rowHtml(e) {
@@ -426,6 +457,7 @@ async function rowAction(action, id) {
     state.editing.set(id, {
       question: entry.question, answer: entry.answer, scope: entry.scope,
       drugs: [...entry.drug_tags], conditions: [...entry.condition_tags],
+      pending: {drugs: '', conditions: ''},
     });
     state.rowErrors.delete(id);
     renderGuidance();
@@ -479,6 +511,7 @@ function bindGuidance() {
     if (!ed) return;
     if (event.target.classList.contains('doctor-edit-answer')) ed.answer = event.target.value;
     else if (event.target.classList.contains('doctor-edit-question')) ed.question = event.target.value;
+    else if (event.target.classList.contains('doctor-tag-input')) ed.pending[event.target.dataset.kind] = event.target.value;
   });
 }
 
@@ -488,6 +521,7 @@ function addEditTag(id, kind, input) {
   if (!value) return;
   const field = kind === 'drugs' ? 'drugs' : 'conditions';
   ed[field] = uniqueTags([...ed[field], value]);
+  ed.pending[field] = '';
   renderGuidance();
   const next = main.querySelector(`.doctor-row[data-gid="${id}"] .doctor-tag-input[data-kind="${kind}"]`);
   if (next) next.focus();
