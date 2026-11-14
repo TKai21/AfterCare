@@ -112,7 +112,7 @@ function generalHtml(q, d) {
     <div class="doctor-general-fields">
       <div class="field">
         <label for="saved-${q.id}">Question as saved</label>
-        <input type="text" id="saved-${q.id}" class="doctor-saved-question" value="${esc(d.savedQuestion)}">
+        <input type="text" id="saved-${q.id}" class="doctor-saved-question" maxlength="4000" value="${esc(d.savedQuestion)}">
         <span class="field-hint">Rewrite it so nothing specific to this patient is shared.</span>
       </div>
       ${chipsHtml('drugs', d.drugs, 'Drugs', d.pending.drugs)}
@@ -131,7 +131,7 @@ function openCardHtml(q) {
       <div class="doctor-contexts">${contextHtml(q)}</div>
       <div class="field">
         <label for="answer-${q.id}">Your answer</label>
-        <textarea id="answer-${q.id}" class="doctor-answer-box" placeholder="Your answer...">${esc(d.answer)}</textarea>
+        <textarea id="answer-${q.id}" class="doctor-answer-box" maxlength="4000" placeholder="Your answer...">${esc(d.answer)}</textarea>
         <span class="field-hint">The assistant follows the discharge document over this answer if they conflict.</span>
       </div>
       <label class="doctor-check">
@@ -215,7 +215,7 @@ function rerenderCard(id) {
 }
 
 async function suggestTags(q, d) {
-  if (!d.general) return;
+  if (!d.general || !d.answer.trim()) return;
   const question = d.savedQuestion.trim() || q.question;
   const key = question + '\n' + d.answer;
   if (key === d.lastSuggested) return;
@@ -266,7 +266,8 @@ async function sendAnswer(q) {
   const d = state.drafts.get(q.id);
   if (d.sending || !d.answer.trim()) return;
   clearTimeout(d.timer);
-  d.seq++;
+  d.seq++;  // drops an in-flight tag suggestion
+  d.suggesting = false;
   d.sending = true;
   d.error = '';
   cardEl(q.id).querySelector('.doctor-send').textContent = 'Sending...';
@@ -358,13 +359,13 @@ function tagsLine(e) {
 function editHtml(e, ed) {
   return `
     <div class="field"><label for="gq-${e.id}">Question</label>
-      <textarea id="gq-${e.id}" class="doctor-edit-question doctor-short" >${esc(ed.question)}</textarea></div>
+      <textarea id="gq-${e.id}" class="doctor-edit-question doctor-short" maxlength="4000">${esc(ed.question)}</textarea></div>
     <div class="field"><label for="ga-${e.id}">Answer</label>
-      <textarea id="ga-${e.id}" class="doctor-edit-answer">${esc(ed.answer)}</textarea></div>
+      <textarea id="ga-${e.id}" class="doctor-edit-answer" maxlength="4000">${esc(ed.answer)}</textarea></div>
     <div class="field"><label for="gs-${e.id}">Scope</label>
       <select id="gs-${e.id}" class="doctor-edit-scope">
         <option value="general" ${ed.scope === 'general' ? 'selected' : ''}>General (all patients)</option>
-        <option value="patient" ${ed.scope === 'patient' ? 'selected' : ''}>Patient-specific</option>
+        <option value="patient" ${ed.scope === 'patient' ? 'selected' : ''}${e.patient === null ? ' disabled' : ''}>Patient-specific</option>
       </select></div>
     ${ed.scope === 'general' ? chipsHtml('drugs', ed.drugs, 'Drugs', ed.pending.drugs) + chipsHtml('conditions', ed.conditions, 'Conditions', ed.pending.conditions) : ''}`;
 }

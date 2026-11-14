@@ -3,26 +3,19 @@
 
 const TOKEN_KEY = 'aftercare_token';
 const USERNAME_KEY = 'aftercare_username';
-const ROLE_KEY = 'aftercare_role';
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || '';
 }
 
-export function saveSession(token, username, role) {
+export function saveSession(token, username) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USERNAME_KEY, username);
-  localStorage.setItem(ROLE_KEY, role || 'patient');
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USERNAME_KEY);
-  localStorage.removeItem(ROLE_KEY);
-}
-
-export function savedRole() {
-  return localStorage.getItem(ROLE_KEY) || 'patient';
 }
 
 export function savedUsername() {

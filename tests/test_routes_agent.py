@@ -508,3 +508,18 @@ async def test_guidance_database_error_is_a_tool_error_and_turn_completes(
     unavailable = {"error": "Doctor guidance is not available right now."}
     assert tool_results(fake_llm, -1) == [unavailable, unavailable]
     assert [q["question"] for q in await care_team(client, h)] == ["Can I swim?"]
+
+
+async def test_doctor_advice_is_titled_with_the_entrys_own_doctor(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    await make_doctor(client, username="dr.a", display_name="Dr. A")
+    second = await make_doctor(client, username="dr.b", display_name="Dr. B")
+    await seed_guidance(client, fake_llm, second)
+    fake_llm.script(
+        tool("search_doctor_guidance", {"query": "amoxicillin with milk"}),
+        answer("Dr. B advised that amoxicillin can be taken with milk [4].", [4]),
+    )
+    body = (await post_ask(client, h, "Can I take amoxicillin with milk?")).json()
+    (source,) = body["sources"]
+    assert source["title"].startswith("Dr. B's advice")
+    assert body["doctor_name"] == "Dr. A"  # generic copy keeps the lowest id doctor

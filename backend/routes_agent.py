@@ -51,15 +51,15 @@ async def recent_history(session: AsyncSession, document_id: int) -> list[dict]:
     return [{"role": m.role, "content": m.content} for m in reversed(list(rows))]
 
 
-async def doctor_name(session: AsyncSession) -> str:
-    """The display name of the doctor account (the lowest id one, if several),
-    its username if the display name is empty, or "your doctor"."""
-    doctor = await session.scalar(
-        select(User).where(User.role == "doctor").order_by(User.id).limit(1)
-    )
-    if doctor is None:
-        return DEFAULT_DOCTOR_NAME
-    return (doctor.display_name or "").strip() or doctor.username
+async def doctor_directory(session: AsyncSession) -> tuple[str, dict[int, str]]:
+    """The name used in generic copy (the lowest id doctor's display name, its
+    username if that is empty, or "your doctor") and every doctor's name by id,
+    which titles each piece of doctor advice."""
+    doctors = list(await session.scalars(
+        select(User).where(User.role == "doctor").order_by(User.id)
+    ))
+    names = {d.id: (d.display_name or "").strip() or d.username for d in doctors}
+    return (names[doctors[0].id] if doctors else DEFAULT_DOCTOR_NAME), names
 
 
 @router.post("/api/ask")
@@ -77,7 +77,7 @@ async def ask(
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
-    name = await doctor_name(session)
+    name, names = await doctor_directory(session)
     llm = request.app.state.llm
     if llm is None:
         if not terms:
@@ -115,7 +115,7 @@ async def ask(
             result = await run_agent(
                 llm, request.app.state.store, request.app.state.foods,
                 doc, items, history, body.question, terms,
-                guidance_search=guidance_search, doctor_name=name,
+                guidance_search=guidance_search, doctor_name=name, doctor_names=names,
             )
         except LLMError as exc:
             if not terms:

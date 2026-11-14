@@ -42,7 +42,7 @@ async function authenticate(signup) {
       method: 'POST',
       json: {username: $('username').value.trim(), password: $('password').value},
     });
-    saveSession(data.token, data.username, data.role);
+    saveSession(data.token, data.username);
     window.location.href = homeFor(data.role);
   } catch (error) {
     showError(error.message);

@@ -5,10 +5,11 @@ the model sees gets an evidence number for this request. The model's final
 message is JSON with [n] citation markers, and `validate` checks it on the
 server: citations must exist, markers must match citations, and every quantity
 in the answer must be stated by the cited evidence's values (whole tokens, see
-number_tokens; an answer that cites nothing may not state quantities at all). Anything that fails becomes the
-safe fallback answer plus a care-team question. Sources shown to the patient are
-built from server-side Evidence, never from model text. An answer that changes a
-medication (see MEDICATION_CHANGE) must cite the document or the doctor's advice.
+number_tokens; an answer that cites nothing may not state quantities at all).
+Anything that fails becomes the safe fallback answer plus a care-team question.
+Sources shown to the patient are built from server-side Evidence, never from
+model text. An answer that changes a medication (see MEDICATION_CHANGE) must
+cite the document or the doctor's advice.
 """
 import json
 import re
@@ -38,10 +39,16 @@ MEDICATION_CHANGE_ERROR = (
     "A medication change must cite the discharge document or the doctor's advice."
 )
 
-FALLBACK = (
-    "I couldn't find a reliable answer to this in your discharge document or the approved "
-    "sources, so I added it to your questions for your care team."
-)
+
+
+def fallback_answer(doctor_name: str = DEFAULT_DOCTOR_NAME) -> str:
+    return (
+        "I couldn't find a reliable answer to this in your discharge document or the approved "
+        f"sources, so I sent it to {doctor_name} as a question for your care team."
+    )
+
+
+FALLBACK = fallback_answer()
 FALLBACK_REASON = "The assistant could not give a verified answer."
 # The fixed answer for an emergency the model could not handle (no model, a model
 # error, or an answer that failed validation). Same copy as the page's banner.
@@ -131,7 +138,7 @@ Authority rules:
 1. Follow the sources in this order, highest first: the patient's discharge document, then {DOCTOR}'s advice for this patient, then {DOCTOR}'s general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, follow the higher one, say the sources differ, and call add_care_team_question with reason "Sources disagree".
 2. If the document does not answer the question, call search_doctor_guidance before search_education_library. A doctor advice entry about a different drug, condition or situation than the one asked about does not apply; do not use it. Refer to the doctor in the third person by name ("{DOCTOR} advised ..."), never as "I", and never present the advice as the doctor speaking to the patient now.
 3. Use the library and food data to explain and apply the document's instruction to the specific thing asked about. For example, if the document says to limit foods high in some nutrient and the patient asks about a food: look up that food, search the library for what counts as high in that nutrient, then answer with the numbers and the serving size. Apply only instructions that are actually in this patient's document. Never say the document tells the patient to avoid or limit something it does not mention; if the document has no instruction about the thing asked, say so.
-4. What counts as "high", "low", or a safe amount must come from a cited library passage, never from your own knowledge. If no passage says it, say that the approved sources do not say.
+4. What counts as "high", "low", or a safe amount must come from a cited document paragraph, {DOCTOR}'s advice, or a library passage, never from your own knowledge. If none of them says it, say that the approved sources do not say.
 5. Never suggest changing, stopping, adding, or substituting a medication or dose unless a cited document paragraph or doctor's advice says so. Library passages and your own knowledge never justify it.
 6. If the approved sources do not answer the question, say so plainly, call add_care_team_question, and tell the patient the question was sent to {DOCTOR}. Use kind "not_covered".
 7. For a medication question that neither the document nor {DOCTOR}'s advice covers (for example a missed dose), give the library's general guidance for that drug if a library passage gives it, starting with "{GENERAL_INFO}" and also call add_care_team_question. If no library passage gives it, do not give general information from your own knowledge; follow rule 6.
@@ -512,11 +519,13 @@ class _Turn:
 
     def __init__(self, store, foods, document: DischargeDocument,
                  guidance_search: Optional[GuidanceSearch] = None,
-                 doctor_name: str = DEFAULT_DOCTOR_NAME):
+                 doctor_name: str = DEFAULT_DOCTOR_NAME,
+                 doctor_names: Optional[dict[int, str]] = None):
         self.store = store
         self.foods = foods
         self.guidance_search = guidance_search
         self.doctor_name = doctor_name
+        self.doctor_names = doctor_names or {}
         self.paragraphs = paragraphs(document.text)
         self.evidence: dict[int, Evidence] = {
             n: Evidence(n, "document", DOCUMENT_TITLE, None, p, check_text=p)
@@ -546,7 +555,7 @@ class _Turn:
             # Only the answer is evidence: the question it answered is context, so
             # numbers in the question can never ground an answer.
             number = self._number(("doctor", entry.id), "doctor",
-                                  guidance_title(self.doctor_name, entry), None, entry.answer,
+                                  guidance_title(self.doctor_names.get(entry.doctor_id, self.doctor_name), entry), None, entry.answer,
                                   check_text=entry.answer)
             self.evidence[number].guidance_id = entry.id
             out.append({
@@ -645,11 +654,12 @@ def _claimed_kind(raw: str) -> Optional[str]:
     return data.get("kind") if isinstance(data, dict) else None
 
 
-def _fallback(question: str, emergency: bool = False) -> AgentResult:
+def _fallback(question: str, emergency: bool = False,
+              doctor_name: str = DEFAULT_DOCTOR_NAME) -> AgentResult:
     if emergency:
         return emergency_result()
     return AgentResult(
-        kind="not_covered", answer=FALLBACK, sources=[], flagged=True,
+        kind="not_covered", answer=fallback_answer(doctor_name), sources=[], flagged=True,
         care_team_question=question, care_team_reason=FALLBACK_REASON,
         care_team_source="validation_fallback",
     )
@@ -667,6 +677,7 @@ async def run_agent(
     max_rounds: int = 6,
     guidance_search: Optional[GuidanceSearch] = None,
     doctor_name: str = DEFAULT_DOCTOR_NAME,
+    doctor_names: Optional[dict[int, str]] = None,
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -682,8 +693,10 @@ async def run_agent(
 
     `guidance_search(query)` returns the doctor's guidance entries that may be
     used for this patient, or raises LLMError or GuidanceUnavailable (the tool
-    then reports guidance unavailable, as it does when the search is None)."""
-    turn = _Turn(store, foods, document, guidance_search, doctor_name)
+    then reports guidance unavailable, as it does when the search is None).
+    Each doctor evidence is titled with its own doctor from `doctor_names`
+    (user id to name), else `doctor_name`, which is also the name in the prompt."""
+    turn = _Turn(store, foods, document, guidance_search, doctor_name, doctor_names)
     user_content = _document_context(turn.paragraphs, items)
     if emergency_terms:
         user_content += ("\n\nA possible emergency was detected in the patient's message: "
@@ -714,7 +727,7 @@ async def run_agent(
                 emergency = bool(emergency_terms) or _claimed_kind(raw) == "emergency"
                 # An emergency never waits on a second model call.
                 if repaired or emergency:
-                    return _fallback(question, emergency)
+                    return _fallback(question, emergency, doctor_name)
                 repaired = True
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": REPAIR_NUDGE.format(error=exc)})
@@ -745,4 +758,4 @@ async def run_agent(
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result)})
         round_number += 1
-    return _fallback(question, bool(emergency_terms))
+    return _fallback(question, bool(emergency_terms), doctor_name)

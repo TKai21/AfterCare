@@ -237,7 +237,7 @@ async def ensure_doctor(session) -> User:
 
 
 async def seed_guidance(session, llm, doctor: User, demo: User, demo2: User,
-                        doc2: DischargeDocument) -> bool:
+                        doc: DischargeDocument, doc2: DischargeDocument) -> bool:
     """Dr. Ting's fictional history: one general entry (colchicine timing in a gout
     flare), one patient-specific entry for demo2 with its answered question, and one
     open question from `demo`. Returns True when every entry got an embedding."""
@@ -253,7 +253,8 @@ async def seed_guidance(session, llm, doctor: User, demo: User, demo2: User,
     )
     session.add(answered)
     session.add(CareTeamQuestion(
-        user_id=demo.id, question=OPEN_QUESTION, reason=OPEN_REASON, source="agent",
+        user_id=demo.id, document_id=doc.id, question=OPEN_QUESTION, reason=OPEN_REASON,
+        source="agent",
     ))
     await session.flush()
     entries = [
@@ -296,13 +297,13 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
         await init_db(engine)
         async with make_session_factory(engine)() as session:
             user = await reset_user(session, USERNAME, PASSWORD)
-            await add_document(session, user, "kidney_stones", "kidney_stones_demo.pdf",
-                               text, discharge, items, UNVERIFIED)
+            doc = await add_document(session, user, "kidney_stones", "kidney_stones_demo.pdf",
+                                     text, discharge, items, UNVERIFIED)
             user2 = await reset_user(session, USERNAME2, PASSWORD2)
             doc2 = await add_document(session, user2, "gout", "gout_demo.pdf",
                                       gout_text, discharge, gout_items, [])
             doctor = await ensure_doctor(session)
-            embedded = await seed_guidance(session, llm, doctor, user, user2, doc2)
+            embedded = await seed_guidance(session, llm, doctor, user, user2, doc, doc2)
             await session.commit()
             if confirm:
                 await routes_documents.confirm(user=user, session=session)

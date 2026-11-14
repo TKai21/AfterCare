@@ -50,6 +50,8 @@ The app has four tabs: Instructions (upload, then review and confirm the extract
    DATABASE_URL=sqlite+aiosqlite:///./aftercare-dev.sqlite3
    ```
 
+   An existing local SQLite dev DB from an earlier version must be deleted and recreated after upgrading (the new guidance tables and columns are not migrated).
+
    MySQL - edit the password in `sql/schema.sql`, run `mysql -u root -p < sql/schema.sql`, and put the same password in `DATABASE_URL`. The app also creates missing tables on startup. `schema.sql` uses `CREATE TABLE IF NOT EXISTS`, so a database created by an earlier version will not gain new columns (for example `discharge_documents.active_user_id`, or `care_team_questions.status`, `answer`, `answered_by` and `answered_at`, which replace the old `resolved` column). Drop and recreate it (upgrading a milestone 1 database).
 6. Start the app from the project root. A relative SQLite path in `DATABASE_URL` resolves against the current directory; `RAG_DB_PATH` (`knowledge/index.sqlite3`) and `FOODS_PATH` (`data/foods.json`) resolve against the project root wherever you start it:
 
@@ -135,9 +137,10 @@ python scripts/create_doctor.py USERNAME "Display Name"   # prompts for the pass
 
 Demo walkthrough:
 
-1. Log in as `demo` and ask a question nobody has answered; it goes to Dr. Ting's queue.
-2. Log in as `dr.ting` at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
-3. Log in as `demo2` and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The agent answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
+1. Run `python scripts/seed_demo.py --confirm` so `demo`'s document is confirmed (asking needs a confirmed document).
+2. Log in as `demo` and ask a question nobody has answered; it goes to Dr. Ting's queue.
+3. Log in as `dr.ting` at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
+4. Log in as `demo2` and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The agent answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
 
 The gate: a general entry only reaches a patient whose discharge document or confirmed instructions mention every drug tag and at least one condition tag as whole words (alternative names such as "colchicine / Colcrys" match), and an untagged general answer is refused. Anything unclear fails closed, and a patient-specific entry is only ever used for that patient and document.
 
@@ -149,7 +152,7 @@ The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine simil
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 486 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 490 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 

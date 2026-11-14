@@ -62,6 +62,7 @@ async def test_seed_is_idempotent_and_creates_the_demo_history(tmp_path):
     assert patient[0].source_question_id == answered.id
     (open_q,) = by_user["demo"]
     assert open_q.status == "open" and open_q.answer is None
+    assert open_q.document_id == docs[users["demo"].id].id
     assert len(questions) == 2
 
 

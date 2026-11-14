@@ -182,7 +182,7 @@ async def guidance_views(
             "stale": (
                 e.scope == "patient"
                 and e.patient_id is not None
-                and e.document_id != active_docs.get(e.patient_id)
+                and (e.document_id is None or e.document_id != active_docs.get(e.patient_id))
             ),
             "cited_count": cited.get(e.id, 0),
             "created_at": e.created_at.isoformat() if e.created_at else None,

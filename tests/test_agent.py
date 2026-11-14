@@ -837,6 +837,8 @@ def test_prompt_states_clone_rules():
     first_rule = rules.split("\n2.")[0]
     positions = [first_rule.find(name) for name in order]
     assert -1 not in positions and positions == sorted(positions), positions
+    rule4 = rules.split("\n4.")[1].split("\n5.")[0]
+    assert "{DOCTOR}'s advice" in rule4 and "library passage" in rule4
     numbers = [int(n) for n in re.findall(r"^(\d+)\.", rules, re.MULTILINE)]
     assert numbers == list(range(1, len(numbers) + 1))
 
@@ -857,3 +859,26 @@ async def test_guidance_unavailable_tool_error(store, foods, document, items):
         result = await ask(llm, store, foods, document, items, guidance_search=search)
         assert result.kind == "answer"
         assert tool_results(llm, 1) == [{"error": "Doctor guidance is not available right now."}]
+
+
+async def test_each_doctor_evidence_is_titled_with_its_own_doctor(store, foods, document, items):
+    mine = guidance(id=7)
+    other = guidance(id=8, answer="Take two tablets at once.")
+    other.doctor_id = 2
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_doctor_guidance", {"query": "colchicine"}),
+        final("Advice [5] and [6].", [5, 6]),
+    )
+    result = await ask(llm, store, foods, document, items, guidance_search=searching(mine, other),
+                       doctor_name="Dr. A", doctor_names={1: "Dr. A", 2: "Dr. B"})
+    assert [s.title for s in result.sources] == [
+        "Dr. A's advice, Nov 12, 2026", "Dr. B's advice, Nov 12, 2026"]
+    assert "Dr. A" in llm.calls[0][0][0]["content"]
+
+
+async def test_fallback_names_the_doctor(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Nope [9].", [9]), final("Nope [9].", [9]))
+    result = await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai")
+    assert "sent it to Dr. Ting Kai" in result.answer

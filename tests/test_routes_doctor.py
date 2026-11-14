@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from conftest import auth_headers, doctor_headers
 from llm import LLMError
-from models import ChatMessage, DoctorGuidance, User
+from models import ChatMessage, DischargeDocument, DoctorGuidance, User
 from test_routes_documents import upload_text
 
 
@@ -371,3 +371,18 @@ async def test_doctor_page_served(client):
     assert resp.headers["content-type"].startswith("text/html")
     assert resp.headers["cache-control"] == "no-cache"
     assert "doctor.js" in resp.text
+
+
+async def test_patient_entry_without_a_document_is_stale(client, fake_llm):
+    h, doc, qid = await asked(client, fake_llm)
+    dh = await doctor_headers(client)
+    await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh, json=answer_body())
+    async with client.app.state.session_factory() as s:
+        (entry,) = list(await s.scalars(select(DoctorGuidance)))
+        entry.document_id = None
+        # No active document either: None == None must not read as "current".
+        (document,) = list(await s.scalars(select(DischargeDocument)))
+        document.active_user_id = None
+        await s.commit()
+    (e,) = (await client.get("/api/doctor/guidance", headers=dh)).json()["entries"]
+    assert e["scope"] == "patient" and e["stale"] is True
