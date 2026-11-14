@@ -236,6 +236,139 @@
                </excerpt>
             </section>
          </component>
+         <component>
+            <section ID="LINK_17266c45-cb57-428f-9e0a-08815b20594d">
+               <id root="6a55ce87-78c3-498c-9e13-e43457e459dd" />
+               <code code="34073-7" codeSystem="2.16.840.1.113883.6.1" displayName="DRUG INTERACTIONS SECTION" />
+               <title>7 DRUG INTERACTIONS</title>
+               <text>
+                  <paragraph>Colchicine is a substrate of the efflux transporter P-glycoprotein (P-gp), and the CYP3A4 metabolizing enzyme. Fatal drug interactions have been reported when colchicine is administered with clarithromycin, a dual inhibitor of CYP3A4 and P-glycoprotein. Toxicities have also been reported when colchicine is administered with inhibitors of CYP3A4 that may not be potent inhibitors of P-gp (e.g., grapefruit juice, erythromycin, verapamil), or inhibitors of P-gp that may not be potent inhibitors of CYP3A4 (e.g., cyclosporine).</paragraph>
+                  <paragraph>Patients with renal or hepatic impairment should not be given colchicine capsules with drugs that inhibit both P-glycoprotein and CYP3A4 <content styleCode="italics">[see </content>
+                     <content styleCode="italics">
+                        <linkHtml href="#LINK_ee48c310-f899-46d5-8513-3f5b635aa4f4">Contraindications </linkHtml>
+                     </content>
+                     <content styleCode="italics">
+                        <linkHtml href="#LINK_ee48c310-f899-46d5-8513-3f5b635aa4f4">(4)</linkHtml>]</content>. Combining these dual inhibitors with colchicine capsules in patients with renal and hepatic impairment has resulted in life-threatening or fatal colchicine toxicity. </paragraph>
+                  <paragraph>Physicians should ensure that patients are suitable candidates for treatment with colchicine capsules and remain alert for signs and symptoms of toxic reactions associated with increased colchicine exposure due to drug interactions. Signs and symptoms of colchicine toxicity should be evaluated promptly and, if toxicity is suspected, colchicine capsules should be discontinued immediately.</paragraph>
+               </text>
+               <effectiveTime value="20240522" />
+               <excerpt>
+                  <highlight>
+                     <text>
+                        <list listType="unordered">
+                           <item>
+                              <caption>•</caption>Co-administration of P-gp or CYP3A4 inhibitors or inhibitors of both P-gp and CYP3A4 (e.g., clarithromycin or cyclosporine) have been reported to lead to colchicine toxicity. The potential for drug-drug interactions must be considered prior to and during therapy.</item>
+                           <item>
+                              <caption>•</caption>Concomitant use of colchicine capsules and inhibitors of CYP3A4 or P-gp should be avoided if possible. If co-administration of colchicine capsules and an inhibitor of CYP3A4 or P-gp is necessary, the dose of colchicine capsules should be reduced and the patient should be monitored carefully for colchicine toxicity (<linkHtml href="#LINK_17266c45-cb57-428f-9e0a-08815b20594d">7</linkHtml>, <linkHtml href="#LINK_a0e3b629-b55b-404c-9c1a-02bf5af9d7ec">12.3</linkHtml>).</item>
+                        </list>
+                     </text>
+                  </highlight>
+               </excerpt>
+               <component>
+                  <section ID="LINK_bf35b028-61de-4ff0-9cd1-80b0699898d7">
+                     <id root="0f272bdd-35ee-4d2f-8daf-3ab2b8c35573" />
+                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+                     <title>7.1 CYP3A4</title>
+                     <text>
+                        <paragraph>The concomitant use of colchicine capsules and CYP3A4 inhibitors (e.g., clarithromycin, ketoconazole, grapefruit juice, erythromycin, verapamil, etc.) should be avoided due to the potential for serious and life-threatening toxicity <content styleCode="italics">[see </content>
+                           <content styleCode="italics">
+                              <linkHtml href="#LINK_8797be79-6a20-4885-8fc6-0f2b5942bc31">Warnings and Precautions </linkHtml>
+                           </content>
+                           <content styleCode="italics">
+                              <linkHtml href="#LINK_8797be79-6a20-4885-8fc6-0f2b5942bc31">(5.3)</linkHtml>
+                           </content> <content styleCode="italics">and</content>
+                           <content styleCode="italics">
+                              <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a">Clinical Pharmacology</linkHtml>
+                              <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a"> (12)</linkHtml>]</content>.</paragraph>
+                        <paragraph>If co-administration of colchicine capsules and a CYP3A4 inhibitor is necessary, the dose of colchicine capsules should be adjusted by either reducing the daily dose or reducing the dose frequency, and the patient should be monitored carefully for colchicine toxicity <content styleCode="italics">[see <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a">Clinical Pharmacology</linkHtml>
+                              <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a"> (12)</linkHtml>]</content>.</paragraph>
+                     </text>
+                     <effectiveTime value="20240522" />
+                  </section>
+               </component>
+               <component>
+                  <section ID="LINK_d94ff094-91af-4047-8703-a2c15c808b70">
+                     <id root="8356fe91-e386-4842-9f90-5d220d56db6a" />
+                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+                     <title>7.2 P-glycoprotein</title>
+                     <text>
+                        <paragraph>The concomitant use of colchicine capsules and inhibitors of P-glycoprotein (e.g. clarithromycin, ketoconazole, cyclosporine, etc.) should be avoided due to the potential for serious and life-threatening toxicity <content styleCode="italics">[see </content>
+                           <content styleCode="italics">
+                              <linkHtml href="#LINK_8797be79-6a20-4885-8fc6-0f2b5942bc31">Warnings and Precautions</linkHtml>
+                           </content>
+                           <content styleCode="italics">
+                              <linkHtml href="#LINK_8797be79-6a20-4885-8fc6-0f2b5942bc31"> (5.3)</linkHtml> and <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a">Clinical Pharmacology</linkHtml>
+                              <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a"> (12)</linkHtml>]</content>.</paragraph>
+                        <paragraph>If co-administration of colchicine capsules and a P-gp inhibitor is necessary, the dose of colchicine capsules should be adjusted by either reducing the daily dose or reducing the dose frequency, and the patient should be monitored carefully for colchicine toxicity <content styleCode="italics">[see <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a">Clinical Pharmacology</linkHtml>
+                              <linkHtml href="#LINK_b2e74910-6622-4ed1-8296-a59406ca0f2a"> (12)</linkHtml>]</content>.</paragraph>
+                     </text>
+                     <effectiveTime value="20240522" />
+                  </section>
+               </component>
+               <component>
+                  <section ID="LINK_ab08eba5-9a83-426d-9bae-37dc6ea05ed1">
+                     <id root="68f0a9ef-84ad-4a6e-bc9a-98e3ced3d0c0" />
+                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+                     <title>7.3 HMG-CoA Reductase Inhibitors and Fibrates</title>
+                     <text>
+                        <paragraph>Some drugs such as HMG-CoA reductase inhibitors and fibrates may increase the risk of myopathy when combined with colchicine capsules. Complaints of muscle pain or weakness could be an indication to check serum creatinine kinase levels for signs of myopathy.</paragraph>
+                     </text>
+                     <effectiveTime value="20230305" />
+                  </section>
+               </component>
+               <component>
+                  <section ID="LINK_da95ed92-4fbc-48be-828c-7e1a0eb3f9f4">
+                     <id root="58c2a762-489d-4387-a80f-5d48fabb3dd6" />
+                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+                     <title>7.4 Drug-Drug Interaction Studies</title>
+                     <text>
+                        <paragraph>Four pharmacokinetic studies evaluated the effects of co-administration of voriconazole (200 mg BID), fluconazole (200 mg QD), cimetidine (800 mg BID), and propafenone (225 mg BID) on systemic levels of colchicine. Colchicine can be administered with these drugs at the tested doses without a need for dose adjustment. However, these results should not be extrapolated to other co-administered drugs <content styleCode="italics">[see <linkHtml href="#LINK_17266c45-cb57-428f-9e0a-08815b20594d">Drug-Drug Interactions</linkHtml> (<linkHtml href="#LINK_bf35b028-61de-4ff0-9cd1-80b0699898d7">7.1</linkHtml>, <linkHtml href="#LINK_d94ff094-91af-4047-8703-a2c15c808b70">7.2</linkHtml>)</content>
+                           <content styleCode="italics">and <linkHtml href="#LINK_a0e3b629-b55b-404c-9c1a-02bf5af9d7ec">Pharmacokinetics</linkHtml> <linkHtml href="#LINK_a0e3b629-b55b-404c-9c1a-02bf5af9d7ec">(12.3)</linkHtml>]</content>.</paragraph>
+                     </text>
+                     <effectiveTime value="20230305" />
+                  </section>
+               </component>
+            </section>
+         </component>
+         <component>
+            <section ID="LINK_21f9b8f0-53d0-4958-8d02-627a67f665dd">
+               <id root="07e11b1c-b7c2-4752-8ede-011a8d39545b" />
+               <code code="34076-0" codeSystem="2.16.840.1.113883.6.1" displayName="INFORMATION FOR PATIENTS SECTION" />
+               <title>17 PATIENT COUNSELING INFORMATION</title>
+               <text>
+                  <paragraph>Advise the patient to read the FDA-approved patient labeling (<linkHtml href="#LINK_02ca012b-bade-41a6-a54e-ca539c93a3c3">Medication Guide</linkHtml>).  </paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Dosing Instructions</content>
+                     <br />If a dose of colchicine capsules is missed, advise the patient to take the dose as soon as possible and then return to the normal dosing schedule. However, if a dose is skipped, the patient should not double the next dose. </paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Fatal Overdose</content>
+                     <br />Advise the patient that fatal overdoses, both accidental and intentional, have been reported in adults and children who have ingested colchicine. Colchicine capsules should be kept out of the reach of children.</paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Blood Dyscrasias</content>
+                     <br />Advise patients that bone marrow depression with agranulocytosis, aplastic anemia, and thrombocytopenia may occur with colchicine capsules.</paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Drug and Food Interactions</content>
+                     <br />Advise patients that many drugs or other substances may interact with colchicine capsules and some interactions could be fatal. Therefore, patients should report to their healthcare provider all of the current medications they are taking, and check with their healthcare provider before starting any new medications, including short-term medications such as antibiotics. Patients should also be advised to report the use of non-prescription medication or herbal products. Grapefruit and grapefruit juice may also interact and should not be consumed during treatment with colchicine capsules.</paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Neuromuscular Toxicity</content>
+                     <br />Advise patients that muscle pain or weakness, tingling or numbness in fingers or toes may occur with colchicine capsules alone or when it is used with certain other drugs. Patients developing any of these signs or symptoms must discontinue colchicine capsules and seek medical evaluation immediately.</paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Infertility</content>
+                  </paragraph>
+                  <paragraph>Advise males of reproductive potential that colchicine capsules may rarely and transiently impair fertility <content styleCode="italics">[see Use in Specific Populations (<linkHtml href="#_8.3_Females_and">8.3</linkHtml>)]</content>.</paragraph>
+                  <paragraph>Distributed by:<br />
+                     <content styleCode="bold">Hikma Pharmaceuticals USA Inc.</content>
+                     <br />Berkeley Heights, NJ 07922</paragraph>
+                  <paragraph>
+                     <content styleCode="bold">C50000449/03</content>
+                  </paragraph>
+                  <paragraph>
+                     <content styleCode="bold">Revised May 2024</content>
+                  </paragraph>
+               </text>
+               <effectiveTime value="20240522" />
+            </section>
+         </component>
          </structuredBody>
    </component>
 </document>

@@ -1,662 +1,1029 @@
 <document xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:hl7-org:v3 https://www.accessdata.fda.gov/spl/schema/spl.xsd">
-   <id root="5ecf41f4-a870-7a55-e063-6394a90ad87c" />
-   <code code="34391-3" codeSystem="2.16.840.1.113883.6.1" displayName="HUMAN PRESCRIPTION DRUG LABEL" />
-   <title>These highlights do not include all the information needed to use TAMSULOSIN HYDROCHLORIDE CAPSULES safely and effectively. See full prescribing information for TAMSULOSIN HYDROCHLORIDE capsules.
- <br />
-      <br />
-      <br />
-      <br />
+<id root="5ecf41f4-a870-7a55-e063-6394a90ad87c" />
+<code code="34391-3" codeSystem="2.16.840.1.113883.6.1" displayName="HUMAN PRESCRIPTION DRUG LABEL" />
+<title>These highlights do not include all the information needed to use TAMSULOSIN HYDROCHLORIDE CAPSULES safely and effectively. See full prescribing information for TAMSULOSIN HYDROCHLORIDE capsules.
+<br />
+<br />
+<br />
+<br />
 TAMSULOSIN HYDROCHLORIDE capsules, for oral use
- <br />
-      <br />
+<br />
+<br />
 Initial U.S. Approval: 1997
 </title>
-   <effectiveTime value="20261027" />
-   <setId root="13a5032d-0be1-4001-916e-459f0b1a051d" />
-   <versionNumber value="9" />
-   <author>
-      <time />
-      <assignedEntity>
-         <representedOrganization>
-            <id root="1.3.6.1.4.1.519.1" extension="414912824" />
-            <name>Synthon B.V.</name>
-            <assignedEntity>
-               <assignedOrganization />
-            </assignedEntity>
-         </representedOrganization>
-      </assignedEntity>
-   </author>
-   <component>
-      <structuredBody>
-         <component>
-            <section ID="LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">
-               <id root="33829c1e-7c5d-3c9f-e063-6394a90ad8c2" />
-               <code code="34067-9" codeSystem="2.16.840.1.113883.6.1" displayName="INDICATIONS &amp; USAGE SECTION" />
-               <title>1 INDICATIONS AND USAGE</title>
-               <text>
-                  <paragraph>Tamsulosin hydrochloride capsules are indicated for the treatment of the signs and symptoms of benign prostatic hyperplasia (BPH)
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_c7d59c6b-104a-4f97-8047-93caccae3b01">Clinical Studies (14)</linkHtml>]
- 
-  </content>. Tamsulosin hydrochloride capsules are not indicated for the treatment of hypertension.
+<effectiveTime value="20261027" />
+<setId root="13a5032d-0be1-4001-916e-459f0b1a051d" />
+<versionNumber value="9" />
+<author>
+<time />
+<assignedEntity>
+<representedOrganization>
+<id root="1.3.6.1.4.1.519.1" extension="414912824" />
+<name>Synthon B.V.</name>
+<assignedEntity>
+<assignedOrganization />
+</assignedEntity>
+</representedOrganization>
+</assignedEntity>
+</author>
+<component>
+<structuredBody>
+<component>
+<section ID="LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">
+<id root="33829c1e-7c5d-3c9f-e063-6394a90ad8c2" />
+<code code="34067-9" codeSystem="2.16.840.1.113883.6.1" displayName="INDICATIONS &amp; USAGE SECTION" />
+<title>1 INDICATIONS AND USAGE</title>
+<text>
+<paragraph>Tamsulosin hydrochloride capsules are indicated for the treatment of the signs and symptoms of benign prostatic hyperplasia (BPH)
 
- </paragraph>
-               </text>
-               <effectiveTime value="20231116" />
-               <excerpt>
-                  <highlight>
-                     <text>
-                        <list listType="unordered">
-                           <item>Tamsulosin hydrochloride capsules are an alpha
-  
-     <sub>1</sub>adrenoceptor antagonist indicated for treatment of the signs and symptoms of benign prostatic hyperplasia (
-  
-     <linkHtml href="#LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">1</linkHtml>)
- 
-    </item>
-                           <item>Tamsulosin hydrochloride capsules are not indicated for the treatment of hypertension (
-  
-     <linkHtml href="#LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">1</linkHtml>)
- 
-    </item>
-                        </list>
-                     </text>
-                  </highlight>
-               </excerpt>
-            </section>
-         </component>
-         <component>
-            <section ID="LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">
-               <id root="33829c1e-7c5e-3c9f-e063-6394a90ad8c2" />
-               <code code="34068-7" codeSystem="2.16.840.1.113883.6.1" displayName="DOSAGE &amp; ADMINISTRATION SECTION" />
-               <title>2 DOSAGE AND ADMINISTRATION</title>
-               <text>
-                  <paragraph>Tamsulosin hydrochloride capsules 0.4 mg once daily is recommended as the dose for the treatment of the signs and symptoms of BPH. It should be administered approximately one-half hour following the same meal each day. Tamsulosin hydrochloride capsules should not be crushed, chewed or opened.</paragraph>
-                  <paragraph>For those patients who fail to respond to the 0.4 mg dose after 2 to 4 weeks of dosing, the dose of tamsulosin hydrochloride capsules can be increased to 0.8 mg once daily. Tamsulosin hydrochloride capsules 0.4 mg should not be used in combination with strong inhibitors of CYP3A4 (e.g., ketoconazole)
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml>]
- 
-  </content>.
+<content styleCode="italics">[see
 
- </paragraph>
-                  <paragraph>If tamsulosin hydrochloride capsules administration is discontinued or interrupted for several days at either the 0.4 mg or 0.8 mg dose, therapy should be started again with the 0.4 mg once-daily dose.</paragraph>
-               </text>
-               <effectiveTime value="20231116" />
-               <excerpt>
-                  <highlight>
-                     <text>
-                        <list listType="unordered">
-                           <item>0.4 mg once daily taken approximately one-half hour following the same meal each day. Tamsulosin hydrochloride capsules should not be crushed, chewed or opened. (
-  
-     <linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
- 
-    </item>
-                           <item>Can be increased to 0.8 mg once daily for patients who fail to respond to the 0.4 mg dose after 2 to 4 weeks of dosing (
-  
-     <linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
- 
-    </item>
-                           <item>If discontinued or interrupted for several days, therapy should start again with the 0.4 mg once-daily dose (
-  
-     <linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
- 
-    </item>
-                        </list>
-                     </text>
-                  </highlight>
-               </excerpt>
-            </section>
-         </component>
-         <component>
-            <section ID="LINK_19e993d5-4e97-4807-9422-f6565817766f">
-               <id root="33829c1e-7c60-3c9f-e063-6394a90ad8c2" />
-               <code code="34070-3" codeSystem="2.16.840.1.113883.6.1" displayName="CONTRAINDICATIONS SECTION" />
-               <title>4 CONTRAINDICATIONS</title>
-               <text>
-                  <paragraph>Tamsulosin hydrochloride capsules are contraindicated in patients known to be hypersensitive to tamsulosin hydrochloride or any component of tamsulosin hydrochloride capsules. Reactions have included skin rash, urticaria, pruritus, angioedema, and respiratory symptoms
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">Adverse Reactions (6.2)</linkHtml>].
- 
-  </content>
-                  </paragraph>
-               </text>
-               <effectiveTime value="20240122" />
-               <excerpt>
-                  <highlight>
-                     <text>
-                        <list listType="unordered">
-                           <item>Contraindicated in patients known to be hypersensitive to tamsulosin hydrochloride or any component of tamsulosin hydrochloride capsules (
-  
-     <linkHtml href="#LINK_19e993d5-4e97-4807-9422-f6565817766f">4</linkHtml>,
-  
-     <linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">6.2</linkHtml>)
- 
-    </item>
-                        </list>
-                     </text>
-                  </highlight>
-               </excerpt>
-            </section>
-         </component>
-         <component>
-            <section ID="LINK_42600fd0-5bee-4262-a4a3-0eee1b45a4f4">
-               <id root="33829c1e-7c61-3c9f-e063-6394a90ad8c2" />
-               <code code="43685-7" codeSystem="2.16.840.1.113883.6.1" displayName="WARNINGS AND PRECAUTIONS SECTION" />
-               <title>5 WARNINGS AND PRECAUTIONS</title>
-               <text />
-               <effectiveTime value="20240122" />
-               <excerpt>
-                  <highlight>
-                     <text>
-                        <list listType="unordered">
-                           <item>Advise patients about the possibility of symptoms related to postural hypotension and to avoid situations where injury could result should syncope occur (
-  
-     <linkHtml href="#LINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">5.1</linkHtml>)
- 
-    </item>
-                           <item>Should not be used in combination with strong inhibitors of CYP3A4. Use with caution in combination with moderate inhibitors of CYP3A4, with strong or moderate inhibitors of CYP2D6, in patients known to be CYP2D6 poor metabolizers, or in combination with other cytochrome P450 inhibitors. (
-  
-     <linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
-  
-     <linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">7.1</linkHtml>,
-  
-     <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
- 
-    </item>
-                           <item>Should not be used in combination with other alpha adrenergic blocking agents (
-  
-     <linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
-  
-     <linkHtml href="#LINK_b0f02112-6fd6-4b31-9353-edc6930b47f7">7.2</linkHtml>,
-  
-     <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
- 
-    </item>
-                           <item>Exercise caution with concomitant administration of warfarin (
-  
-     <linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
-  
-     <linkHtml href="#LINK_f4eb8b26-eb93-4462-b2b2-2c2cb63f498f">7.4</linkHtml>,
-  
-     <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
- 
-    </item>
-                           <item>Advise patients about the possibility and seriousness of priapism (
-  
-     <linkHtml href="#LINK_d2e5b346-64ce-4086-ac17-b3bb2eb19e04">5.3</linkHtml>)
- 
-    </item>
-                           <item>Intraoperative Floppy Iris Syndrome has been observed during cataract and glaucoma surgery in some patients. Advise patients considering cataract or glaucoma surgery to tell their ophthalmologist that they have taken tamsulosin hydrochloride capsules. (
-  
-     <linkHtml href="#LINK_976219ca-19be-42f3-8348-e88bfd58284b">5.5</linkHtml>)
- 
-    </item>
-                           <item>Advise patients to be screened for the presence of prostate cancer prior to treatment and at regular intervals afterwards (
-  
-     <linkHtml href="#LINK_8c80ccad-1d20-416b-9971-7dad23c45334">5.4</linkHtml>)
- 
-    </item>
-                        </list>
-                     </text>
-                  </highlight>
-               </excerpt>
-               <component>
-                  <section ID="LINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">
-                     <id root="33829c1e-7c62-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.1 Orthostasis</title>
-                     <text>
-                        <paragraph>The signs and symptoms of orthostasis (postural hypotension, dizziness, and vertigo) were detected more frequently in tamsulosin hydrochloride capsule-treated patients than in placebo recipients. As with other alpha adrenergic blocking agents there is a potential risk of syncope
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_d7d69993-36a6-4d2f-946f-298054a99a85">Adverse Reactions (6.1)</linkHtml>]
- 
-  </content>. Patients beginning treatment with tamsulosin hydrochloride capsules should be cautioned to avoid situations in which injury could result should syncope occur.
+<linkHtml href="#LINK_c7d59c6b-104a-4f97-8047-93caccae3b01">Clinical Studies (14)</linkHtml>]
 
- </paragraph>
-                     </text>
-                     <effectiveTime value="20240122" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">
-                     <id root="33829c1e-7c63-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.2 Drug Interactions</title>
-                     <text>
-                        <paragraph>Tamsulosin is extensively metabolized, mainly by CYP3A4 and CYP2D6. Tamsulosin hydrochloride capsules 0.4 mg should not be used in combination with strong inhibitors of CYP3A4 (e.g., ketoconazole)
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>. Tamsulosin hydrochloride capsules should be used with caution in combination with moderate inhibitors of CYP3A4 (e.g., erythromycin), in combination with strong (e.g., paroxetine) or moderate (e.g., terbinafine) inhibitors of CYP2D6, in patients known to be CYP2D6 poor metabolizers particularly at a dose higher than 0.4 mg (e.g., 0.8 mg)
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>.
+</content>. Tamsulosin hydrochloride capsules are not indicated for the treatment of hypertension.
 
- </paragraph>
-                        <paragraph>Tamsulosin hydrochloride capsules should be used with caution in combination with cimetidine, particularly at a dose higher than 0.4 mg (e.g., 0.8 mg)
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>.
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>Tamsulosin hydrochloride capsules are an alpha
 
- </paragraph>
-                        <paragraph>Tamsulosin hydrochloride capsules should not be used in combination with other alpha adrenergic blocking agents
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_b0f02112-6fd6-4b31-9353-edc6930b47f7">Drug Interactions (7.2)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>.
+<sub>1</sub>adrenoceptor antagonist indicated for treatment of the signs and symptoms of benign prostatic hyperplasia (
 
- </paragraph>
-                        <paragraph>Caution is advised when alpha adrenergic blocking agents including tamsulosin hydrochloride are co-administered with PDE5 inhibitors. Alpha-adrenergic blockers and PDE5 inhibitors are both vasodilators that can lower blood pressure. Concomitant use of these two drug classes can potentially cause symptomatic hypotension
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_cdfe9d10-3ac4-4407-8210-15b8ae2bf01b">Drug Interactions (7.3)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>.
+<linkHtml href="#LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">1</linkHtml>)
 
- </paragraph>
-                        <paragraph>Caution should be exercised with concomitant administration of warfarin and tamsulosin hydrochloride capsules
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_f4eb8b26-eb93-4462-b2b2-2c2cb63f498f">Drug Interactions (7.4)</linkHtml>and
-  
-   <linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
- 
-  </content>.
+</item>
+<item>Tamsulosin hydrochloride capsules are not indicated for the treatment of hypertension (
 
- </paragraph>
-                     </text>
-                     <effectiveTime value="20240122" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_d2e5b346-64ce-4086-ac17-b3bb2eb19e04">
-                     <id root="33829c1e-7c64-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.3 Priapism</title>
-                     <text>
-                        <paragraph>Rarely (probably less than 1 in 50,000 patients), tamsulosin, like other alpha
- 
-  <sub>1</sub>antagonists, has been associated with priapism (persistent painful penile erection unrelated to sexual activity). Because this condition can lead to permanent impotence if not properly treated, patients must be advised about the seriousness of the condition.
+<linkHtml href="#LINK_755a9f06-009b-4aaf-8102-f8fffd227c8f">1</linkHtml>)
 
- </paragraph>
-                     </text>
-                     <effectiveTime value="20231116" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_8c80ccad-1d20-416b-9971-7dad23c45334">
-                     <id root="33829c1e-7c65-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.4 Screening for Prostate Cancer</title>
-                     <text>
-                        <paragraph>Prostate cancer and BPH frequently coexist; therefore, patients should be screened for the presence of prostate cancer prior to treatment with tamsulosin hydrochloride capsules and at regular intervals afterwards.</paragraph>
-                     </text>
-                     <effectiveTime value="20231109" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_976219ca-19be-42f3-8348-e88bfd58284b">
-                     <id root="33829c1e-7c66-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.5 Intraoperative Floppy Iris Syndrome</title>
-                     <text>
-                        <paragraph>Intraoperative Floppy Iris Syndrome (IFIS) has been observed during cataract and glaucoma surgery in some patients on or previously treated with alpha
- 
-  <sub>1</sub>blockers, including tamsulosin hydrochloride capsules
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">Adverse Reactions (6.2)</linkHtml>]
- 
-  </content>.
+</item>
+</list>
+</text>
+</highlight>
+</excerpt>
+</section>
+</component>
+<component>
+<section ID="LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">
+<id root="33829c1e-7c5e-3c9f-e063-6394a90ad8c2" />
+<code code="34068-7" codeSystem="2.16.840.1.113883.6.1" displayName="DOSAGE &amp; ADMINISTRATION SECTION" />
+<title>2 DOSAGE AND ADMINISTRATION</title>
+<text>
+<paragraph>Tamsulosin hydrochloride capsules 0.4 mg once daily is recommended as the dose for the treatment of the signs and symptoms of BPH. It should be administered approximately one-half hour following the same meal each day. Tamsulosin hydrochloride capsules should not be crushed, chewed or opened.</paragraph>
+<paragraph>For those patients who fail to respond to the 0.4 mg dose after 2 to 4 weeks of dosing, the dose of tamsulosin hydrochloride capsules can be increased to 0.8 mg once daily. Tamsulosin hydrochloride capsules 0.4 mg should not be used in combination with strong inhibitors of CYP3A4 (e.g., ketoconazole)
 
- </paragraph>
-                        <paragraph>Most reports were in patients taking the alpha
- 
-  <sub>1</sub>blocker when IFIS occurred, but in some cases, the alpha
- 
-  <sub>1</sub>blocker had been stopped prior to surgery. In most of these cases, the alpha
- 
-  <sub>1</sub>blocker had been stopped recently prior to surgery (2 to 14 days), but in a few cases, IFIS was reported after the patient had been off the alpha
- 
-  <sub>1</sub>blocker for a longer period (5 weeks to 9 months). IFIS is a variant of small pupil syndrome and is characterized by the combination of a flaccid iris that billows in response to intraoperative irrigation currents, progressive intraoperative miosis despite preoperative dilation with standard mydriatic drugs and potential prolapse of the iris toward the phacoemulsification incisions. The patient's ophthalmologist should be prepared for possible modifications to their surgical technique, such as the utilization of iris hooks, iris dilator rings, or viscoelastic substances.
+<content styleCode="italics">[see
 
- </paragraph>
-                        <paragraph>IFIS may increase the risk of eye complications during and after the operation. The benefit of stopping alpha
- 
-  <sub>1</sub>blocker therapy prior to cataract or glaucoma surgery has not been established. The initiation of therapy with tamsulosin in patients for whom cataract or glaucoma surgery is scheduled is not recommended.
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml>]
 
- </paragraph>
-                     </text>
-                     <effectiveTime value="20231122" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_f4128970-0e5d-45cc-8aeb-e6038c2a3497">
-                     <id root="33829c1e-7c67-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>5.6 Sulfa Allergy</title>
-                     <text>
-                        <paragraph>In patients with sulfa allergy, allergic reaction to tamsulosin hydrochloride capsules has been rarely reported. If a patient reports a serious or life-threatening sulfa allergy, caution is warranted when administering tamsulosin hydrochloride capsules.</paragraph>
-                     </text>
-                     <effectiveTime value="20231109" />
-                  </section>
-               </component>
-            </section>
-         </component>
-         <component>
-            <section ID="LINK_2c552949-a8c9-4c93-86b3-32929c990b9b">
-               <id root="33829c1e-7c68-3c9f-e063-6394a90ad8c2" />
-               <code code="34084-4" codeSystem="2.16.840.1.113883.6.1" displayName="ADVERSE REACTIONS SECTION" />
-               <title>6 ADVERSE REACTIONS</title>
-               <text />
-               <effectiveTime value="20250225" />
-               <excerpt>
-                  <highlight>
-                     <text>
-                        <list listType="unordered">
-                           <item>The most common adverse events (≥2% of patients and at a higher incidence than placebo) with the 0.4 mg dose or 0.8 mg dose were headache, dizziness, rhinitis, infection, abnormal ejaculation, asthenia, back pain, diarrhea, pharyngitis, chest pain, cough increased, somnolence, nausea, sinusitis, insomnia, libido decreased, tooth disorder, and blurred vision (
-  
-     <linkHtml href="#LINK_d7d69993-36a6-4d2f-946f-298054a99a85">6.1</linkHtml>)
- 
-    </item>
-                        </list>
-                        <paragraph>
-                           <content styleCode="bold">To report SUSPECTED ADVERSE REACTIONS, contact Synthon at 919-493-6006 or FDA at 1-800-FDA-1088 or
-  
-     <content styleCode="underline">www.fda.gov/medwatch</content>.
- 
-    </content>
-                        </paragraph>
-                     </text>
-                  </highlight>
-               </excerpt>
-               <component>
-                  <section ID="LINK_d7d69993-36a6-4d2f-946f-298054a99a85">
-                     <id root="33829c1e-7c69-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>6.1 Clinical Trials Experience</title>
-                     <text>
-                        <paragraph>Because clinical trials are conducted under widely varying conditions, adverse reactions rates observed in the clinical trials of a drug cannot be directly compared to rates in the clinical trials of another drug and may not reflect the rates observed in practice.</paragraph>
-                        <paragraph>The incidence of treatment-emergent adverse events has been ascertained from six short-term U.S. and European placebo-controlled clinical trials in which daily doses of 0.1 to 0.8 mg tamsulosin hydrochloride capsules were used. These studies evaluated safety in 1783 patients treated with tamsulosin hydrochloride capsules and 798 patients administered placebo. Table 1 summarizes the treatment-emergent adverse events that occurred in ≥2% of patients receiving either tamsulosin hydrochloride capsules 0.4 mg or 0.8 mg and at an incidence numerically higher than that in the placebo group during two 13-week U.S. trials (US92-03A and US93-01) conducted in 1487 men.</paragraph>
-                        <table>
-                           <caption>Table 1: Treatment-Emergent
-  
-   <footnote ID="FOOT_24060">A treatment-emergent adverse event was defined as any event satisfying one of the following criteria:
-           The adverse event occurred for the first time after initial dosing with double-blind study medication;The adverse event was present prior to or at the time of initial dosing with double-blind study medication and subsequently increased in severity during double-blind treatment; or The adverse event was present prior to or at the time of initial dosing with double-blind study medication, disappeared completely, and then reappeared during double-blind treatment.</footnote>Adverse Events Occurring in ≥2% of Tamsulosin Hydrochloride Capsules or Placebo Patients in Two U.S. Short-Term Placebo-Controlled Clinical Studies
- 
-  </caption>
-                           <col />
-                           <col />
-                           <col />
-                           <col />
-                           <thead>
-                              <tr>
-                                 <th styleCode=" Botrule Toprule" valign="top">BODY SYSTEM/ 
-     <br />  ADVERSE EVENT
-    </th>
-                                 <th colspan="2" styleCode=" Botrule Toprule" valign="top">TAMSULOSIN HYDROCHLORIDE CAPSULES GROUPS</th>
-                                 <th styleCode=" Botrule Toprule" valign="top">PLACEBO</th>
-                              </tr>
-                              <tr>
-                                 <th styleCode=" Botrule Toprule" valign="top" />
-                                 <th styleCode=" Botrule Toprule" valign="bottom">0.4 mg 
-     <br />  n=502
-    </th>
-                                 <th styleCode=" Botrule Toprule" valign="bottom">0.8 mg 
-     <br />  n=492
-    </th>
-                                 <th styleCode=" Botrule Toprule" valign="bottom">n=493</th>
-                              </tr>
-                           </thead>
-                           <tbody>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">BODY AS WHOLE</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Headache</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">97 (19.3%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">104 (21.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">99 (20.1%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Infection
-    
-     <footnote ID="FOOT_24061">Coding preferred terms also include cold, common cold, head cold, flu, and flu-like symptoms.</footnote>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top">45 (9.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">53 (10.8%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">37 (7.5%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Asthenia</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">39 (7.8%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">42 (8.5%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">27 (5.5%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Back pain</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">35 (7.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">41 (8.3%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">27 (5.5%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Chest pain</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">20 (4.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">20 (4.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">18 (3.7%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">NERVOUS SYSTEM</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Dizziness</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">75 (14.9%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">84 (17.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">50 (10.1%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Somnolence</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">15 (3.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">21 (4.3%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">8 (1.6%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Insomnia</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">12 (2.4%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">7 (1.4%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">3 (0.6%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Libido decreased</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">5 (1.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">6 (1.2%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">RESPIRATORY SYSTEM</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Rhinitis
-    
-     <footnote ID="FOOT_24062">Coding preferred terms also include nasal congestion, stuffy nose, runny nose, sinus congestion, and hay fever.</footnote>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top">66 (13.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">88 (17.9%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">41 (8.3%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Pharyngitis</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">29 (5.8%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">25 (5.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">23 (4.7%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Cough increased</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">17 (3.4%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">22 (4.5%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">12 (2.4%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Sinusitis</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">11 (2.2%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">18 (3.7%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">8 (1.6%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">DIGESTIVE SYSTEM</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Diarrhea</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">31 (6.2%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">21 (4.3%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">22 (4.5%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Nausea</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">13 (2.6%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">19 (3.9%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">16 (3.2%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Tooth disorder</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">6 (1.2%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">7 (1.4%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">UROGENITAL SYSTEM</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Abnormal ejaculation</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">42 (8.4%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">89 (18.1%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">1 (0.2%)</td>
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">
-                                    <content styleCode="bold">SPECIAL SENSES</content>
-                                 </td>
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                                 <td styleCode=" Botrule Toprule" valign="top" />
-                              </tr>
-                              <tr>
-                                 <td styleCode=" Botrule Toprule" valign="top">Blurred vision</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">1 (0.2%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
-                                 <td styleCode=" Botrule Toprule" valign="top">2 (0.4%)</td>
-                              </tr>
-                           </tbody>
-                        </table>
-                        <paragraph>
-                           <content styleCode="italics">Signs and Symptoms of Orthostasis</content>
-                        </paragraph>
-                        <paragraph>In the two U.S. studies, symptomatic postural hypotension was reported by 0.2% of patients (1 of 502) in the 0.4 mg group, 0.4% of patients (2 of 492) in the 0.8 mg group, and by no patients in the placebo group. Syncope was reported by 0.2% of patients (1 of 502) in the 0.4 mg group, 0.4% of patients (2 of 492) in the 0.8 mg group, and 0.6% of patients (3 of 493) in the placebo group. Dizziness was reported by 15% of patients (75 of 502) in the 0.4 mg group, 17% of patients (84 of 492) in the 0.8 mg group, and 10% of patients (50 of 493) in the placebo group. Vertigo was reported by 0.6% of patients (3 of 502) in the 0.4 mg group, 1% of patients (5 of 492) in the 0.8 mg group, and by 0.6% of patients (3 of 493) in the placebo group.</paragraph>
-                        <paragraph>Multiple testing for orthostatic hypotension was conducted in a number of studies. Such a test was considered positive if it met one or more of the following criteria: (1) a decrease in systolic blood pressure of ≥20 mmHg upon standing from the supine position during the orthostatic tests; (2) a decrease in diastolic blood pressure ≥10 mmHg upon standing, with the standing diastolic blood pressure &lt;65 mmHg during the orthostatic test; (3) an increase in pulse rate of ≥20 bpm upon standing with a standing pulse rate ≥100 bpm during the orthostatic test; and (4) the presence of clinical symptoms (faintness, lightheadedness/lightheaded, dizziness, spinning sensation, vertigo, or postural hypotension) upon standing during the orthostatic test.</paragraph>
-                        <paragraph>Following the first dose of double-blind medication in Study 1, a positive orthostatic test result at 4 hours post dose was observed in 7% of patients (37 of 498) who received tamsulosin hydrochloride capsules 0.4 mg once daily and in 3% of the patients (8 of 253) who received placebo. At 8 hours post dose, a positive orthostatic test result was observed for 6% of the patients (31 of 498) who received tamsulosin hydrochloride capsules 0.4 mg once daily and 4% (9 of 250) who received placebo (Note: patients in the 0.8 mg group received 0.4 mg once daily for the first week of Study 1).</paragraph>
-                        <paragraph>In Studies 1 and 2, at least one positive orthostatic test result was observed during the course of these studies for 81 of the 502 patients (16%) in the tamsulosin hydrochloride capsules 0.4 mg once-daily group, 92 of the 491 patients (19%) in the tamsulosin hydrochloride capsules 0.8 mg once-daily group, and 54 of the 493 patients (11%) in the placebo group.</paragraph>
-                        <paragraph>Because orthostasis was detected more frequently in tamsulosin hydrochloride capsule-treated patients than in placebo recipients, there is a potential risk of syncope 
- 
-  <content styleCode="italics">[see 
-  
-   <linkHtml href="#www.splportal.comLINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">Warnings and Precautions (5.1)</linkHtml>]
- 
-  </content>.
+</content>.
 
- </paragraph>
-                        <paragraph>
-                           <content styleCode="italics">Abnormal Ejaculation</content>
-                        </paragraph>
-                        <paragraph>Abnormal ejaculation includes ejaculation failure, ejaculation disorder, retrograde ejaculation, and ejaculation decrease. As shown in Table 1, abnormal ejaculation was associated with tamsulosin hydrochloride capsules administration and was dose-related in the U.S. studies. Withdrawal from these clinical studies of tamsulosin hydrochloride capsules because of abnormal ejaculation was also dose-dependent, with 8 of 492 patients (1.6%) in the 0.8 mg group and no patients in the 0.4 mg or placebo groups discontinuing treatment due to abnormal ejaculation.</paragraph>
-                        <paragraph>
-                           <content styleCode="italics">Laboratory Tests</content>
-                        </paragraph>
-                        <paragraph>No laboratory test interactions with tamsulosin hydrochloride capsules are known. Treatment with tamsulosin hydrochloride capsules for up to 12 months had no significant effect on prostate-specific antigen (PSA).</paragraph>
-                     </text>
-                     <effectiveTime value="20240123" />
-                  </section>
-               </component>
-               <component>
-                  <section ID="LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">
-                     <id root="33829c1e-7c6a-3c9f-e063-6394a90ad8c2" />
-                     <code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
-                     <title>6.2 Postmarketing Experience</title>
-                     <text>
-                        <paragraph>The following adverse reactions have been identified during postapproval use of tamsulosin hydrochloride capsules. Because these reactions are reported voluntarily from a population of uncertain size, it is not always possible to reliably estimate their frequency or establish a causal relationship to drug exposure. Decisions to include these reactions in labeling are typically based on one or more of the following factors: (1) seriousness of the reaction, (2) frequency of reporting, or (3) strength of causal connection to tamsulosin hydrochloride capsules.</paragraph>
-                        <paragraph>Allergic-type reactions such as skin rash, urticaria, pruritus, angioedema, and respiratory symptoms have been reported with positive rechallenge in some cases. Priapism has been reported rarely. Infrequent reports of dyspnea, palpitations, hypotension, atrial fibrillation, arrhythmia, tachycardia, skin desquamation including reports of Stevens-Johnson syndrome, erythema multiforme, dermatitis exfoliative, constipation, vomiting, dry mouth, visual impairment, and epistaxis have been received during the postmarketing period.</paragraph>
-                        <paragraph>During cataract and glaucoma surgery, a variant of small pupil syndrome known as Intraoperative Floppy Iris Syndrome (IFIS) has been reported in association with alpha
- 
-  <sub>1</sub>blocker therapy
- 
-  <content styleCode="italics">[see
-  
-   <linkHtml href="#LINK_976219ca-19be-42f3-8348-e88bfd58284b">Warnings and Precautions (5.5)</linkHtml>]
- 
-  </content>.
+</paragraph>
+<paragraph>If tamsulosin hydrochloride capsules administration is discontinued or interrupted for several days at either the 0.4 mg or 0.8 mg dose, therapy should be started again with the 0.4 mg once-daily dose.</paragraph>
+</text>
+<effectiveTime value="20231116" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>0.4 mg once daily taken approximately one-half hour following the same meal each day. Tamsulosin hydrochloride capsules should not be crushed, chewed or opened. (
 
- </paragraph>
-                     </text>
-                     <effectiveTime value="20240122" />
-                  </section>
-               </component>
-            </section>
-         </component>
-         </structuredBody>
-   </component>
+<linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
+
+</item>
+<item>Can be increased to 0.8 mg once daily for patients who fail to respond to the 0.4 mg dose after 2 to 4 weeks of dosing (
+
+<linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
+
+</item>
+<item>If discontinued or interrupted for several days, therapy should start again with the 0.4 mg once-daily dose (
+
+<linkHtml href="#LINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">2</linkHtml>)
+
+</item>
+</list>
+</text>
+</highlight>
+</excerpt>
+</section>
+</component>
+<component>
+<section ID="LINK_19e993d5-4e97-4807-9422-f6565817766f">
+<id root="33829c1e-7c60-3c9f-e063-6394a90ad8c2" />
+<code code="34070-3" codeSystem="2.16.840.1.113883.6.1" displayName="CONTRAINDICATIONS SECTION" />
+<title>4 CONTRAINDICATIONS</title>
+<text>
+<paragraph>Tamsulosin hydrochloride capsules are contraindicated in patients known to be hypersensitive to tamsulosin hydrochloride or any component of tamsulosin hydrochloride capsules. Reactions have included skin rash, urticaria, pruritus, angioedema, and respiratory symptoms
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">Adverse Reactions (6.2)</linkHtml>].
+
+</content>
+</paragraph>
+</text>
+<effectiveTime value="20240122" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>Contraindicated in patients known to be hypersensitive to tamsulosin hydrochloride or any component of tamsulosin hydrochloride capsules (
+
+<linkHtml href="#LINK_19e993d5-4e97-4807-9422-f6565817766f">4</linkHtml>,
+
+<linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">6.2</linkHtml>)
+
+</item>
+</list>
+</text>
+</highlight>
+</excerpt>
+</section>
+</component>
+<component>
+<section ID="LINK_42600fd0-5bee-4262-a4a3-0eee1b45a4f4">
+<id root="33829c1e-7c61-3c9f-e063-6394a90ad8c2" />
+<code code="43685-7" codeSystem="2.16.840.1.113883.6.1" displayName="WARNINGS AND PRECAUTIONS SECTION" />
+<title>5 WARNINGS AND PRECAUTIONS</title>
+<text />
+<effectiveTime value="20240122" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>Advise patients about the possibility of symptoms related to postural hypotension and to avoid situations where injury could result should syncope occur (
+
+<linkHtml href="#LINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">5.1</linkHtml>)
+
+</item>
+<item>Should not be used in combination with strong inhibitors of CYP3A4. Use with caution in combination with moderate inhibitors of CYP3A4, with strong or moderate inhibitors of CYP2D6, in patients known to be CYP2D6 poor metabolizers, or in combination with other cytochrome P450 inhibitors. (
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
+
+<linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">7.1</linkHtml>,
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
+
+</item>
+<item>Should not be used in combination with other alpha adrenergic blocking agents (
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
+
+<linkHtml href="#LINK_b0f02112-6fd6-4b31-9353-edc6930b47f7">7.2</linkHtml>,
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
+
+</item>
+<item>Exercise caution with concomitant administration of warfarin (
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
+
+<linkHtml href="#LINK_f4eb8b26-eb93-4462-b2b2-2c2cb63f498f">7.4</linkHtml>,
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
+
+</item>
+<item>Advise patients about the possibility and seriousness of priapism (
+
+<linkHtml href="#LINK_d2e5b346-64ce-4086-ac17-b3bb2eb19e04">5.3</linkHtml>)
+
+</item>
+<item>Intraoperative Floppy Iris Syndrome has been observed during cataract and glaucoma surgery in some patients. Advise patients considering cataract or glaucoma surgery to tell their ophthalmologist that they have taken tamsulosin hydrochloride capsules. (
+
+<linkHtml href="#LINK_976219ca-19be-42f3-8348-e88bfd58284b">5.5</linkHtml>)
+
+</item>
+<item>Advise patients to be screened for the presence of prostate cancer prior to treatment and at regular intervals afterwards (
+
+<linkHtml href="#LINK_8c80ccad-1d20-416b-9971-7dad23c45334">5.4</linkHtml>)
+
+</item>
+</list>
+</text>
+</highlight>
+</excerpt>
+<component>
+<section ID="LINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">
+<id root="33829c1e-7c62-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.1 Orthostasis</title>
+<text>
+<paragraph>The signs and symptoms of orthostasis (postural hypotension, dizziness, and vertigo) were detected more frequently in tamsulosin hydrochloride capsule-treated patients than in placebo recipients. As with other alpha adrenergic blocking agents there is a potential risk of syncope
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_d7d69993-36a6-4d2f-946f-298054a99a85">Adverse Reactions (6.1)</linkHtml>]
+
+</content>. Patients beginning treatment with tamsulosin hydrochloride capsules should be cautioned to avoid situations in which injury could result should syncope occur.
+
+</paragraph>
+</text>
+<effectiveTime value="20240122" />
+</section>
+</component>
+<component>
+<section ID="LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">
+<id root="33829c1e-7c63-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.2 Drug Interactions</title>
+<text>
+<paragraph>Tamsulosin is extensively metabolized, mainly by CYP3A4 and CYP2D6. Tamsulosin hydrochloride capsules 0.4 mg should not be used in combination with strong inhibitors of CYP3A4 (e.g., ketoconazole)
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>. Tamsulosin hydrochloride capsules should be used with caution in combination with moderate inhibitors of CYP3A4 (e.g., erythromycin), in combination with strong (e.g., paroxetine) or moderate (e.g., terbinafine) inhibitors of CYP2D6, in patients known to be CYP2D6 poor metabolizers particularly at a dose higher than 0.4 mg (e.g., 0.8 mg)
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Tamsulosin hydrochloride capsules should be used with caution in combination with cimetidine, particularly at a dose higher than 0.4 mg (e.g., 0.8 mg)
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Tamsulosin hydrochloride capsules should not be used in combination with other alpha adrenergic blocking agents
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_b0f02112-6fd6-4b31-9353-edc6930b47f7">Drug Interactions (7.2)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Caution is advised when alpha adrenergic blocking agents including tamsulosin hydrochloride are co-administered with PDE5 inhibitors. Alpha-adrenergic blockers and PDE5 inhibitors are both vasodilators that can lower blood pressure. Concomitant use of these two drug classes can potentially cause symptomatic hypotension
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_cdfe9d10-3ac4-4407-8210-15b8ae2bf01b">Drug Interactions (7.3)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Caution should be exercised with concomitant administration of warfarin and tamsulosin hydrochloride capsules
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_f4eb8b26-eb93-4462-b2b2-2c2cb63f498f">Drug Interactions (7.4)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20240122" />
+</section>
+</component>
+<component>
+<section ID="LINK_d2e5b346-64ce-4086-ac17-b3bb2eb19e04">
+<id root="33829c1e-7c64-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.3 Priapism</title>
+<text>
+<paragraph>Rarely (probably less than 1 in 50,000 patients), tamsulosin, like other alpha
+
+<sub>1</sub>antagonists, has been associated with priapism (persistent painful penile erection unrelated to sexual activity). Because this condition can lead to permanent impotence if not properly treated, patients must be advised about the seriousness of the condition.
+
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+</section>
+</component>
+<component>
+<section ID="LINK_8c80ccad-1d20-416b-9971-7dad23c45334">
+<id root="33829c1e-7c65-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.4 Screening for Prostate Cancer</title>
+<text>
+<paragraph>Prostate cancer and BPH frequently coexist; therefore, patients should be screened for the presence of prostate cancer prior to treatment with tamsulosin hydrochloride capsules and at regular intervals afterwards.</paragraph>
+</text>
+<effectiveTime value="20231109" />
+</section>
+</component>
+<component>
+<section ID="LINK_976219ca-19be-42f3-8348-e88bfd58284b">
+<id root="33829c1e-7c66-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.5 Intraoperative Floppy Iris Syndrome</title>
+<text>
+<paragraph>Intraoperative Floppy Iris Syndrome (IFIS) has been observed during cataract and glaucoma surgery in some patients on or previously treated with alpha
+
+<sub>1</sub>blockers, including tamsulosin hydrochloride capsules
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">Adverse Reactions (6.2)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Most reports were in patients taking the alpha
+
+<sub>1</sub>blocker when IFIS occurred, but in some cases, the alpha
+
+<sub>1</sub>blocker had been stopped prior to surgery. In most of these cases, the alpha
+
+<sub>1</sub>blocker had been stopped recently prior to surgery (2 to 14 days), but in a few cases, IFIS was reported after the patient had been off the alpha
+
+<sub>1</sub>blocker for a longer period (5 weeks to 9 months). IFIS is a variant of small pupil syndrome and is characterized by the combination of a flaccid iris that billows in response to intraoperative irrigation currents, progressive intraoperative miosis despite preoperative dilation with standard mydriatic drugs and potential prolapse of the iris toward the phacoemulsification incisions. The patient's ophthalmologist should be prepared for possible modifications to their surgical technique, such as the utilization of iris hooks, iris dilator rings, or viscoelastic substances.
+
+</paragraph>
+<paragraph>IFIS may increase the risk of eye complications during and after the operation. The benefit of stopping alpha
+
+<sub>1</sub>blocker therapy prior to cataract or glaucoma surgery has not been established. The initiation of therapy with tamsulosin in patients for whom cataract or glaucoma surgery is scheduled is not recommended.
+
+</paragraph>
+</text>
+<effectiveTime value="20231122" />
+</section>
+</component>
+<component>
+<section ID="LINK_f4128970-0e5d-45cc-8aeb-e6038c2a3497">
+<id root="33829c1e-7c67-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>5.6 Sulfa Allergy</title>
+<text>
+<paragraph>In patients with sulfa allergy, allergic reaction to tamsulosin hydrochloride capsules has been rarely reported. If a patient reports a serious or life-threatening sulfa allergy, caution is warranted when administering tamsulosin hydrochloride capsules.</paragraph>
+</text>
+<effectiveTime value="20231109" />
+</section>
+</component>
+</section>
+</component>
+<component>
+<section ID="LINK_2c552949-a8c9-4c93-86b3-32929c990b9b">
+<id root="33829c1e-7c68-3c9f-e063-6394a90ad8c2" />
+<code code="34084-4" codeSystem="2.16.840.1.113883.6.1" displayName="ADVERSE REACTIONS SECTION" />
+<title>6 ADVERSE REACTIONS</title>
+<text />
+<effectiveTime value="20250225" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>The most common adverse events (≥2% of patients and at a higher incidence than placebo) with the 0.4 mg dose or 0.8 mg dose were headache, dizziness, rhinitis, infection, abnormal ejaculation, asthenia, back pain, diarrhea, pharyngitis, chest pain, cough increased, somnolence, nausea, sinusitis, insomnia, libido decreased, tooth disorder, and blurred vision (
+
+<linkHtml href="#LINK_d7d69993-36a6-4d2f-946f-298054a99a85">6.1</linkHtml>)
+
+</item>
+</list>
+<paragraph>
+<content styleCode="bold">To report SUSPECTED ADVERSE REACTIONS, contact Synthon at 919-493-6006 or FDA at 1-800-FDA-1088 or
+
+<content styleCode="underline">www.fda.gov/medwatch</content>.
+
+</content>
+</paragraph>
+</text>
+</highlight>
+</excerpt>
+<component>
+<section ID="LINK_d7d69993-36a6-4d2f-946f-298054a99a85">
+<id root="33829c1e-7c69-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>6.1 Clinical Trials Experience</title>
+<text>
+<paragraph>Because clinical trials are conducted under widely varying conditions, adverse reactions rates observed in the clinical trials of a drug cannot be directly compared to rates in the clinical trials of another drug and may not reflect the rates observed in practice.</paragraph>
+<paragraph>The incidence of treatment-emergent adverse events has been ascertained from six short-term U.S. and European placebo-controlled clinical trials in which daily doses of 0.1 to 0.8 mg tamsulosin hydrochloride capsules were used. These studies evaluated safety in 1783 patients treated with tamsulosin hydrochloride capsules and 798 patients administered placebo. Table 1 summarizes the treatment-emergent adverse events that occurred in ≥2% of patients receiving either tamsulosin hydrochloride capsules 0.4 mg or 0.8 mg and at an incidence numerically higher than that in the placebo group during two 13-week U.S. trials (US92-03A and US93-01) conducted in 1487 men.</paragraph>
+<table>
+<caption>Table 1: Treatment-Emergent
+
+<footnote ID="FOOT_24060">A treatment-emergent adverse event was defined as any event satisfying one of the following criteria:
+The adverse event occurred for the first time after initial dosing with double-blind study medication;The adverse event was present prior to or at the time of initial dosing with double-blind study medication and subsequently increased in severity during double-blind treatment; or The adverse event was present prior to or at the time of initial dosing with double-blind study medication, disappeared completely, and then reappeared during double-blind treatment.</footnote>Adverse Events Occurring in ≥2% of Tamsulosin Hydrochloride Capsules or Placebo Patients in Two U.S. Short-Term Placebo-Controlled Clinical Studies
+
+</caption>
+<col />
+<col />
+<col />
+<col />
+<thead>
+<tr>
+<th styleCode=" Botrule Toprule" valign="top">BODY SYSTEM/ 
+<br />  ADVERSE EVENT
+</th>
+<th colspan="2" styleCode=" Botrule Toprule" valign="top">TAMSULOSIN HYDROCHLORIDE CAPSULES GROUPS</th>
+<th styleCode=" Botrule Toprule" valign="top">PLACEBO</th>
+</tr>
+<tr>
+<th styleCode=" Botrule Toprule" valign="top" />
+<th styleCode=" Botrule Toprule" valign="bottom">0.4 mg 
+<br />  n=502
+</th>
+<th styleCode=" Botrule Toprule" valign="bottom">0.8 mg 
+<br />  n=492
+</th>
+<th styleCode=" Botrule Toprule" valign="bottom">n=493</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">BODY AS WHOLE</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Headache</td>
+<td styleCode=" Botrule Toprule" valign="top">97 (19.3%)</td>
+<td styleCode=" Botrule Toprule" valign="top">104 (21.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">99 (20.1%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Infection
+
+<footnote ID="FOOT_24061">Coding preferred terms also include cold, common cold, head cold, flu, and flu-like symptoms.</footnote>
+</td>
+<td styleCode=" Botrule Toprule" valign="top">45 (9.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">53 (10.8%)</td>
+<td styleCode=" Botrule Toprule" valign="top">37 (7.5%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Asthenia</td>
+<td styleCode=" Botrule Toprule" valign="top">39 (7.8%)</td>
+<td styleCode=" Botrule Toprule" valign="top">42 (8.5%)</td>
+<td styleCode=" Botrule Toprule" valign="top">27 (5.5%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Back pain</td>
+<td styleCode=" Botrule Toprule" valign="top">35 (7.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">41 (8.3%)</td>
+<td styleCode=" Botrule Toprule" valign="top">27 (5.5%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Chest pain</td>
+<td styleCode=" Botrule Toprule" valign="top">20 (4.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">20 (4.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">18 (3.7%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">NERVOUS SYSTEM</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Dizziness</td>
+<td styleCode=" Botrule Toprule" valign="top">75 (14.9%)</td>
+<td styleCode=" Botrule Toprule" valign="top">84 (17.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">50 (10.1%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Somnolence</td>
+<td styleCode=" Botrule Toprule" valign="top">15 (3.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">21 (4.3%)</td>
+<td styleCode=" Botrule Toprule" valign="top">8 (1.6%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Insomnia</td>
+<td styleCode=" Botrule Toprule" valign="top">12 (2.4%)</td>
+<td styleCode=" Botrule Toprule" valign="top">7 (1.4%)</td>
+<td styleCode=" Botrule Toprule" valign="top">3 (0.6%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Libido decreased</td>
+<td styleCode=" Botrule Toprule" valign="top">5 (1.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">6 (1.2%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">RESPIRATORY SYSTEM</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Rhinitis
+
+<footnote ID="FOOT_24062">Coding preferred terms also include nasal congestion, stuffy nose, runny nose, sinus congestion, and hay fever.</footnote>
+</td>
+<td styleCode=" Botrule Toprule" valign="top">66 (13.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">88 (17.9%)</td>
+<td styleCode=" Botrule Toprule" valign="top">41 (8.3%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Pharyngitis</td>
+<td styleCode=" Botrule Toprule" valign="top">29 (5.8%)</td>
+<td styleCode=" Botrule Toprule" valign="top">25 (5.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">23 (4.7%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Cough increased</td>
+<td styleCode=" Botrule Toprule" valign="top">17 (3.4%)</td>
+<td styleCode=" Botrule Toprule" valign="top">22 (4.5%)</td>
+<td styleCode=" Botrule Toprule" valign="top">12 (2.4%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Sinusitis</td>
+<td styleCode=" Botrule Toprule" valign="top">11 (2.2%)</td>
+<td styleCode=" Botrule Toprule" valign="top">18 (3.7%)</td>
+<td styleCode=" Botrule Toprule" valign="top">8 (1.6%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">DIGESTIVE SYSTEM</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Diarrhea</td>
+<td styleCode=" Botrule Toprule" valign="top">31 (6.2%)</td>
+<td styleCode=" Botrule Toprule" valign="top">21 (4.3%)</td>
+<td styleCode=" Botrule Toprule" valign="top">22 (4.5%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Nausea</td>
+<td styleCode=" Botrule Toprule" valign="top">13 (2.6%)</td>
+<td styleCode=" Botrule Toprule" valign="top">19 (3.9%)</td>
+<td styleCode=" Botrule Toprule" valign="top">16 (3.2%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Tooth disorder</td>
+<td styleCode=" Botrule Toprule" valign="top">6 (1.2%)</td>
+<td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">7 (1.4%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">UROGENITAL SYSTEM</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Abnormal ejaculation</td>
+<td styleCode=" Botrule Toprule" valign="top">42 (8.4%)</td>
+<td styleCode=" Botrule Toprule" valign="top">89 (18.1%)</td>
+<td styleCode=" Botrule Toprule" valign="top">1 (0.2%)</td>
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">
+<content styleCode="bold">SPECIAL SENSES</content>
+</td>
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+<td styleCode=" Botrule Toprule" valign="top" />
+</tr>
+<tr>
+<td styleCode=" Botrule Toprule" valign="top">Blurred vision</td>
+<td styleCode=" Botrule Toprule" valign="top">1 (0.2%)</td>
+<td styleCode=" Botrule Toprule" valign="top">10 (2.0%)</td>
+<td styleCode=" Botrule Toprule" valign="top">2 (0.4%)</td>
+</tr>
+</tbody>
+</table>
+<paragraph>
+<content styleCode="italics">Signs and Symptoms of Orthostasis</content>
+</paragraph>
+<paragraph>In the two U.S. studies, symptomatic postural hypotension was reported by 0.2% of patients (1 of 502) in the 0.4 mg group, 0.4% of patients (2 of 492) in the 0.8 mg group, and by no patients in the placebo group. Syncope was reported by 0.2% of patients (1 of 502) in the 0.4 mg group, 0.4% of patients (2 of 492) in the 0.8 mg group, and 0.6% of patients (3 of 493) in the placebo group. Dizziness was reported by 15% of patients (75 of 502) in the 0.4 mg group, 17% of patients (84 of 492) in the 0.8 mg group, and 10% of patients (50 of 493) in the placebo group. Vertigo was reported by 0.6% of patients (3 of 502) in the 0.4 mg group, 1% of patients (5 of 492) in the 0.8 mg group, and by 0.6% of patients (3 of 493) in the placebo group.</paragraph>
+<paragraph>Multiple testing for orthostatic hypotension was conducted in a number of studies. Such a test was considered positive if it met one or more of the following criteria: (1) a decrease in systolic blood pressure of ≥20 mmHg upon standing from the supine position during the orthostatic tests; (2) a decrease in diastolic blood pressure ≥10 mmHg upon standing, with the standing diastolic blood pressure &lt;65 mmHg during the orthostatic test; (3) an increase in pulse rate of ≥20 bpm upon standing with a standing pulse rate ≥100 bpm during the orthostatic test; and (4) the presence of clinical symptoms (faintness, lightheadedness/lightheaded, dizziness, spinning sensation, vertigo, or postural hypotension) upon standing during the orthostatic test.</paragraph>
+<paragraph>Following the first dose of double-blind medication in Study 1, a positive orthostatic test result at 4 hours post dose was observed in 7% of patients (37 of 498) who received tamsulosin hydrochloride capsules 0.4 mg once daily and in 3% of the patients (8 of 253) who received placebo. At 8 hours post dose, a positive orthostatic test result was observed for 6% of the patients (31 of 498) who received tamsulosin hydrochloride capsules 0.4 mg once daily and 4% (9 of 250) who received placebo (Note: patients in the 0.8 mg group received 0.4 mg once daily for the first week of Study 1).</paragraph>
+<paragraph>In Studies 1 and 2, at least one positive orthostatic test result was observed during the course of these studies for 81 of the 502 patients (16%) in the tamsulosin hydrochloride capsules 0.4 mg once-daily group, 92 of the 491 patients (19%) in the tamsulosin hydrochloride capsules 0.8 mg once-daily group, and 54 of the 493 patients (11%) in the placebo group.</paragraph>
+<paragraph>Because orthostasis was detected more frequently in tamsulosin hydrochloride capsule-treated patients than in placebo recipients, there is a potential risk of syncope 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">Warnings and Precautions (5.1)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>
+<content styleCode="italics">Abnormal Ejaculation</content>
+</paragraph>
+<paragraph>Abnormal ejaculation includes ejaculation failure, ejaculation disorder, retrograde ejaculation, and ejaculation decrease. As shown in Table 1, abnormal ejaculation was associated with tamsulosin hydrochloride capsules administration and was dose-related in the U.S. studies. Withdrawal from these clinical studies of tamsulosin hydrochloride capsules because of abnormal ejaculation was also dose-dependent, with 8 of 492 patients (1.6%) in the 0.8 mg group and no patients in the 0.4 mg or placebo groups discontinuing treatment due to abnormal ejaculation.</paragraph>
+<paragraph>
+<content styleCode="italics">Laboratory Tests</content>
+</paragraph>
+<paragraph>No laboratory test interactions with tamsulosin hydrochloride capsules are known. Treatment with tamsulosin hydrochloride capsules for up to 12 months had no significant effect on prostate-specific antigen (PSA).</paragraph>
+</text>
+<effectiveTime value="20240123" />
+</section>
+</component>
+<component>
+<section ID="LINK_09b00c55-87f5-4d76-8197-9a49801ab34a">
+<id root="33829c1e-7c6a-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>6.2 Postmarketing Experience</title>
+<text>
+<paragraph>The following adverse reactions have been identified during postapproval use of tamsulosin hydrochloride capsules. Because these reactions are reported voluntarily from a population of uncertain size, it is not always possible to reliably estimate their frequency or establish a causal relationship to drug exposure. Decisions to include these reactions in labeling are typically based on one or more of the following factors: (1) seriousness of the reaction, (2) frequency of reporting, or (3) strength of causal connection to tamsulosin hydrochloride capsules.</paragraph>
+<paragraph>Allergic-type reactions such as skin rash, urticaria, pruritus, angioedema, and respiratory symptoms have been reported with positive rechallenge in some cases. Priapism has been reported rarely. Infrequent reports of dyspnea, palpitations, hypotension, atrial fibrillation, arrhythmia, tachycardia, skin desquamation including reports of Stevens-Johnson syndrome, erythema multiforme, dermatitis exfoliative, constipation, vomiting, dry mouth, visual impairment, and epistaxis have been received during the postmarketing period.</paragraph>
+<paragraph>During cataract and glaucoma surgery, a variant of small pupil syndrome known as Intraoperative Floppy Iris Syndrome (IFIS) has been reported in association with alpha
+
+<sub>1</sub>blocker therapy
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_976219ca-19be-42f3-8348-e88bfd58284b">Warnings and Precautions (5.5)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20240122" />
+</section>
+</component>
+</section>
+</component>
+<component>
+<section ID="LINK_f37690ea-a0ed-47f3-bf1a-e1b3a063e881">
+<id root="33829c1e-7c6b-3c9f-e063-6394a90ad8c2" />
+<code code="34073-7" codeSystem="2.16.840.1.113883.6.1" displayName="DRUG INTERACTIONS SECTION" />
+<title>7 DRUG INTERACTIONS</title>
+<text />
+<effectiveTime value="20240123" />
+<excerpt>
+<highlight>
+<text>
+<list listType="unordered">
+<item>Tamsulosin hydrochloride capsules 0.4 mg should not be used with strong inhibitors of CYP3A4 (e.g., ketoconazole). Tamsulosin hydrochloride capsules should be used with caution in combination with moderate inhibitors of CYP3A4 (e.g., erythromycin), in combination with strong (e.g., paroxetine) or moderate (e.g., terbinafine) inhibitors of CYP2D6, or in patients known to be CYP2D6 poor metabolizers, particularly at a dose higher than 0.4 mg (e.g., 0.8 mg). (
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
+
+<linkHtml href="#LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">7.1</linkHtml>,
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
+
+</item>
+<item>Concomitant use of PDE5 inhibitors with tamsulosin can potentially cause symptomatic hypotension (
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">5.2</linkHtml>,
+
+<linkHtml href="#LINK_cdfe9d10-3ac4-4407-8210-15b8ae2bf01b">7.3</linkHtml>,
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">12.3</linkHtml>)
+
+</item>
+</list>
+</text>
+</highlight>
+</excerpt>
+<component>
+<section ID="LINK_740d52e3-c0e3-4344-a703-5ead16cdb092">
+<id root="33829c1e-7c6c-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.1 Cytochrome P450 Inhibition</title>
+<text>
+<paragraph>
+<content styleCode="italics">Strong and Moderate Inhibitors of CYP3A4 or CYP2D6</content>
+</paragraph>
+<paragraph>Tamsulosin is extensively metabolized, mainly by CYP3A4 and CYP2D6.</paragraph>
+<paragraph>Concomitant treatment with ketoconazole (a strong inhibitor of CYP3A4) resulted in an increase in the C
+
+<sub>max</sub> and AUC of tamsulosin by a factor of 2.2 and 2.8, respectively 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>. The effects of concomitant administration of a moderate CYP3A4 inhibitor (e.g., erythromycin) on the pharmacokinetics of tamsulosin hydrochloride capsules have not been evaluated 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>Concomitant treatment with paroxetine (a strong inhibitor of CYP2D6) resulted in an increase in the C
+
+<sub>max</sub> and AUC of tamsulosin by a factor of 1.3 and 1.6, respectively 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>. A similar increase in exposure is expected in CYP2D6 poor metabolizers (PM) as compared to extensive metabolizers (EM). Since CYP2D6 PMs cannot be readily identified and the potential for significant increase in tamsulosin exposure exists when tamsulosin hydrochloride capsules 0.4 mg are co-administered with strong CYP3A4 inhibitors in CYP2D6 PMs, tamsulosin hydrochloride capsules 0.4 mg should not be used in combination with strong inhibitors of CYP3A4 (e.g., ketoconazole) 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>The effects of concomitant administration of a moderate CYP2D6 inhibitor (e.g., terbinafine) on the pharmacokinetics of tamsulosin hydrochloride capsules have not been evaluated 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>The effects of co-administration of both a CYP3A4 and a CYP2D6 inhibitor with tamsulosin hydrochloride capsules have not been evaluated. However, there is a potential for significant increase in tamsulosin exposure when tamsulosin hydrochloride capsules 0.4 mg are co-administered with a combination of both CYP3A4 and CYP2D6 inhibitors 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>
+<content styleCode="italics">Cimetidine</content>
+</paragraph>
+<paragraph>Treatment with cimetidine resulted in a significant decrease (26%) in the clearance of tamsulosin hydrochloride, which resulted in a moderate increase in tamsulosin hydrochloride AUC (44%) 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20240123" />
+</section>
+</component>
+<component>
+<section ID="LINK_b0f02112-6fd6-4b31-9353-edc6930b47f7">
+<id root="33829c1e-7c6d-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.2 Other Alpha Adrenergic Blocking Agents</title>
+<text>
+<paragraph>The pharmacokinetic and pharmacodynamic interactions between tamsulosin hydrochloride capsules and other alpha adrenergic blocking agents have not been determined; however, interactions between tamsulosin hydrochloride capsules and other alpha adrenergic blocking agents may be expected
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+</section>
+</component>
+<component>
+<section ID="LINK_cdfe9d10-3ac4-4407-8210-15b8ae2bf01b">
+<id root="33829c1e-7c6e-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.3 PDE5 Inhibitors</title>
+<text>
+<paragraph>Caution is advised when alpha adrenergic blocking agents including tamsulosin hydrochloride capsules are co-administered with PDE5 inhibitors. Alpha-adrenergic blockers and PDE5 inhibitors are both vasodilators that can lower blood pressure. Concomitant use of these two drug classes can potentially cause symptomatic hypotension
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20240123" />
+</section>
+</component>
+<component>
+<section ID="LINK_f4eb8b26-eb93-4462-b2b2-2c2cb63f498f">
+<id root="33829c1e-7c6f-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.4 Warfarin</title>
+<text>
+<paragraph>A definitive drug-drug interaction study between tamsulosin hydrochloride and warfarin was not conducted. Results from limited
+
+<content styleCode="italics">in vitro</content>and
+
+<content styleCode="italics">in vivo</content>studies are inconclusive. Caution should be exercised with concomitant administration of warfarin and tamsulosin hydrochloride capsules
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml>and
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+</section>
+</component>
+<component>
+<section ID="LINK_55e0e6f7-261b-49f4-ac3e-8569f3cdff0a">
+<id root="33829c1e-7c70-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.5 Nifedipine, Atenolol, Enalapril</title>
+<text>
+<paragraph>Dosage adjustments are not necessary when tamsulosin hydrochloride capsules are administered concomitantly with nifedipine, atenolol, or enalapril
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+</section>
+</component>
+<component>
+<section ID="LINK_e977caf8-08ac-465b-a941-8126e25ed966">
+<id root="33829c1e-7c71-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.6 Digoxin and Theophylline</title>
+<text>
+<paragraph>Dosage adjustments are not necessary when a tamsulosin hydrochloride capsule is administered concomitantly with digoxin or theophylline
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20231116" />
+</section>
+</component>
+<component>
+<section ID="LINK_fb11931d-7fd6-47ad-82a2-5804b6c57a5c">
+<id root="33829c1e-7c72-3c9f-e063-6394a90ad8c2" />
+<code code="42229-5" codeSystem="2.16.840.1.113883.6.1" displayName="SPL UNCLASSIFIED SECTION" />
+<title>7.7 Furosemide</title>
+<text>
+<paragraph>Tamsulosin hydrochloride capsules had no effect on the pharmacodynamics (excretion of electrolytes) of furosemide. While furosemide produced an 11% to 12% reduction in tamsulosin hydrochloride C
+
+<sub>max</sub>and AUC, these changes are expected to be clinically insignificant and do not require adjustment of the tamsulosin hydrochloride capsules dosage
+
+<content styleCode="italics">[see
+
+<linkHtml href="#LINK_5b353427-ad94-413a-8289-3b2eba324e51">Clinical Pharmacology (12.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+</text>
+<effectiveTime value="20240122" />
+</section>
+</component>
+</section>
+</component>
+<component>
+<section ID="LINK_995c436b-5322-4491-abc5-288bba513233">
+<id root="33829c1e-7c85-3c9f-e063-6394a90ad8c2" />
+<code code="34076-0" codeSystem="2.16.840.1.113883.6.1" displayName="INFORMATION FOR PATIENTS SECTION" />
+<title>17 PATIENT COUNSELING INFORMATION</title>
+<text>
+<paragraph>Advise the patient to read the FDA-approved patient labeling (Patient Information).</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Hypotension</content>
+</paragraph>
+<paragraph>Advise the patient about the possible occurrence of symptoms related to postural hypotension, such as dizziness, when taking tamsulosin hydrochloride capsules, and they should be cautioned about driving, operating machinery, or performing hazardous tasks 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_02c3dff0-bd06-468d-b6e2-d439433ccf99">Warnings and Precautions (5.1)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Drug Interactions</content>
+</paragraph>
+<paragraph>Advise the patient that tamsulosin hydrochloride should not be used in combination with strong inhibitors of CYP3A4 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_4e7dd103-6ec1-4e1c-9a32-fbd08d6c530f">Warnings and Precautions (5.2)</linkHtml> and 
+
+<linkHtml href="#www.splportal.comLINK_740d52e3-c0e3-4344-a703-5ead16cdb092">Drug Interactions (7.1)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Priapism</content>
+</paragraph>
+<paragraph>Advise the patient about the possibility of priapism as a result of treatment with tamsulosin hydrochloride capsules and other similar medications. Patients should be informed that this reaction is extremely rare, but if not brought to immediate medical attention, can lead to permanent erectile dysfunction (impotence) 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_d2e5b346-64ce-4086-ac17-b3bb2eb19e04">Warnings and Precautions (5.3)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Screening for Prostate Cancer</content>
+</paragraph>
+<paragraph>Prostate cancer and BPH frequently coexist; therefore, screen patients for the presence of prostate cancer prior to treatment with tamsulosin hydrochloride capsules and at regular intervals afterwards 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_8c80ccad-1d20-416b-9971-7dad23c45334">Warnings and Precautions (5.4)</linkHtml>].
+
+</content>
+</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Intraoperative Floppy Iris Syndrome</content>
+</paragraph>
+<paragraph>Advise the patient when considering cataract or glaucoma surgery to tell their ophthalmologist that they have taken tamsulosin hydrochloride capsules 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_976219ca-19be-42f3-8348-e88bfd58284b">Warnings and Precautions (5.5)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>• 
+
+<content styleCode="bold">Administration</content>
+</paragraph>
+<paragraph>Advise the patient that tamsulosin hydrochloride capsules should not be crushed, chewed or opened 
+
+<content styleCode="italics">[see 
+
+<linkHtml href="#www.splportal.comLINK_c1b7ac92-86cb-478b-8416-bf67ddb51d67">Dosage and Administration (2)</linkHtml>]
+
+</content>.
+
+</paragraph>
+<paragraph>
+<content styleCode="bold">FDA-approved Patient Labeling</content>
+<br />  Patient labeling is provided at the end of this prescribing information. 
+
+</paragraph>
+<paragraph>Manufactured by: 
+<br />
+<content styleCode="bold">Rottendorf Pharma GmbH</content>  
+<br />  Ennigerloh, Germany  
+<br />  Made in Germany
+
+</paragraph>
+<paragraph>or</paragraph>
+<paragraph>
+<content styleCode="bold">Synthon Hispania, S.L.</content>  
+<br />  Barcelona, Spain 
+<br />  Made in Spain
+
+</paragraph>
+<paragraph>Manufactured for: 
+<br />  Synthon B.V.
+</paragraph>
+<paragraph>Revised:02/2025</paragraph>
+<paragraph>PI-4010-11 (PPI-4013-11)</paragraph>
+</text>
+<effectiveTime value="20250225" />
+</section>
+</component>
+</structuredBody>
+</component>
 </document>

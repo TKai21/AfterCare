@@ -526,6 +526,131 @@
                </component>
             </section>
          </component>
+         <component>
+            <section ID="Section_7">
+               <id root="c02d7b2e-e0ed-4ed5-9409-e40af13073d5" />
+               <code code="34073-7" codeSystem="2.16.840.1.113883.6.1" displayName="DRUG INTERACTIONS SECTION" />
+               <title>7 DRUG INTERACTIONS</title>
+               <text>
+                  <paragraph>Colchicine is a substrate of the efflux transporter P-glycoprotein (P-gp). Of the cytochrome P450 enzymes tested, CYP3A4 was mainly involved in the metabolism of colchicine. If colchicine tablets is administered with drugs that inhibit P-gp, most of which also inhibit CYP3A4, increased concentrations of colchicine are likely. Fatal drug interactions have been reported. Physicians should ensure that patients are suitable candidates for treatment with colchicine tablets and remain alert for signs and symptoms of toxicities related to increased colchicine exposure as a result of a drug interaction. Signs and symptoms of colchicine tablets toxicity should be evaluated promptly and, if toxicity is suspected, colchicine tablets should be discontinued immediately. Table 4 provides recommendations as a result of other potentially significant drug interactions. Table 1 provides recommendations for strong and moderate CYP3A4 inhibitors and P-gp inhibitors.</paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">Table 4. Other Potentially Significant Drug Interactions</content>
+                  </paragraph>
+                  <table cellspacing="0" cellpadding="0" border="0" width="0">
+                     <colgroup>
+                        <col width="34.0116279069767%" />
+                        <col width="31.9767441860465%" />
+                        <col width="34.0116279069767%" />
+                     </colgroup>
+                     <tbody>
+                        <tr styleCode="Botrule">
+                           <td styleCode="Lrule Rrule" valign="middle">
+                              <content styleCode="bold">Concomitant Drug Class or Food</content>
+                              <br />
+                           </td>
+                           <td styleCode="Rrule" valign="middle">
+                              <content styleCode="bold">Noted or Anticipated Outcome</content>
+                              <br />
+                           </td>
+                           <td styleCode="Rrule" valign="middle">
+                              <content styleCode="bold">Clinical Comment</content>
+                              <br />
+                           </td>
+                        </tr>
+                        <tr styleCode="Botrule">
+                           <td styleCode="Lrule Rrule" valign="middle">
+                              <content styleCode="bold">HMG-Co A Reductase Inhibitors:</content>
+                              <br />atorvastatin, fluvastatin, lovastatin, pravastatin, simvastatin<br />
+                           </td>
+                           <td styleCode="Rrule" rowspan="2" valign="middle">Pharmacokinetic and/or pharmacodynamic interaction: the addition of one drug to a stable long-term regimen of the other has resulted in myopathy and rhabdomyolysis (including a fatality)<br />
+                           </td>
+                           <td styleCode="Rrule" rowspan="3" valign="middle">Weigh the potential benefits and risks and carefully monitor patients for any signs or symptoms of muscle pain, tenderness, or weakness, particularly during initial therapy; monitoring CPK (creatine phosphokinase) will not necessarily prevent the occurrence of severe myopathy.<br />
+                           </td>
+                        </tr>
+                        <tr styleCode="Botrule">
+                           <td styleCode="Lrule Rrule" valign="middle">
+                              <content styleCode="bold">Other Lipid-Lowering Drugs:</content>fibrates, gemfibrozil<br />
+                           </td>
+                        </tr>
+                        <tr>
+                           <td styleCode="Lrule Rrule" valign="middle">
+                              <content styleCode="bold">Digitalis Glycosides:</content>digoxin<br />
+                           </td>
+                           <td styleCode="Rrule" valign="middle">P-gp substrate; rhabdomyolysis has been reported<br />
+                           </td>
+                        </tr>
+                     </tbody>
+                  </table>
+               </text>
+               <effectiveTime value="20251120" />
+               <excerpt>
+                  <highlight>
+                     <text>
+                        <paragraph>Coadministration of P-gp and/or CYP3A4 inhibitors (e.g., clarithromycin or cyclosporine) have been demonstrated to alter the concentration of colchicine. The potential for drug-drug interactions must be considered prior to and during therapy. See FPI for a complete list of reported and potential interactions (<linkHtml href="#Section_2.3">2.4</linkHtml>, <linkHtml href="#Section_5.3">5.3</linkHtml>, <linkHtml href="#Section_7">7</linkHtml>).</paragraph>
+                     </text>
+                  </highlight>
+               </excerpt>
+            </section>
+         </component>
+         <component>
+            <section ID="Section_16">
+               <id root="3301b0e6-cdd4-42ad-b113-65374d6dd53a" />
+               <code code="34076-0" codeSystem="2.16.840.1.113883.6.1" displayName="INFORMATION FOR PATIENTS SECTION" />
+               <title>17 PATIENT COUNSELING INFORMATION</title>
+               <text>
+                  <paragraph>
+                     <content styleCode="italics">Advise the patient to read the FDA-approved patient labeling (Medication Guide).</content>
+                  </paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="underline">D<content styleCode="bold">osing Instructions</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Patients should be advised to take colchicine tablets as prescribed, even if they are feeling better. Patients should not alter the dose or discontinue treatment without consulting with their doctor. If a dose of colchicine tablets is missed: </paragraph>
+                  <list listType="unordered" styleCode="disc">
+                     <item>                For FMF, take the dose as soon as possible and then return to the normal dosing schedule. However, if a dose is skipped the patient should not double the next dose.</item>
+                  </list>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">
+                        <content styleCode="underline">Fatal Overdose</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Instruct patient that fatal overdoses, both accidental and intentional, have been reported in adults and children who have ingested colchicine. Colchicine tablets should be kept out of the reach of children.</paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">
+                        <content styleCode="underline">Blood Dyscrasias</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Patients should be informed that bone marrow depression with agranulocytosis, aplastic anemia and thrombocytopenia may occur with colchicine tablets.</paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">
+                        <content styleCode="underline">Drug and Food Interactions</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Patients should be advised that many drugs or other substances may interact with colchicine tablets and some interactions could be fatal. Therefore, patients should report to their healthcare provider all of the current medications they are taking and check with their healthcare provider before starting any new medications, particularly antibiotics. Patients should also be advised to report the use of nonprescription medication or herbal products. Grapefruit and grapefruit juice may also interact and should not be consumed during colchicine tablets treatment.</paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">
+                        <content styleCode="underline">Neuromuscular Toxicity</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Patients should be informed that muscle pain or weakness, tingling or numbness in fingers or toes may occur with colchicine tablets alone or when it is used with certain other drugs. Patients developing any of these signs or symptoms must discontinue colchicine tablets and seek medical evaluation immediately. </paragraph>
+                  <br />
+                  <paragraph>
+                     <content styleCode="bold">
+                        <content styleCode="underline">Infertility</content>
+                     </content>
+                  </paragraph>
+                  <paragraph>Advise males of reproductive potential that colchicine tablets may rarely and transiently impair fertility <content styleCode="italics">[see Use in Specific Populations (<linkHtml href="#Section_8.3">8.3</linkHtml>)].</content>
+                  </paragraph>
+               </text>
+               <effectiveTime value="20251120" />
+            </section>
+         </component>
          </structuredBody>
    </component>
 </document>

@@ -108,6 +108,28 @@ async def test_label_text_has_dosage_and_warnings(labels):
     assert "dosage" in text.lower() and "warnings" in text.lower()
 
 
+async def test_label_text_has_interactions_and_patient_counseling(labels):
+    """Spec 5: the label text includes drug interactions (colchicine's CYP3A4 and
+    P-gp inhibitors) and the patient counseling section."""
+    text = await labels.label_text("5c1ceff7-8f00-48cc-8ea4-678106455ff1")
+    assert "DRUG INTERACTIONS" in text.upper()
+    assert "CYP3A4" in text and "P-gp" in text
+    assert "PATIENT COUNSELING" in text.upper()
+
+
+def test_label_sections_cover_the_spec_list():
+    from druglabels import LABEL_SECTIONS
+    # Boxed warning, dosage, contraindications, warnings (both kinds), drug
+    # interactions, adverse reactions, patient counseling (both codes).
+    assert {"34066-1", "34068-7", "34070-3", "34071-1", "43685-7", "34073-7", "34084-4",
+            "34076-0", "88436-1"} <= set(LABEL_SECTIONS)
+
+
+def test_fixture_labels_stay_small():
+    for path in FIXTURES.glob("*.xml"):
+        assert path.stat().st_size < 60_000, path.name
+
+
 async def test_label_text_unknown_setid_raises(labels):
     with pytest.raises(LabelServiceError):
         await labels.label_text("00000000-0000-0000-0000-000000000000")

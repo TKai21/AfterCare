@@ -33,9 +33,13 @@ DAILYMED_SPLS = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
 MAX_CANDIDATES = 5
 REQUEST_TIMEOUT = 15.0
 
-# LOINC codes: indications, dosage and administration, contraindications,
-# warnings, warnings and precautions, adverse reactions.
-LABEL_SECTIONS = ["34067-9", "34068-7", "34070-3", "34071-1", "43685-7", "34084-4"]
+# LOINC codes of the patient-useful sections, in label order when present:
+# boxed warning, indications, dosage and administration, contraindications,
+# warnings, warnings and precautions, drug interactions, adverse reactions, and
+# patient counseling (34076-0, and 88436-1 in newer labels). The Medication Guide
+# (42231-1) is left out: it repeats these sections in other words.
+LABEL_SECTIONS = ["34066-1", "34067-9", "34068-7", "34070-3", "34071-1", "43685-7",
+                  "34073-7", "34084-4", "34076-0", "88436-1"]
 
 _LABELER = re.compile(r"\s*\[([^\]]*)\]\s*$")
 _DOSAGE_FORM = re.compile(
