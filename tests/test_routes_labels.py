@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from sqlalchemy import select, update
 
@@ -8,9 +9,11 @@ from conftest import auth_headers, doctor_headers
 from druglabels import DEMO_LABELS, LabelClient, failing_transport, fixture_transport, patient_rxcuis
 from llm import LLMError
 from models import DischargeDocument, DocumentDrug, DrugLabel
-from test_druglabels import GOUT, confirm_meds, med, rows
+from test_routes_agent import answer, post_ask, tool, tool_results
+from test_druglabels import GOUT, confirm_meds, json_transport, med, rows
 
 COLCHICINE_SETID = "5c1ceff7-8f00-48cc-8ea4-678106455ff1"
+HIKMA_SETID = "ee1583ac-c308-4beb-b602-9ecac4977026"
 
 
 async def setup(client, fake_llm, *meds):
@@ -90,21 +93,33 @@ async def test_list_shows_unresolved_drugs(client, fake_llm):
     assert all(u["error"] for u in data["unresolved"])
 
 
+async def library_passages(client, fake_llm, headers):
+    """Passages the library tool returns when this patient asks about colchicine."""
+    fake_llm.script(
+        tool("search_education_library", {"query": "colchicine dosage gout flares"}),
+        answer("The approved sources do not say.", [], kind="not_covered"),
+    )
+    before = len(fake_llm.calls)
+    resp = await post_ask(client, headers, "How much colchicine should I take?")
+    assert resp.status_code == 200, resp.text
+    (result,) = tool_results(fake_llm, before + 1)
+    return result["passages"]
+
+
 async def test_approve_adds_to_store_and_is_retrievable_for_patient_only(client, fake_llm):
-    doc_id, _, doctor = await setup(client, fake_llm)
-    stone_doc, _ = await confirm_meds(client, fake_llm, "stone-patient", med("Tamsulosin", "0.4 mg"))
+    doc_id, gout_patient, doctor = await setup(client, fake_llm)
+    stone_doc, stone_patient = await confirm_meds(client, fake_llm, "stone-patient", med("Tamsulosin", "0.4 mg"))
     colchicine = await label_by_ingredient(client, "colchicine")
     resp = await client.post(f"/api/doctor/labels/{colchicine.id}/approve", headers=doctor)
     assert resp.status_code == 200, resp.text
     view = resp.json()
     assert view["status"] == "approved" and view["reviewed_by_name"] == "Dr. Ting Kai" and view["reviewed_at"]
-    store = client.app.state.store
     async with client.app.state.session_factory() as session:
-        gout, stone = await patient_rxcuis(session, doc_id), await patient_rxcuis(session, stone_doc)
-    hits = await store.retrieve("colchicine dosage gout flares", rxcuis=gout)
-    assert any(h["source_id"] == "dailymed-rxcui-2683" for h in hits)
-    assert not any(h["source_id"] == "dailymed-rxcui-2683"
-                   for h in await store.retrieve("colchicine dosage gout flares", rxcuis=stone))
+        assert await patient_rxcuis(session, doc_id) == {"2683", "7258"}
+        assert await patient_rxcuis(session, stone_doc) == {"77492"}
+    gout = await library_passages(client, fake_llm, gout_patient)
+    assert gout and all("colchicine" in p["title"].lower() and "setid=" in p["url"] for p in gout)
+    assert await library_passages(client, fake_llm, stone_patient) == []
 
 
 async def test_approve_embedding_failure_stays_pending(client, fake_llm):
@@ -179,10 +194,18 @@ async def test_pick_candidate_on_rejected_refetches(client, fake_llm):
     _, _, doctor = await setup(client, fake_llm)
     colchicine = await label_by_ingredient(client, "colchicine")
     path = f"/api/doctor/labels/{colchicine.id}"
+    other = next(c for c in colchicine.candidates if c["setid"] == HIKMA_SETID)
+    assert other["setid"] != colchicine.setid
     await client.post(f"{path}/reject", headers=doctor)
-    resp = await client.post(f"{path}/candidate", json={"setid": colchicine.candidates[0]["setid"]}, headers=doctor)
+    resp = await client.post(f"{path}/candidate", json={"setid": HIKMA_SETID}, headers=doctor)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "pending" and resp.json()["reviewed_at"] is None
+    view = resp.json()
+    assert view["status"] == "pending"
+    assert view["title"] == other["title"] != colchicine.title
+    assert view["url"].endswith(f"setid={HIKMA_SETID}") and view["url"] != colchicine.url
+    assert view["labeler"] == other["labeler"] and view["text"] != colchicine.text
+    assert view["reviewed_by_name"] is None and view["reviewed_at"] is None
+    assert (await label_by_ingredient(client, "colchicine")).setid == HIKMA_SETID
 
 
 async def test_pick_candidate_validates_setid_before_any_outside_call(client, fake_llm):
@@ -233,3 +256,30 @@ async def test_retry_failed_document_drug_resolves(client, fake_llm):
     (drug,) = await rows(client, DocumentDrug)
     assert (drug.status, drug.rxcui) == ("resolved", "2683")
     assert (await client.post(path, headers=doctor)).status_code == 409
+
+
+async def test_retry_document_drug_still_failing_shows_the_new_error(client, fake_llm):
+    client.app.state.label_client = LabelClient(failing_transport())
+    _, _, doctor = await setup(client, fake_llm, med("Colchicine", "0.6 mg"))
+    (drug,) = await rows(client, DocumentDrug)
+    first_error = drug.error
+    client.app.state.label_client = LabelClient(httpx.MockTransport(lambda request: httpx.Response(500)))
+    resp = await client.post(f"/api/doctor/document-drugs/{drug.id}/retry", headers=doctor)
+    assert resp.status_code == 200, resp.text
+    (entry,) = resp.json()["unresolved"]
+    assert entry["status"] == "failed" and entry["error"] and entry["error"] != first_error
+    (drug,) = await rows(client, DocumentDrug)
+    assert entry["error"] == drug.error
+
+
+async def test_retry_document_drug_that_turns_unresolved_shows_it(client, fake_llm):
+    client.app.state.label_client = LabelClient(failing_transport())
+    _, _, doctor = await setup(client, fake_llm, med("Multivitamin"))
+    (drug,) = await rows(client, DocumentDrug)
+    assert drug.status == "failed"
+    nothing = {"approximateTerm.json": {"approximateGroup": {"inputTerm": None}}}
+    client.app.state.label_client = LabelClient(json_transport(nothing))
+    resp = await client.post(f"/api/doctor/document-drugs/{drug.id}/retry", headers=doctor)
+    assert resp.status_code == 200, resp.text
+    (entry,) = resp.json()["unresolved"]
+    assert (entry["status"], entry["error"]) == ("unresolved", None)

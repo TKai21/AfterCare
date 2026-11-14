@@ -22,5 +22,6 @@
   "/REST/rxcui/77492/related.json?tty=IN": "tamsulosin-related-ingredient.json",
   "/REST/rxcui/5640/related.json?tty=IN": "ibuprofen-related-ingredient.json",
   "/REST/rxcui/2683/related.json?tty=IN": "colchicine-related-ingredient.json",
-  "/REST/rxcui/7258/related.json?tty=IN": "naproxen-related-ingredient.json"
+  "/REST/rxcui/7258/related.json?tty=IN": "naproxen-related-ingredient.json",
+  "/dailymed/services/v2/spls/ee1583ac-c308-4beb-b602-9ecac4977026.xml": "colchicine-ee1583ac-c308-4beb-b602-9ecac4977026.xml"
 }

@@ -39,6 +39,7 @@ async def _medication_rows(session: AsyncSession, conditions: list) -> list:
         .join(User, User.id == DischargeDocument.user_id)
         .where(*conditions)
         .order_by(DocumentDrug.id)
+        .execution_options(populate_existing=True)  # jobs update rows from other sessions
     ))
 
 
@@ -77,8 +78,7 @@ async def label_views(session: AsyncSession, labels: list[DrugLabel]) -> list[di
 
 
 async def _fresh_view(session: AsyncSession, label_id: int) -> dict:
-    label = await session.get(DrugLabel, label_id)
-    await session.refresh(label)
+    label = await session.get(DrugLabel, label_id, populate_existing=True)
     return (await label_views(session, [label]))[0]
 
 
@@ -111,6 +111,7 @@ async def list_labels(doctor: User = Depends(current_doctor), session: AsyncSess
         .where(or_(DrugLabel.status.notin_(("approved", "rejected")),
                    DrugLabel.reviewed_at.is_(None), DrugLabel.reviewed_at >= cutoff))
         .order_by(DrugLabel.id)
+        .execution_options(populate_existing=True)
     ))
     labels.sort(key=lambda label: label.status != "pending")  # stable: pending first
     unresolved = [
@@ -217,7 +218,7 @@ async def retry_document_drug(
     doctor: User = Depends(current_doctor),
     session: AsyncSession = Depends(get_session),
 ):
-    if await session.get(DocumentDrug, drug_id) is None:
+    if await session.scalar(select(DocumentDrug.id).where(DocumentDrug.id == drug_id)) is None:
         raise HTTPException(status_code=404, detail="Medication not found")
     await _claim(session, DocumentDrug, drug_id, ("failed", "unresolved"), "Only a failed lookup can be retried.")
     await resolve_document_drug(request.app.state.session_factory, request.app.state.label_client, drug_id)
