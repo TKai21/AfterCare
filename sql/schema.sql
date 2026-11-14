@@ -104,10 +104,14 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   question TEXT NOT NULL,
   reason TEXT NOT NULL,
   source VARCHAR(30) NOT NULL,                            -- agent | rejected_item | validation_fallback
-  resolved BOOLEAN NOT NULL DEFAULT FALSE,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',             -- open | answered | resolved
+  answer TEXT NULL,
+  answered_by INT NULL,
+  answered_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_care_team_questions_user_id (user_id),
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (answered_by) REFERENCES users (id) ON DELETE SET NULL,
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL
 );

@@ -98,8 +98,8 @@ function render(panel) {
   } else if (!view.questions) {
     body = '<p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Loading your questions...</p>';
   } else {
-    const open = view.questions.filter(q => !q.resolved);
-    const resolved = view.questions.filter(q => q.resolved);
+    const open = view.questions.filter(q => q.status !== 'resolved');
+    const resolved = view.questions.filter(q => q.status === 'resolved');
     body = `
       ${open.length
         ? `<ul class="item-list">${open.map(openHtml).join('')}</ul>`

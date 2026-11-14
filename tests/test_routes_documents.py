@@ -231,7 +231,7 @@ async def test_reject_item_adds_care_team_question(client, fake_llm):
     assert q["question"] == "Please confirm this instruction: " + item["text"]
     assert q["reason"] == "Extracted item did not match my document"
     assert q["source"] == "rejected_item"
-    assert q["resolved"] is False
+    assert q["status"] == "open"
     assert q["document_id"] == doc["id"]
     # idempotent: rejecting again does not duplicate the question
     again = await client.post(f"/api/documents/active/items/{item['id']}/reject", headers=h)

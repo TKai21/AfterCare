@@ -129,5 +129,11 @@ class CareTeamQuestion(Base):
     reason: Mapped[str] = mapped_column(Text)
     # agent | rejected_item | validation_fallback
     source: Mapped[str] = mapped_column(String(30))
-    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    # open | answered | resolved
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
+    answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    answered_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
