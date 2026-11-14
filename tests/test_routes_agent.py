@@ -152,7 +152,8 @@ async def test_not_covered_saves_exactly_one_care_team_question(client, fake_llm
 
 async def test_validation_fallback_saves_question(client, fake_llm):
     h = await confirmed(client, fake_llm)
-    fake_llm.script(answer("Take amoxicillin 900 mg [2].", [2]))
+    bad = answer("Take amoxicillin 900 mg [2].", [2])
+    fake_llm.script(bad, bad)  # the repair round fails too
     body = (await post_ask(client, h, "What is my dose?")).json()
     assert body["kind"] == "not_covered" and body["answer"] == FALLBACK
     assert body["sources"] == [] and body["flagged"] is True

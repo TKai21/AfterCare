@@ -19,6 +19,17 @@ from llm import LLMClient
 
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
+# The frontend is unbundled files with stable names, so a browser must check
+# back (a cheap 304 via ETag) every time, or it keeps running an old version.
+REVALIDATE = {"Cache-Control": "no-cache"}
+
+
+class FrontendFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.update(REVALIDATE)
+        return response
+
 
 def create_app(settings: Optional[Settings] = None, llm=None, store=None, foods=None) -> FastAPI:
     """`llm`, `store` and `foods` default to what `settings` configures. Without
@@ -60,13 +71,13 @@ def create_app(settings: Optional[Settings] = None, llm=None, store=None, foods=
             path = FRONTEND_DIR / name
             if not path.is_file():
                 raise HTTPException(status_code=404, detail="Page not found")
-            return FileResponse(path)
+            return FileResponse(path, headers=REVALIDATE)
         return handler
 
     app.add_api_route("/", page("index.html"), include_in_schema=False)
     app.add_api_route("/app", page("app.html"), include_in_schema=False)
     # Mounted last so it never shadows /api routes.
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+    app.mount("/static", FrontendFiles(directory=FRONTEND_DIR), name="static")
     return app
 
 

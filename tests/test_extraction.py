@@ -105,3 +105,69 @@ async def test_extraction_document_tags_carry_a_nonce(fake_llm):
     nonce = match.group(1)
     assert user.endswith(f"\n</document-{nonce}>")
     assert user.count(f"</document-{nonce}>") == 1
+
+
+LIST_TEXT = (
+    "Call 911 or return to the ER if:\n"
+    "- a fever of 101 F (38.3 C) or higher with chills\n"
+    "- red streaks spreading up your foot or leg\n"
+    "• chest pain, trouble breathing, or fainting\n"
+    "Call the clinic at 555-0177 if:\n"
+    "1. your pain is not better after 3 days\n"
+    "2) you have diarrhea, vomiting, or black stools\n"
+    "Rest your foot.\n"
+    "- wear loose shoes\n"
+)
+
+
+async def run_quotes(quotes, text=LIST_TEXT):
+    llm = FakeLLM()
+    llm.script(reply({"discharge_date": None, "items": [item("warning_signs", q) for q in quotes]}))
+    return await extract(llm, text)
+
+
+async def test_list_lead_in_joined_to_a_later_item_keeps_the_item_as_quote():
+    # Real model output: the list heading glued to a non-adjacent bullet.
+    result = await run_quotes([
+        "Call 911 or return to the ER if: - red streaks spreading up your foot or leg",
+        "Call 911 or return to the ER if: chest pain, trouble breathing, or fainting",
+        "Call the clinic at 555-0177 if: - you have diarrhea, vomiting, or black stools",
+    ])
+    assert result.unverified == []
+    assert [i["source_quote"] for i in result.items] == [
+        "red streaks spreading up your foot or leg",
+        "chest pain, trouble breathing, or fainting",
+        "you have diarrhea, vomiting, or black stools",
+    ]
+    for i in result.items:
+        assert quote_in_text(i["source_quote"], LIST_TEXT)
+
+
+async def test_adjacent_lead_in_and_item_stay_verbatim():
+    quotes = [
+        "Call 911 or return to the ER if: - a fever of 101 F (38.3 C) or higher with chills",
+        "Call the clinic at 555-0177 if: 1. your pain is not better after 3 days",
+    ]
+    result = await run_quotes(quotes)
+    assert [i["source_quote"] for i in result.items] == quotes
+
+
+async def test_lead_in_repair_rejects_items_outside_that_list():
+    result = await run_quotes([
+        # item belongs to the clinic list, not the 911 list
+        "Call 911 or return to the ER if: - you have diarrhea, vomiting, or black stools",
+        # item comes before the heading
+        "Call the clinic at 555-0177 if: - red streaks spreading up your foot or leg",
+        # list ended at a non-list line
+        "Call the clinic at 555-0177 if: - wear loose shoes",
+        # heading not in the document
+        "Go to urgent care if: - red streaks spreading up your foot or leg",
+        # item text not in the document
+        "Call 911 or return to the ER if: - a rash on your arm",
+        # heading is only the tail of a longer line
+        "ER if: - red streaks spreading up your foot or leg",
+        # too-short item
+        "Call 911 or return to the ER if: - red",
+    ])
+    assert result.items == []
+    assert len(result.unverified) == 7

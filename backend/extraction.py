@@ -35,7 +35,7 @@ Rules:
 - Produce one item per distinct instruction. Do not merge separate instructions and do not repeat the same one.
 - Categories: medication, diet, activity, wound_or_device_care, monitoring, follow_up, warning_signs, other. Use "other" only when nothing else fits.
 - "text" must be short, plain language a patient understands, and must not add anything the document does not say.
-- "source_quote" must be copied verbatim from the document: the exact characters, in the exact order, with no paraphrasing, no ellipses and no corrections. Choose the shortest span that supports the item. Every item without a verbatim quote will be discarded.
+- "source_quote" must be copied verbatim from the document: the exact characters, in the exact order, with no paraphrasing, no ellipses and no corrections. Choose the shortest span that supports the item. For an item in a bulleted or numbered list, quote that list item's own text, without the heading line above it. Every item without a verbatim quote will be discarded.
 - Never invent instructions, doses, dates or numbers. If the document does not say it, leave it out or use null.
 - "discharge_date" is the date the patient was discharged, as YYYY-MM-DD, or null if the document does not state it.
 - "details" keys by category (use null or an empty list when unknown):
@@ -57,6 +57,46 @@ def normalize(s: str) -> str:
 def quote_in_text(quote: str, text: str) -> bool:
     needle = normalize(quote)
     return len(needle) >= MIN_QUOTE_LENGTH and needle in normalize(text)
+
+
+# A list marker at the start of a line: "-", a bullet, or "1." / "1)".
+_LIST_MARKER = re.compile(r"^\s*(?:[-*•·▪◦]|\d{1,2}[.)])\s+")
+# A quote shaped "<lead-in>: [marker] <item>".
+_LEAD_IN_QUOTE = re.compile(
+    r"^\s*(?P<lead>[^\n]+?:)\s+(?:(?:[-*•·▪◦]|\d{1,2}[.)])\s+)?(?P<item>\S.*?)\s*$",
+    re.DOTALL,
+)
+
+
+def list_item_quote(quote: str, text: str) -> str | None:
+    """Repair a quote that glues a list's lead-in line to one of its items.
+
+    Models quoting a bulleted list ("Call 911 if:" followed by "- chest pain")
+    often prefix the item with the lead-in even when other items sit between
+    them, so the quote is not contiguous in the document. Accept it only when the
+    lead-in is a whole line of the document and the item is inside one of the
+    list lines directly under it, and return the item alone, which is verbatim
+    and contiguous. Anything else returns None and stays unverified."""
+    m = _LEAD_IN_QUOTE.match(quote)
+    if not m:
+        return None
+    lead, item = normalize(m["lead"]), m["item"].strip()
+    needle = normalize(item)
+    if len(needle) < MIN_QUOTE_LENGTH:
+        return None
+    lines = text.splitlines()
+    for start, line in enumerate(lines):
+        if normalize(line) != lead:
+            continue
+        for following in lines[start + 1:]:
+            if not following.strip():
+                continue
+            marker = _LIST_MARKER.match(following)
+            if not marker:
+                break
+            if needle in normalize(following[marker.end():]):
+                return item
+    return None
 
 
 @dataclass
@@ -121,8 +161,11 @@ async def extract(llm, text: str) -> Extraction:
         if category not in CATEGORIES:
             category = "other"
         if not quote_in_text(quote, text):
-            unverified.append({"category": category, "text": item_text.strip()})
-            continue
+            repaired = list_item_quote(quote, text)
+            if repaired is None:
+                unverified.append({"category": category, "text": item_text.strip()})
+                continue
+            quote = repaired
         details = raw.get("details")
         items.append({
             "category": category,

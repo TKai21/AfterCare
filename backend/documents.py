@@ -23,8 +23,12 @@ def normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKC", text)
 
 
+def file_suffix(filename: str) -> str:
+    return PurePosixPath(filename.replace("\\", "/")).suffix.lower()
+
+
 def read_upload(data: bytes, filename: str) -> str:
-    suffix = PurePosixPath(filename.replace("\\", "/")).suffix.lower()
+    suffix = file_suffix(filename)
     if suffix == ".pdf":
         try:
             reader = PdfReader(io.BytesIO(data))

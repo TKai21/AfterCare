@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS discharge_documents (
   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS document_files (             -- the uploaded PDF, shown beside the instructions
+  document_id INT NOT NULL,
+  content_type VARCHAR(100) NOT NULL,
+  data LONGBLOB NOT NULL,
+  PRIMARY KEY (document_id),
+  FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS extracted_items (
   id INT NOT NULL AUTO_INCREMENT,
   document_id INT NOT NULL,

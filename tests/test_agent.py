@@ -189,25 +189,26 @@ async def test_uncited_number_falls_back(store, foods, document, items):
     llm.script(
         tool_call("lookup_food", {"name": "almonds"}),
         final("Almonds have 200 mg of oxalate per serving [5].", [5]),
+        final("Almonds have 200 mg of oxalate per serving [5].", [5]),  # after the repair round
     )
     assert_fallback(await ask(llm, store, foods, document, items))
 
 
 async def test_nonexistent_citation_falls_back(store, foods, document, items):
     llm = FakeLLM()
-    llm.script(final("Limit high-oxalate foods [9].", [9]))
+    llm.script(final("Limit high-oxalate foods [9].", [9]), final("Limit high-oxalate foods [9].", [9]))
     assert_fallback(await ask(llm, store, foods, document, items))
 
 
 async def test_malformed_json_falls_back(store, foods, document, items):
     llm = FakeLLM()
-    llm.script({"content": "Almonds are fine [2]."})
+    llm.script({"content": "Almonds are fine [2]."}, {"content": "Almonds are fine [2]."})
     assert_fallback(await ask(llm, store, foods, document, items))
 
 
 async def test_answer_without_citations_falls_back(store, foods, document, items):
     llm = FakeLLM()
-    llm.script(final("Limit high-oxalate foods.", []))
+    llm.script(final("Limit high-oxalate foods.", []), final("Limit high-oxalate foods.", []))
     assert_fallback(await ask(llm, store, foods, document, items))
 
 
@@ -549,7 +550,10 @@ def test_system_prompt_states_rules():
                    "add_care_team_question", "Your discharge document does not cover this; here is general information.",
                    "call 911", "decline briefly", "untrusted data", "different food",
                    '"care_team_question"', "Arabic numerals", "Never write numbers as words",
-                   "must not contain any numbers"):
+                   "must not contain any numbers",
+                   "Apply only instructions that are actually in this patient's document",
+                   "do not give general information from your own knowledge",
+                   "Do not add facts, advice or warnings from your own knowledge"):
         assert phrase in prompt, phrase
 
 
@@ -571,3 +575,92 @@ def test_bare_f_and_c_suffix_only_counts_as_a_temperature():
     assert ("number", Decimal("12")) not in set(number_tokens("12C"))
     assert ("number", Decimal("101")) in set(number_tokens("a fever of 101F"))
     assert ("number", Decimal("38.3")) in set(number_tokens("(38.3C)"))
+
+
+# ---------- tolerant final-message parsing and one repair round ----------
+# Real gpt-4o-mini output: prose before the JSON, and correct citations with no
+# inline [n] markers. Both used to fall back to the care team even though the
+# answer was grounded.
+
+def test_validate_reads_the_json_object_after_prose():
+    ev = evidence("Avoid shellfish such as shrimp and mussels.")
+    text = ("You should avoid shrimp [1].\n\nI'll add a note.\n\n"
+            + raw(answer="Avoid shrimp [1].", citations=[1]) + "\n")
+    assert validate(text, ev) == ("answer", "Avoid shrimp [1].", [1], None)
+
+
+def test_validate_uses_the_last_json_object():
+    ev = evidence("Avoid shellfish such as shrimp and mussels.")
+    text = (raw(kind="maybe", answer="draft") + "\nFinal:\n"
+            + raw(answer="Avoid shrimp [1].", citations=[1]))
+    assert validate(text, ev)[1] == "Avoid shrimp [1]."
+    with pytest.raises(ValueError):
+        validate("Avoid shrimp. {not json} and {\"also\": 1}", ev)
+
+
+def test_validate_adds_markers_when_the_answer_has_none():
+    ev = evidence("You should drink at least 2 liters of water a day.", "Milk is fine.")
+    assert validate(raw(answer="Drink at least 2 liters of water a day.", citations=[1]), ev)[1] \
+        == "Drink at least 2 liters of water a day [1]."
+    assert validate(raw(answer="Milk and water are fine", citations=[2, 1]), ev)[1] \
+        == "Milk and water are fine [1, 2]"
+    # Grounding still applies to the added citations.
+    with pytest.raises(ValueError):
+        validate(raw(answer="Drink 3 liters of water a day.", citations=[1]), ev)
+
+
+async def test_invalid_final_message_gets_one_repair_round(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        final("Almonds have 200 mg of oxalate per serving [2].", [2]),
+        final("Limit high-oxalate foods [2].", [2]),
+    )
+    result = await ask(llm, store, foods, document, items)
+    assert result.kind == "answer" and result.answer == "Limit high-oxalate foods [2]."
+    assert len(llm.calls) == 2
+    repair_messages, repair_tools, _ = llm.calls[1]
+    assert repair_tools is None
+    assert repair_messages[-2]["role"] == "assistant"
+    assert "Numbers not in the cited evidence" in repair_messages[-1]["content"]
+
+
+async def test_second_invalid_final_message_falls_back(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script({"content": "Almonds are fine [2]."}, {"content": "Still not JSON."})
+    assert_fallback(await ask(llm, store, foods, document, items))
+    assert len(llm.calls) == 2
+
+
+async def test_emergency_failures_skip_the_repair_round(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Call 911 and wait 5 minutes.", [], kind="emergency"))
+    result = await ask(llm, store, foods, document, items)
+    assert result.kind == "emergency" and len(llm.calls) == 1
+
+    with_terms = FakeLLM()
+    with_terms.script({"content": "not json"})
+    result = await ask(with_terms, store, foods, document, items,
+                       emergency_terms=["chest pain"])
+    assert result.kind == "emergency" and len(with_terms.calls) == 1
+
+
+def test_validate_general_information_needs_a_library_citation():
+    general = "Your discharge document does not cover this; here is general information."
+    doc = evidence("Take colchicine 0.6 mg twice daily.")
+    with pytest.raises(ValueError, match="library"):
+        validate(raw(kind="not_covered", answer=f"{general} Do not take more than directed."), doc)
+    with pytest.raises(ValueError, match="library"):
+        validate(raw(kind="not_covered", answer=f"{general} Take it as directed [1].",
+                     citations=[1]), doc)
+    library = {1: Evidence(1, "library", "Colchicine", "https://medlineplus.gov/x", "If you miss a dose, "
+                           "take it as soon as you remember.", check_text="If you miss a dose, "
+                           "take it as soon as you remember.")}
+    answer = f"{general} Take a missed dose as soon as you remember [1]."
+    assert validate(raw(kind="not_covered", answer=answer, citations=[1]), library)[1] == answer
+
+
+def test_system_prompt_example_names_no_specific_nutrient():
+    # A concrete "limit high-oxalate foods" example made the model claim a gout
+    # document said to avoid high-oxalate foods.
+    rules = agent.SYSTEM_PROMPT.split("Authority rules:")[1].split("Food data:")[0]
+    assert "oxalate" not in rules.lower()

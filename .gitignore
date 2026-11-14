@@ -10,3 +10,4 @@ aftercare-dev.sqlite3
 *.sqlite3
 knowledge/index.sqlite3
 knowledge/*.staging.sqlite3
+.DS_Store

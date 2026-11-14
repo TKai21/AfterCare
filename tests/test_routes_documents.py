@@ -54,6 +54,7 @@ async def test_upload_text_creates_pending_doc_with_items(client, fake_llm):
     assert len(body["paragraphs"]) == 3
     assert [i["category"] for i in body["items"]] == ["medication", "warning_signs"]
     assert set(body["items"][0]) == {"id", "category", "text", "source_quote", "details", "status"}
+    assert body["has_pdf"] is False
     assert body["items"][0]["status"] == "active"
     assert body["unverified"] == [{"category": "diet", "text": "Avoid salt."}]
     active = await client.get("/api/documents/active", headers=h)
@@ -68,6 +69,63 @@ async def test_upload_file_uses_filename(client, fake_llm):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["filename"] == "d.txt"
+
+
+def tiny_pdf(text: str) -> bytes:
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", size=11)
+    for line in text.split("\n"):
+        pdf.cell(0, 8, line, new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+async def test_uploaded_pdf_is_stored_and_served_to_its_owner_only(client, fake_llm):
+    ha = await auth_headers(client, "alice")
+    hb = await auth_headers(client, "bob")
+    data = tiny_pdf(DOC)
+    fake_llm.script(extraction())
+    resp = await client.post(
+        "/api/documents", files={"file": ("summary.PDF", data, "application/pdf")}, headers=ha
+    )
+    assert resp.status_code == 200, resp.text
+    doc = resp.json()
+    assert doc["has_pdf"] is True
+    assert (await client.get("/api/documents/active", headers=ha)).json()["has_pdf"] is True
+
+    served = await client.get(f"/api/documents/{doc['id']}/file", headers=ha)
+    assert served.status_code == 200
+    assert served.content == data
+    assert served.headers["content-type"] == "application/pdf"
+    assert served.headers["cache-control"] == "private, no-store"
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+    assert (await client.get(f"/api/documents/{doc['id']}/file", headers=hb)).status_code == 404
+    assert (await client.get(f"/api/documents/{doc['id']}/file")).status_code == 401
+    assert (await client.get("/api/documents/999999/file", headers=ha)).status_code == 404
+
+
+async def test_text_uploads_have_no_pdf(client, fake_llm):
+    h = await auth_headers(client)
+    pasted = (await upload_text(client, h, fake_llm)).json()
+    assert pasted["has_pdf"] is False
+    assert (await client.get(f"/api/documents/{pasted['id']}/file", headers=h)).status_code == 404
+    fake_llm.script(extraction())
+    txt = await client.post(
+        "/api/documents", files={"file": ("d.txt", DOC.encode(), "text/plain")}, headers=h
+    )
+    assert txt.json()["has_pdf"] is False
+
+
+async def test_archived_document_keeps_its_pdf(client, fake_llm):
+    h = await auth_headers(client)
+    fake_llm.script(extraction())
+    first = (await client.post(
+        "/api/documents", files={"file": ("a.pdf", tiny_pdf(DOC), "application/pdf")}, headers=h
+    )).json()
+    await upload_text(client, h, fake_llm)
+    assert (await client.get(f"/api/documents/{first['id']}/file", headers=h)).status_code == 200
 
 
 async def test_upload_requires_exactly_one_of_file_or_text(client, fake_llm):

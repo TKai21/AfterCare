@@ -1,5 +1,6 @@
 // Instructions tab: upload, review (pending_review) and read-only (confirmed) views.
 import {api, confirmDialog, escapeHtml, localIsoDate, registerTab} from '/static/api.js';
+import {docPaneHtml, mountDocPane} from '/static/docview.js';
 
 const CATEGORIES = [
   ['medication', 'Medications'],
@@ -13,7 +14,6 @@ const CATEGORIES = [
 ];
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const WIDE = window.matchMedia('(min-width: 720px)');
 
 // UI state that survives re-renders of the same document.
 const view = {
@@ -25,6 +25,7 @@ const view = {
 };
 
 const esc = escapeHtml;
+let pane = null;  // the document pane of the current render (docview.js)
 
 function show(panel, ctx) {
   const doc = ctx.document;
@@ -83,73 +84,6 @@ async function act(panel, ctx, busy, where, request) {
   }
 }
 
-// ---------- quote highlighting ----------
-// Mirrors backend extraction.normalize(): case, quote/dash variants and
-// whitespace runs are ignored, so a verified quote is always found again.
-
-function foldChar(ch) {
-  return ch.toLowerCase()
-    .replace(/[\u2018\u2019\u201a\u201b\u2032`\u00b4]/g, "'")
-    .replace(/[\u201c\u201d\u201e\u201f\u2033]/g, '"')
-    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-');
-}
-
-function normalize(text) {
-  return Array.from(text, foldChar).join('').replace(/\s+/g, ' ').trim();
-}
-
-// Returns [{p, start, end}] ranges (per paragraph) covering the quote, or [].
-function findQuote(paragraphs, quote) {
-  const needle = normalize(quote || '');
-  if (!needle) return [];
-  let hay = '';
-  const map = [];  // map[k] = {p, i}: source of normalized char k
-  let gap = null;
-  paragraphs.forEach((para, p) => {
-    for (let i = 0; i < para.length; i++) {
-      const ch = para[i];
-      if (/\s/.test(ch)) {
-        if (hay) gap = gap || {p, i};
-        continue;
-      }
-      if (gap) { hay += ' '; map.push(gap); gap = null; }
-      for (const c of foldChar(ch)) { hay += c; map.push({p, i}); }
-    }
-    if (hay) gap = gap || {p, i: para.length};
-  });
-  const at = hay.indexOf(needle);
-  if (at < 0) return [];
-  const ranges = new Map();
-  for (let k = at; k < at + needle.length; k++) {
-    const {p, i} = map[k];
-    if (i >= paragraphs[p].length || /\s/.test(paragraphs[p][i])) continue;
-    const r = ranges.get(p) || {p, start: i, end: i + 1};
-    r.start = Math.min(r.start, i);
-    r.end = Math.max(r.end, i + 1);
-    ranges.set(p, r);
-  }
-  return [...ranges.values()];
-}
-
-function paragraphHtml(text, range) {
-  if (!range) return esc(text);
-  return esc(text.slice(0, range.start)) +
-    '<mark class="quote-mark">' + esc(text.slice(range.start, range.end)) + '</mark>' +
-    esc(text.slice(range.end));
-}
-
-function renderDocBody(panel, doc) {
-  const body = panel.querySelector('#docBody');
-  if (!body) return null;
-  const item = doc.items.find(i => i.id === view.selectedId);
-  const ranges = item ? findQuote(doc.paragraphs, item.source_quote) : [];
-  const byPara = new Map(ranges.map(r => [r.p, r]));
-  body.innerHTML = doc.paragraphs
-    .map((text, p) => `<p class="doc-para${byPara.has(p) ? ' has-mark' : ''}">${paragraphHtml(text, byPara.get(p))}</p>`)
-    .join('');
-  return body.querySelector('mark');
-}
-
 function applySelection(panel, doc, {scroll}) {
   panel.querySelectorAll('.item').forEach(li => {
     const selected = Number(li.dataset.id) === view.selectedId;
@@ -159,11 +93,8 @@ function applySelection(panel, doc, {scroll}) {
     const quote = li.querySelector('.item-quote');
     if (quote) quote.hidden = !selected;
   });
-  const mark = renderDocBody(panel, doc);
-  if (mark && scroll && WIDE.matches) {
-    const body = panel.querySelector('#docBody');
-    body.scrollTo({top: Math.max(0, mark.offsetTop - body.clientHeight / 3), behavior: 'smooth'});
-  }
+  const item = doc.items.find(i => i.id === view.selectedId);
+  pane.select(item ? item.source_quote : null, {scroll});
 }
 
 // ---------- upload ----------
@@ -359,12 +290,7 @@ function renderReview(panel, ctx, doc) {
           </section>`).join('')}
         ${unverifiedHtml(doc)}
       </div>
-      <aside class="doc-pane" aria-labelledby="docTitle">
-        <div class="doc-head">
-          <h2 class="doc-title" id="docTitle">Your discharge document</h2>
-        </div>
-        <div class="doc-body" id="docBody" tabindex="0" aria-label="Document text"></div>
-      </aside>
+      ${docPaneHtml(doc)}
       <div class="review-actions card">
         <p class="section-text">Confirming builds your daily checklist from the ${plural(active, 'instruction')} you kept and opens Today and Ask.</p>
         ${errorHtml('actions')}
@@ -378,6 +304,7 @@ function renderReview(panel, ctx, doc) {
       </div>
     </div>`;
 
+  pane = mountDocPane(panel, doc);
   applySelection(panel, doc, {scroll: false});
 
   panel.querySelectorAll('.item').forEach(li => {
@@ -388,7 +315,7 @@ function renderReview(panel, ctx, doc) {
       applySelection(panel, doc, {scroll: true});
     });
     li.querySelector('.show-in-doc').addEventListener('click', () => {
-      const mark = panel.querySelector('#docBody mark');
+      const mark = pane.first();
       if (mark) mark.scrollIntoView({behavior: 'smooth', block: 'center'});
     });
     const reject = li.querySelector('.reject-btn');
@@ -444,7 +371,6 @@ function renderConfirmed(panel, ctx, doc) {
   const active = doc.items.filter(i => i.status === 'active');
   const rejected = doc.items.filter(i => i.status === 'rejected');
   panel.innerHTML = `
-    <div class="confirmed">
     <div class="page-head page-head-row">
       <div>
         <h1 class="page-title">Your instructions</h1>
@@ -452,29 +378,33 @@ function renderConfirmed(panel, ctx, doc) {
       </div>
       <a class="btn btn-primary" href="#today">Open Today</a>
     </div>
-    <div class="confirmed-list">
-      ${grouped(active).map(group => `
-        <section class="group" aria-labelledby="g-${group.key}">
-          <h2 class="group-title" id="g-${group.key}">${esc(group.label)}</h2>
-          <ul class="item-list">
-            ${group.items.map(item => `
-              <li class="item item-static">
-                <p class="item-text">${esc(item.text)}</p>
-                <details class="source">
-                  <summary><span class="when-closed">Show source</span><span class="when-open">Hide source</span></summary>
-                  <blockquote class="quote">${esc(item.source_quote)}</blockquote>
-                </details>
-              </li>`).join('')}
-          </ul>
-        </section>`).join('')}
-      ${rejected.length ? `
-        <section class="group group-muted" aria-labelledby="g-left-out">
-          <h2 class="group-title" id="g-left-out">Left out</h2>
-          <p class="section-text">You marked these as not matching your document. They are on your care-team list.</p>
-          <ul class="item-list">
-            ${rejected.map(item => `<li class="item item-static is-rejected"><p class="item-text">${esc(item.text)}</p></li>`).join('')}
-          </ul>
-        </section>` : ''}
+    <div class="confirmed-grid">
+      <div class="confirmed-list">
+        ${grouped(active).map(group => `
+          <section class="group" aria-labelledby="g-${group.key}">
+            <h2 class="group-title" id="g-${group.key}">${esc(group.label)}</h2>
+            <ul class="item-list">
+              ${group.items.map(item => `
+                <li class="item item-static" data-id="${item.id}">
+                  <p class="item-text">${esc(item.text)}</p>
+                  <details class="source">
+                    <summary aria-controls="docBody"><span class="when-closed">Show source</span><span class="when-open">Hide source</span></summary>
+                    <blockquote class="quote">${esc(item.source_quote)}</blockquote>
+                    <button type="button" class="btn-link show-in-doc">Show in document</button>
+                  </details>
+                </li>`).join('')}
+            </ul>
+          </section>`).join('')}
+        ${rejected.length ? `
+          <section class="group group-muted" aria-labelledby="g-left-out">
+            <h2 class="group-title" id="g-left-out">Left out</h2>
+            <p class="section-text">You marked these as not matching your document. They are on your care-team list.</p>
+            <ul class="item-list">
+              ${rejected.map(item => `<li class="item item-static is-rejected"><p class="item-text">${esc(item.text)}</p></li>`).join('')}
+            </ul>
+          </section>` : ''}
+      </div>
+      ${docPaneHtml(doc)}
       <div class="card replace-card">
         <div>
           <h2 class="section-title">Have a new discharge document?</h2>
@@ -482,8 +412,34 @@ function renderConfirmed(panel, ctx, doc) {
         </div>
         <button type="button" class="btn btn-secondary" id="newUploadBtn">Upload a new document</button>
       </div>
-    </div>
     </div>`;
+
+  pane = mountDocPane(panel, doc);
+  // The highlighted quote follows the source the patient opened last.
+  const opened = [];
+  const highlight = scroll => {
+    view.selectedId = opened.length ? opened[opened.length - 1] : null;
+    applySelection(panel, doc, {scroll});
+  };
+  panel.querySelectorAll('.confirmed-list .item[data-id]').forEach(li => {
+    const id = Number(li.dataset.id);
+    const details = li.querySelector('details');
+    if (view.selectedId === id) {
+      details.open = true;
+      opened.push(id);
+    }
+    details.addEventListener('toggle', () => {
+      const at = opened.indexOf(id);
+      if (at >= 0) opened.splice(at, 1);
+      if (details.open) opened.push(id);
+      highlight(details.open);
+    });
+    li.querySelector('.show-in-doc').addEventListener('click', () => {
+      const mark = pane.first();
+      if (mark) mark.scrollIntoView({behavior: 'smooth', block: 'center'});
+    });
+  });
+  highlight(false);
 
   panel.querySelector('#newUploadBtn').addEventListener('click', async () => {
     const ok = await confirmDialog({

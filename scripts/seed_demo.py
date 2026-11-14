@@ -31,10 +31,10 @@ from db import init_db, make_engine, make_session_factory  # noqa: E402
 from documents import paragraphs  # noqa: E402
 from models import (  # noqa: E402
     CareTeamQuestion, ChatMessage, ChecklistCompletion, ChecklistItem,
-    DischargeDocument, ExtractedItem, User,
+    DischargeDocument, DocumentFile, ExtractedItem, User,
 )
 import routes_documents  # noqa: E402
-from generate_demo import load_case, long_date, render_text  # noqa: E402
+from generate_demo import load_case, long_date, render_pdf, render_text  # noqa: E402
 
 USERNAME = "demo"
 PASSWORD = "demo-password-1"
@@ -121,6 +121,7 @@ async def reset_user(session) -> User:
         await session.execute(delete(ChecklistItem).where(ChecklistItem.document_id.in_(doc_ids)))
         await session.execute(delete(ExtractedItem).where(ExtractedItem.document_id.in_(doc_ids)))
         await session.execute(delete(ChatMessage).where(ChatMessage.document_id.in_(doc_ids)))
+        await session.execute(delete(DocumentFile).where(DocumentFile.document_id.in_(doc_ids)))
         await session.execute(delete(CareTeamQuestion).where(CareTeamQuestion.user_id == user.id))
         await session.execute(delete(DischargeDocument).where(DischargeDocument.user_id == user.id))
         await session.delete(user)
@@ -161,6 +162,9 @@ async def seed(confirm: bool) -> None:
                               details=d, status="active")
                 for c, t, q, d in items
             )
+            # The same document as a PDF, shown beside the instructions like an upload.
+            session.add(DocumentFile(document_id=doc.id, content_type="application/pdf",
+                                     data=render_pdf(load_case("kidney_stones"), discharge)))
             await session.commit()
             if confirm:
                 await routes_documents.confirm(user=user, session=session)

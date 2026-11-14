@@ -26,6 +26,7 @@ ALLOWED_MEDS = {
     "heart_failure": ["furosemide", "lisinopril", "metoprolol succinate"],
     "diabetes_htn": ["metformin", "amlodipine", "lisinopril"],
     "kidney_stones": ["tamsulosin", "ibuprofen"],
+    "gout": ["colchicine", "naproxen"],
 }
 EXTRA_DRUGS = ["acetaminophen", "tylenol", "potassium citrate", "aspirin", "insulin", "hydrochlorothiazide"]
 
@@ -51,7 +52,7 @@ def test_all_cases_present_and_generated(out_dir):
 SECTION_HEADINGS = (
     "Diagnosis:", "Hospital course:", "Medications:", "Diet:", "Activity:", "Monitoring:",
     "Follow-up:", "Call 911 or return to the ER if:", "Call the clinic at", "Stent care:",
-    "Wound care:", "Breathing care:", "Inhaler care:", "Daily weights:", "Foot care:", "Self-care:",
+    "Wound care:", "Breathing care:", "Inhaler care:", "Daily weights:", "Foot care:", "Self-care:", "Joint care:",
 )
 
 

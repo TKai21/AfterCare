@@ -2,10 +2,10 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text,
+    JSON, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text,
     UniqueConstraint, func,
 )
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -40,6 +40,19 @@ class DischargeDocument(Base):
     # A plain UNIQUE index (NULLs do not collide) enforces one active document per
     # user on both MySQL and SQLite.
     active_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, unique=True)
+
+
+class DocumentFile(Base):
+    """The uploaded PDF itself, shown beside the instructions. Its own table so
+    loading a document never reads the bytes, and so an existing database
+    gains it from create_all without a migration."""
+    __tablename__ = "document_files"
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("discharge_documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_type: Mapped[str] = mapped_column(String(100))
+    data: Mapped[bytes] = mapped_column(LargeBinary().with_variant(LONGBLOB, "mysql"))
 
 
 class ExtractedItem(Base):
