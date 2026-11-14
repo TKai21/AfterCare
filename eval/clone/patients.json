@@ -1,0 +1,194 @@
+[
+  {
+    "id": "gout_both",
+    "text": "FICTIONAL - FOR EVALUATION\n\nLakeview Family Medical Center - Discharge Summary\nPatient: Maria Chen (fictional), 58-year-old adult\nDischarge date: November 3, 2026\nAttending: Dr. Helen Okafor, Family Medicine\n\nDiagnosis:\nAcute gout flare of the right big toe. This is your first gout flare.\nYour uric acid level was 9.1 mg/dL. Your kidney blood test was normal.\n\nHospital course:\nFluid taken from the joint showed uric acid crystals and no infection.\nYour pain improved with treatment and you are walking with mild discomfort.\n\nMedications:\nColchicine 0.6 mg by mouth twice daily for 10 days.\nStop and call us if you have diarrhea.\nNaproxen 500 mg by mouth every 12 hours as needed for pain.\nTake with food.\n\nDiet:\nYou should drink at least 2 liters of water a day.\nPlease avoid beer and liquor, and limit wine to one glass on any day.\n\nActivity:\nRest and raise your right foot when you can for the next 3 days.\n\nFollow-up:\nSee Dr. Helen Okafor on November 13, 2026 for a pain check.\n\nCall 911 or return to the ER if:\n- chest pain, trouble breathing, or fainting\n- a fever of 101 F (38.3 C) or higher with chills\n\nCall the clinic at 555-0142 if:\n- your pain is not better after 3 days\n- you have diarrhea, vomiting, or black stools",
+    "prescribed": [
+      "colchicine",
+      "naproxen"
+    ],
+    "ckd": false,
+    "past_effective": null,
+    "flare_plan": false,
+    "items": [
+      {
+        "category": "medication",
+        "text": "Take colchicine 0.6 mg by mouth twice a day for 10 days.",
+        "source_quote": "Colchicine 0.6 mg by mouth twice daily for 10 days."
+      },
+      {
+        "category": "medication",
+        "text": "Take naproxen 500 mg with food, up to every 12 hours, only if you need it for pain.",
+        "source_quote": "Naproxen 500 mg by mouth every 12 hours as needed for pain."
+      },
+      {
+        "category": "diet",
+        "text": "Drink at least 2 liters of water a day.",
+        "source_quote": "You should drink at least 2 liters of water a day."
+      },
+      {
+        "category": "activity",
+        "text": "Rest and raise your right foot when you can for the next 3 days.",
+        "source_quote": "Rest and raise your right foot when you can for the next 3 days."
+      },
+      {
+        "category": "follow_up",
+        "text": "See Dr. Helen Okafor on November 13, 2026 for a pain check.",
+        "source_quote": "See Dr. Helen Okafor on November 13, 2026 for a pain check."
+      },
+      {
+        "category": "warning_signs",
+        "text": "Call the clinic if you have diarrhea, vomiting, or black stools.",
+        "source_quote": "you have diarrhea, vomiting, or black stools"
+      }
+    ]
+  },
+  {
+    "id": "gout_ckd_colchicine",
+    "text": "FICTIONAL - FOR EVALUATION\n\nRiverside General Hospital - Discharge Summary\nPatient: Robert Hale (fictional), 67-year-old adult\nDischarge date: November 4, 2026\nAttending: Dr. Marcus Bell, Internal Medicine\n\nDiagnosis:\nAcute gout flare of the left knee.\nYou also have chronic kidney disease, stage 3. Your creatinine was 1.8 mg/dL.\nYour uric acid level was 8.7 mg/dL.\n\nHospital course:\nFluid taken from the knee showed uric acid crystals and no infection.\nYour colchicine dose was lowered because of your kidneys.\nThe swelling in your knee has gone down.\n\nMedications:\nColchicine 0.6 mg by mouth once daily for 7 days.\nStop and call us if you have diarrhea or muscle weakness.\n\nDiet:\nYou should drink at least 1.5 liters of water a day unless the clinic tells you otherwise.\nPlease avoid beer and liquor.\n\nActivity:\nRest your left knee and use a cane for the next 5 days.\nDo not take over-the-counter anti-inflammatory pain pills without asking the clinic, because of your kidneys.\n\nFollow-up:\nSee Dr. Marcus Bell on November 11, 2026 for a knee check.\nSee the clinic lab on November 18, 2026 for a kidney blood test.\n\nCall 911 or return to the ER if:\n- chest pain, trouble breathing, or fainting\n- a fever of 101 F (38.3 C) or higher with chills\n\nCall the clinic at 555-0142 if:\n- your knee pain is not better after 3 days\n- you have diarrhea, muscle weakness, or very little urine",
+    "prescribed": [
+      "colchicine"
+    ],
+    "ckd": true,
+    "past_effective": null,
+    "flare_plan": false,
+    "items": [
+      {
+        "category": "medication",
+        "text": "Take colchicine 0.6 mg by mouth once a day for 7 days.",
+        "source_quote": "Colchicine 0.6 mg by mouth once daily for 7 days."
+      },
+      {
+        "category": "activity",
+        "text": "Do not take over-the-counter anti-inflammatory pain pills without asking the clinic.",
+        "source_quote": "Do not take over-the-counter anti-inflammatory pain pills without asking the clinic, because of your kidneys."
+      },
+      {
+        "category": "diet",
+        "text": "Drink at least 1.5 liters of water a day unless the clinic tells you otherwise.",
+        "source_quote": "You should drink at least 1.5 liters of water a day unless the clinic tells you otherwise."
+      },
+      {
+        "category": "follow_up",
+        "text": "Get a kidney blood test at the clinic lab on November 18, 2026.",
+        "source_quote": "See the clinic lab on November 18, 2026 for a kidney blood test."
+      },
+      {
+        "category": "warning_signs",
+        "text": "Call the clinic if you have diarrhea, muscle weakness, or very little urine.",
+        "source_quote": "you have diarrhea, muscle weakness, or very little urine"
+      }
+    ]
+  },
+  {
+    "id": "gout_naproxen",
+    "text": "FICTIONAL - FOR EVALUATION\n\nLakeview Family Medical Center - Discharge Summary\nPatient: Dana Ortiz (fictional), 45-year-old adult\nDischarge date: November 5, 2026\nAttending: Dr. Helen Okafor, Family Medicine\n\nDiagnosis:\nAcute gout flare of the right ankle.\nYour uric acid level was 8.4 mg/dL. Your kidney blood test was normal.\n\nHospital course:\nYou came in with a hot, swollen right ankle.\nFluid taken from the joint showed uric acid crystals and no infection.\nYour pain is much better and you are walking normally.\n\nMedications:\nNaproxen 500 mg by mouth twice daily with food for 7 days.\nStop and call us if you have stomach pain or black stools.\n\nDiet:\nYou should drink at least 2 liters of water a day.\nLimit red meat to one small serving a day.\n\nActivity:\nYou may walk as pain allows, and return to sports when the swelling is gone.\n\nFollow-up:\nSee Dr. Helen Okafor on November 15, 2026 for an ankle check.\n\nCall 911 or return to the ER if:\n- chest pain, trouble breathing, or fainting\n- a fever of 101 F (38.3 C) or higher with chills\n\nCall the clinic at 555-0142 if:\n- your pain is not better after 3 days\n- you have stomach pain, vomiting, or black stools",
+    "prescribed": [
+      "naproxen"
+    ],
+    "ckd": false,
+    "past_effective": null,
+    "flare_plan": false,
+    "items": [
+      {
+        "category": "medication",
+        "text": "Take naproxen 500 mg by mouth twice a day with food for 7 days.",
+        "source_quote": "Naproxen 500 mg by mouth twice daily with food for 7 days."
+      },
+      {
+        "category": "diet",
+        "text": "Drink at least 2 liters of water a day.",
+        "source_quote": "You should drink at least 2 liters of water a day."
+      },
+      {
+        "category": "activity",
+        "text": "Walk as pain allows, and return to sports when the swelling is gone.",
+        "source_quote": "You may walk as pain allows, and return to sports when the swelling is gone."
+      },
+      {
+        "category": "follow_up",
+        "text": "See Dr. Helen Okafor on November 15, 2026 for an ankle check.",
+        "source_quote": "See Dr. Helen Okafor on November 15, 2026 for an ankle check."
+      },
+      {
+        "category": "warning_signs",
+        "text": "Call the clinic if you have stomach pain, vomiting, or black stools.",
+        "source_quote": "you have stomach pain, vomiting, or black stools"
+      }
+    ]
+  },
+  {
+    "id": "gout_prednisone_plan",
+    "text": "FICTIONAL - FOR EVALUATION\n\nRiverside General Hospital - Discharge Summary\nPatient: Walter Brooks (fictional), 61-year-old adult\nDischarge date: November 6, 2026\nAttending: Dr. Marcus Bell, Internal Medicine\n\nDiagnosis:\nAcute gout flare of the left big toe.\nYour uric acid level was 9.4 mg/dL. Your kidney blood test was normal.\n\nHospital course:\nThis is your third gout flare.\nYour last flare in March 2026 improved within 3 days on prednisone, and you had no side effects.\nYou were treated with prednisone again and your pain has improved.\n\nMedications:\nPrednisone 30 mg by mouth once daily in the morning for 5 days.\nTake with breakfast.\n\nYour written flare plan:\nAt the first sign of a new flare, take prednisone 30 mg each morning for 5 days.\nCall the clinic within 2 days of starting so we can check on you.\nKeep a 5-day supply of prednisone at home.\n\nDiet:\nYou should drink at least 2 liters of water a day.\nAvoid sodas and juices sweetened with high-fructose corn syrup.\n\nActivity:\nRest and raise your left foot when you can for the next 2 days.\n\nFollow-up:\nSee Dr. Marcus Bell on November 20, 2026 to review your flare plan.\n\nCall 911 or return to the ER if:\n- chest pain, trouble breathing, or fainting\n- a fever of 101 F (38.3 C) or higher with chills\n\nCall the clinic at 555-0142 if:\n- your pain is not better after 3 days\n- you feel very thirsty or urinate much more than usual",
+    "prescribed": [
+      "prednisone"
+    ],
+    "ckd": false,
+    "past_effective": "prednisone",
+    "flare_plan": true,
+    "items": [
+      {
+        "category": "medication",
+        "text": "Take prednisone 30 mg by mouth every morning with breakfast for 5 days.",
+        "source_quote": "Prednisone 30 mg by mouth once daily in the morning for 5 days."
+      },
+      {
+        "category": "other",
+        "text": "At the first sign of a new flare, take prednisone 30 mg each morning for 5 days, and call the clinic within 2 days.",
+        "source_quote": "At the first sign of a new flare, take prednisone 30 mg each morning for 5 days."
+      },
+      {
+        "category": "diet",
+        "text": "Drink at least 2 liters of water a day.",
+        "source_quote": "You should drink at least 2 liters of water a day."
+      },
+      {
+        "category": "follow_up",
+        "text": "See Dr. Marcus Bell on November 20, 2026 to review your flare plan.",
+        "source_quote": "See Dr. Marcus Bell on November 20, 2026 to review your flare plan."
+      },
+      {
+        "category": "warning_signs",
+        "text": "Call the clinic if you feel very thirsty or urinate much more than usual.",
+        "source_quote": "you feel very thirsty or urinate much more than usual"
+      }
+    ]
+  },
+  {
+    "id": "gout_ckd_both",
+    "text": "FICTIONAL - FOR EVALUATION\n\nLakeview Family Medical Center - Discharge Summary\nPatient: Linda Park (fictional), 70-year-old adult\nDischarge date: November 7, 2026\nAttending: Dr. Helen Okafor, Family Medicine\n\nDiagnosis:\nAcute gout flare of the right wrist.\nYou also have chronic kidney disease, stage 3a. Your creatinine was 1.4 mg/dL.\nYour uric acid level was 8.9 mg/dL.\n\nHospital course:\nYour flare in June 2026 settled on colchicine without stomach upset.\nYou were treated with colchicine again and the swelling in your wrist is going down.\n\nMedications:\nColchicine 0.6 mg by mouth once daily for 7 days.\nStop and call us if you have diarrhea.\nNaproxen 250 mg by mouth twice daily as needed for pain, for no more than 3 days.\nTake with food.\n\nDiet:\nYou should drink at least 1.5 liters of water a day.\nPlease avoid beer and liquor.\n\nActivity:\nRest your right wrist in the splint for the next 3 days.\n\nFollow-up:\nSee Dr. Helen Okafor on November 14, 2026 for a wrist check.\nSee the clinic lab on November 21, 2026 for a kidney blood test.\n\nCall 911 or return to the ER if:\n- chest pain, trouble breathing, or fainting\n- a fever of 101 F (38.3 C) or higher with chills\n\nCall the clinic at 555-0142 if:\n- your wrist pain is not better after 3 days\n- you have diarrhea, stomach pain, or black stools",
+    "prescribed": [
+      "colchicine",
+      "naproxen"
+    ],
+    "ckd": true,
+    "past_effective": "colchicine",
+    "flare_plan": false,
+    "items": [
+      {
+        "category": "medication",
+        "text": "Take colchicine 0.6 mg by mouth once a day for 7 days.",
+        "source_quote": "Colchicine 0.6 mg by mouth once daily for 7 days."
+      },
+      {
+        "category": "medication",
+        "text": "Take naproxen 250 mg with food, up to twice a day, only if you need it for pain, for no more than 3 days.",
+        "source_quote": "Naproxen 250 mg by mouth twice daily as needed for pain, for no more than 3 days."
+      },
+      {
+        "category": "activity",
+        "text": "Rest your right wrist in the splint for the next 3 days.",
+        "source_quote": "Rest your right wrist in the splint for the next 3 days."
+      },
+      {
+        "category": "follow_up",
+        "text": "Get a kidney blood test at the clinic lab on November 21, 2026.",
+        "source_quote": "See the clinic lab on November 21, 2026 for a kidney blood test."
+      },
+      {
+        "category": "warning_signs",
+        "text": "Call the clinic if you have diarrhea, stomach pain, or black stools.",
+        "source_quote": "you have diarrhea, stomach pain, or black stools"
+      }
+    ]
+  }
+]
