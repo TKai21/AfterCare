@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -385,3 +386,60 @@ async def test_retry_without_a_chosen_label_takes_the_newest(client, fake_llm):
     resp = await client.post(f"/api/doctor/labels/{colchicine.id}/retry", headers=doctor)
     assert resp.status_code == 200, resp.text
     assert (resp.json()["status"], resp.json()["setid"]) == ("pending", colchicine.candidates[0]["setid"])
+
+
+async def upload_new_document(client, fake_llm, headers):
+    """Upload (not confirm) a newer document, which archives the confirmed one."""
+    fake_llm.script({"content": json.dumps({"discharge_date": "2026-04-01", "items": []})})
+    resp = await client.post("/api/documents", data={"text": "Discharge date: 2026-04-01\n\nRest."},
+                             headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+async def test_list_shows_only_confirmed_documents(client, fake_llm):
+    """Sources and problem rows of an archived document are stale and not shown."""
+    _, patient, doctor = await setup(client, fake_llm)
+    client.app.state.label_client = LabelClient(failing_transport())
+    _, other = await confirm_meds(client, fake_llm, "other-patient", med("Ibuprofen", "600 mg"))
+    await client.app.state.label_client.aclose()
+    data = (await client.get("/api/doctor/labels", headers=doctor)).json()
+    assert [l["sources"] for l in data["labels"] if l["ingredient"] == "colchicine"] == [
+        [{"medication": "Take Colchicine 0.6 mg", "username": "gout-patient"}]]
+    assert [u["username"] for u in data["unresolved"]] == ["other-patient"]
+    await upload_new_document(client, fake_llm, patient)
+    await upload_new_document(client, fake_llm, other)
+    data = (await client.get("/api/doctor/labels", headers=doctor)).json()
+    assert all(l["sources"] == [] for l in data["labels"])
+    assert data["unresolved"] == []
+
+
+async def test_sources_show_the_document_line(client, fake_llm):
+    """The source line is the verbatim document line, not the plain-language rewrite."""
+    quote = "Colchicine 0.6 mg by mouth twice daily for 10 days."
+    item = {"category": "medication", "text": "Take colchicine 0.6 mg twice a day for 10 days.",
+            "source_quote": quote, "details": {"name": "Colchicine", "dose": "0.6 mg"}}
+    _, _, doctor = await setup(client, fake_llm, item)
+    (label,) = (await client.get("/api/doctor/labels", headers=doctor)).json()["labels"]
+    assert label["sources"] == [{"medication": quote, "username": "gout-patient"}]
+
+
+async def test_problem_rows_carry_the_medication_name(client, fake_llm):
+    quote = "Colchicine 0.6 mg by mouth twice daily."
+    item = {"category": "medication", "text": "Take colchicine twice a day.",
+            "source_quote": quote, "details": {"name": "Colchicine", "dose": "0.6 mg"}}
+    client.app.state.label_client = LabelClient(failing_transport())
+    _, _, doctor = await setup(client, fake_llm, item)
+    await client.app.state.label_client.aclose()
+    (entry,) = (await client.get("/api/doctor/labels", headers=doctor)).json()["unresolved"]
+    assert set(entry) == {"id", "name", "medication", "username", "status", "error"}
+    assert (entry["name"], entry["medication"], entry["status"]) == ("Colchicine", quote, "failed")
+
+
+async def test_list_shows_medications_still_being_looked_up(client, fake_llm):
+    _, _, doctor = await setup(client, fake_llm, med("Colchicine", "0.6 mg"))
+    (drug,) = await rows(client, DocumentDrug)
+    async with client.app.state.session_factory() as session:
+        await session.execute(update(DocumentDrug).where(DocumentDrug.id == drug.id).values(status="fetching"))
+        await session.commit()
+    (entry,) = (await client.get("/api/doctor/labels", headers=doctor)).json()["unresolved"]
+    assert (entry["id"], entry["status"]) == (drug.id, "fetching")

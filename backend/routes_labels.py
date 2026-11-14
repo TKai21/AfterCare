@@ -37,16 +37,22 @@ def utcnow() -> datetime:
 
 
 async def _medication_rows(session: AsyncSession, conditions: list) -> list:
-    """(DocumentDrug, medication line, username) for the rows matching `conditions`."""
+    """(DocumentDrug, ExtractedItem, username) for the rows matching `conditions`
+    on confirmed documents. An archived document's drugs are no longer anyone's."""
     return list(await session.execute(
-        select(DocumentDrug, ExtractedItem.text, User.username)
+        select(DocumentDrug, ExtractedItem, User.username)
         .join(ExtractedItem, ExtractedItem.id == DocumentDrug.extracted_item_id)
         .join(DischargeDocument, DischargeDocument.id == DocumentDrug.document_id)
         .join(User, User.id == DischargeDocument.user_id)
-        .where(*conditions)
+        .where(DischargeDocument.status == "confirmed", *conditions)
         .order_by(DocumentDrug.id)
         .execution_options(populate_existing=True)  # jobs update rows from other sessions
     ))
+
+
+def _document_line(item: ExtractedItem) -> str:
+    """The medication line as the discharge document words it."""
+    return item.source_quote or item.text
 
 
 async def label_views(session: AsyncSession, labels: list[DrugLabel]) -> list[dict]:
@@ -55,8 +61,8 @@ async def label_views(session: AsyncSession, labels: list[DrugLabel]) -> list[di
         return []
     rxcuis = {label.rxcui for label in labels}
     sources: dict[str, list[dict]] = {rxcui: [] for rxcui in rxcuis}
-    for drug, medication, username in await _medication_rows(session, [DocumentDrug.rxcui.in_(rxcuis)]):
-        entry = {"medication": medication, "username": username}
+    for drug, item, username in await _medication_rows(session, [DocumentDrug.rxcui.in_(rxcuis)]):
+        entry = {"medication": _document_line(item), "username": username}
         if entry not in sources[drug.rxcui]:
             sources[drug.rxcui].append(entry)
     reviewers = await doctor_labels(session, [label.reviewed_by for label in labels])
@@ -121,11 +127,13 @@ async def list_labels(doctor: User = Depends(current_doctor), session: AsyncSess
         .execution_options(populate_existing=True)
     ))
     labels.sort(key=lambda label: label.status != "pending")  # stable: pending first
+    # Medications without a label row: still being looked up, or a problem to fix.
     unresolved = [
-        {"id": drug.id, "medication": medication, "username": username,
+        {"id": drug.id, "name": str((item.details or {}).get("name") or "").strip(),
+         "medication": _document_line(item), "username": username,
          "status": drug.status, "error": drug.error}
-        for drug, medication, username in await _medication_rows(
-            session, [DocumentDrug.status.in_(("unresolved", "failed"))])
+        for drug, item, username in await _medication_rows(
+            session, [DocumentDrug.status.in_(("fetching", "unresolved", "failed"))])
     ]
     return {"labels": await label_views(session, labels), "unresolved": unresolved}
 

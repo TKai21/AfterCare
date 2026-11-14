@@ -171,14 +171,26 @@ function failedLabelCardHtml(label) {
     </li>`;
 }
 
+const drugName = drug => drug.name || 'Medication';
+
+function lookingUpCardHtml(drug) {
+  return `
+    <li class="card doctor-card label-card" data-drug-id="${drug.id}" aria-busy="true">
+      ${headHtml(drugName(drug), statusBadge('Looking up', 'neutral'))}
+      ${sourcesHtml([drug])}
+      <p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Looking up...</p>
+    </li>`;
+}
+
 function unresolvedCardHtml(drug) {
+  if (drug.status === 'fetching') return lookingUpCardHtml(drug);
   const key = drugKey(drug.id);
   const busy = state.busy.get(key);
   const failed = drug.status === 'failed';
   return `
     <li class="card doctor-card label-card" data-drug-id="${drug.id}" ${busy ? 'aria-busy="true"' : ''}>
-      ${headHtml(drug.medication, statusBadge(failed ? 'Lookup failed' : 'Not matched', 'problem'))}
-      <p class="doctor-meta">Medication on <strong>${esc(drug.username)}</strong>'s discharge document</p>
+      ${headHtml(drugName(drug), statusBadge(failed ? 'Lookup failed' : 'Not matched', 'problem'))}
+      ${sourcesHtml([drug])}
       <p class="label-problem">${esc(failed ? (drug.error || 'The lookup failed.') : NOT_MATCHED)}</p>
       ${errorHtml(key)}
       <div class="form-actions">${button('retry', 'Try again', 'btn-secondary', busy)}</div>
@@ -268,7 +280,8 @@ function schedulePoll(main) {
   const view = views.get(main);
   if (!view) return;
   clearTimeout(view.poll);
-  const running = state.data && state.data.labels.some(l => l.status === 'fetching');
+  const running = state.data && (state.data.labels.some(l => l.status === 'fetching')
+    || state.data.unresolved.some(d => d.status === 'fetching'));
   if (running && mounted === main) view.poll = setTimeout(() => load(main), POLL_MS);
 }
 
