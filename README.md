@@ -101,7 +101,7 @@ The index `knowledge/index.sqlite3` is not built in this branch because no API k
 
 ## Drug labels
 
-When a patient confirms a document, each medication is resolved to its active ingredient (RxNav) and the current FDA label for that ingredient is fetched from DailyMed. A label starts as `pending`. A doctor reviews it on the Labels tab of the doctor page (`/doctor#labels`), can switch to another candidate label, and approves or rejects it. Only approved labels are indexed into the library, with `python backend/manage_knowledge.py index`, which reads them from `DATABASE_URL` and fails loudly if it cannot.
+When a patient confirms a document, each medication is resolved to its active ingredient (RxNav) and the current FDA label for that ingredient is fetched from DailyMed. A label starts as `pending`. A doctor reviews it on the Labels tab of the doctor page (`/doctor#labels`), can switch to another candidate label, and approves or rejects it. Only approved labels are used by the library. Approving a label adds it to the index at once, with no rebuild. A full rebuild with `python backend/manage_knowledge.py index` re-adds every approved label; it reads them from `DATABASE_URL` and fails loudly if it cannot.
 
 A label is shared by all patients but is used only for a patient whose confirmed document includes that drug. An approved colchicine label never reaches a patient who is not taking colchicine.
 
@@ -113,8 +113,7 @@ Demo walkthrough:
 
 1. Run `python scripts/seed_demo.py --confirm`.
 2. Log in as `dr.ting` (password `doctor-password-1`), open `/doctor#labels`, and approve colchicine.
-3. Run `python backend/manage_knowledge.py index` so the approved label is searchable.
-4. Log in as `demo2` and ask "I forgot my colchicine this morning, what should I do?". The answer can cite the colchicine label.
+3. Log in as `demo2` and ask "I forgot my colchicine this morning, what should I do?". The answer can cite the colchicine label.
 
 ## Food data
 
