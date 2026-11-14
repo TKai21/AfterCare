@@ -296,6 +296,7 @@ class KnowledgeStore:
         self.reranker_note = reranker_note
         self._bm25: tuple[tuple, BM25] | None = None  # (fingerprint, index)
         self._reranker_warned = False
+        self.reranker_failures = 0  # rerank searches that fell back (read by the evaluation script)
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS documents (
@@ -399,10 +400,13 @@ class KnowledgeStore:
         `mode`: "embedding" is cosine order above `min_similarity`; "hybrid"
         fuses the embedding and BM25 orders, still above `min_similarity`;
         "rerank" orders the fused candidates by the reranker, above
-        `min_rerank`. The default is "rerank" with a reranker, else "hybrid".
+        `min_rerank`. The default is "rerank" with a reranker, else
+        "embedding": hybrid alone measured worse than embedding on the
+        evaluation set (README, "Library search"), so it is only an explicit mode.
+        A failing reranker falls back to the embedding result.
         """
         if mode is None:
-            mode = "rerank" if self.reranker is not None else "hybrid"
+            mode = "rerank" if self.reranker is not None else "embedding"
         if mode not in MODES:
             raise ValueError(f"Unknown search mode {mode!r}; use one of {', '.join(MODES)}.")
         if mode == "rerank" and self.reranker is None:
@@ -427,17 +431,17 @@ class KnowledgeStore:
             raise KnowledgeError("Embedding dimensions changed. Rebuild the index.")
         scores = matrix @ vector / (np.linalg.norm(matrix, axis=1) * np.linalg.norm(vector))
         ranked = sorted(zip(rows, scores), key=lambda pair: pair[1], reverse=True)
+        embedding = [_hit(row, score) for row, score in ranked[:limit] if score >= self.min_similarity]
         if mode == "embedding":
-            return [_hit(row, score) for row, score in ranked[:limit] if score >= self.min_similarity]
+            return embedding
 
         by_id = {row["id"]: (row, score) for row, score in ranked}
         by_embedding = [row["id"] for row, _ in ranked[:CANDIDATES]]
         keyword_scores = keyword.scores(query, by_id.keys())
         by_keyword = sorted(keyword_scores, key=lambda i: (-keyword_scores[i], i))[:CANDIDATES]
         fused = rrf(by_embedding, by_keyword)
-        hybrid = [_hit(*by_id[i]) for i in fused if by_id[i][1] >= self.min_similarity][:limit]
         if mode == "hybrid":
-            return hybrid
+            return [_hit(*by_id[i]) for i in fused if by_id[i][1] >= self.min_similarity][:limit]
 
         candidates = [by_id[i][0] for i in fused[:RERANK_CANDIDATES]]
         passages = [_passage(row["title"], row["content"]) for row in candidates]
@@ -449,10 +453,12 @@ class KnowledgeStore:
             if not all(math.isfinite(value) for value in judged):
                 raise ValueError("Reranker returned a non-finite score.")
         except Exception as exc:  # a broken reranker must never fail the patient's search
+            self.reranker_failures += 1
             if not self._reranker_warned:
                 self._reranker_warned = True
-                logger.warning("Reranker failed (%s); library search uses hybrid results.", type(exc).__name__)
-            return hybrid
+                logger.warning("Reranker failed (%s); library search uses embedding results.",
+                               type(exc).__name__)
+            return embedding
         reranked = sorted(zip(candidates, judged), key=lambda pair: pair[1], reverse=True)
         return [_hit(row, value) for row, value in reranked if value >= self.min_rerank][:limit]
 

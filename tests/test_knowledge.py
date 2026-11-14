@@ -670,19 +670,22 @@ async def test_rerank_sends_at_most_twenty_candidates(tmp_path):
 
 
 @pytest.mark.parametrize("broken", [RaisingReranker, ShortReranker, NanReranker])
-async def test_reranker_failure_falls_back_to_hybrid_and_logs_once(tmp_path, caplog, broken):
+async def test_reranker_failure_falls_back_to_embedding_and_logs_once(tmp_path, caplog, broken):
     reranker = broken({"Allopurinol": 5.0}, default=1.0)
     store = await gout_store(tmp_path / "index.sqlite3", target_cosine=0.5, reranker=reranker)
-    hybrid = await store.retrieve("allopurinol", mode="hybrid")
-    assert hybrid
+    embedding = await store.retrieve("allopurinol", mode="embedding")
+    # The two orders differ here, so the check below tells them apart.
+    assert embedding and embedding != await store.retrieve("allopurinol", mode="hybrid")
+    assert store.reranker_failures == 0
     with caplog.at_level("WARNING", logger="knowledge"):
-        assert await store.retrieve("allopurinol") == hybrid
-        assert await store.retrieve("allopurinol", mode="rerank") == hybrid
+        assert await store.retrieve("allopurinol") == embedding
+        assert await store.retrieve("allopurinol", mode="rerank") == embedding
     warnings = [r for r in caplog.records if r.name == "knowledge" and r.levelname == "WARNING"]
     assert len(warnings) == 1
     expected = "RuntimeError" if broken is RaisingReranker else "ValueError"
     assert expected in warnings[0].getMessage()
     assert len(reranker.calls) == 2
+    assert store.reranker_failures == 2  # every fallback is counted, only the first is logged
 
 
 async def test_label_outside_patient_set_never_returned_in_any_mode(tmp_path):
@@ -813,7 +816,10 @@ async def test_default_mode_and_status_reflect_reranker(tmp_path):
     assert plain.status()["reranker"] == "off"
     assert plain.status()["reranker_note"] == "off: not configured"
     assert KnowledgeStore(path, plain.llm, reranker=FakeReranker()).status()["reranker_note"] == "on"
-    assert await plain.retrieve("allopurinol") == await plain.retrieve("allopurinol", mode="hybrid")
+    # Without a reranker the default is embedding-only search, not hybrid (they differ here).
+    default = await plain.retrieve("allopurinol")
+    assert default == await plain.retrieve("allopurinol", mode="embedding")
+    assert default != await plain.retrieve("allopurinol", mode="hybrid")
 
     reranker = FakeReranker({"Allopurinol": 5.0}, default=1.0)
     ranked = KnowledgeStore(path, plain.llm, min_similarity=0.25, reranker=reranker, reranker_note="on: test model")
@@ -822,6 +828,7 @@ async def test_default_mode_and_status_reflect_reranker(tmp_path):
     got = await ranked.retrieve("allopurinol")
     assert len(reranker.calls) == 1
     assert got == await ranked.retrieve("allopurinol", mode="rerank")
+    assert ranked.reranker_failures == 0
 
 
 async def test_rerank_mode_without_reranker_raises_value_error(tmp_path):
