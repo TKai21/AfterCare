@@ -26,6 +26,9 @@ class Settings:
     foods_path: str = "data/foods.json"
     # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.
     label_fixtures: bool = False
+    rerank_model: str = "ms-marco-MiniLM-L-6-v2"
+    rerank_enabled: bool = True
+    rag_min_rerank: float = 0.0
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -62,4 +65,7 @@ def get_settings() -> Settings:
         ),
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
         label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
+        rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),
+        rerank_enabled=env.get("RERANK_ENABLED", "") != "0",
+        rag_min_rerank=float(env.get("RAG_MIN_RERANK", defaults.rag_min_rerank)),
     )

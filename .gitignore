@@ -12,3 +12,4 @@ knowledge/index.sqlite3
 knowledge/*.staging.sqlite3
 .DS_Store
 *.sqlite3.bak*
+models/

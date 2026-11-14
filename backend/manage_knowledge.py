@@ -4,6 +4,7 @@
   collect  fetch every manifest URL into knowledge/sources/ as an unreviewed snapshot
            (--only ID [ID ...] fetches just those manifest ids and leaves the rest alone)
   index    embed every reviewed snapshot and curated summary into the index
+  fetch-reranker  download the pinned reranker model into models/ (no API key needed)
 """
 import argparse
 import asyncio
@@ -11,12 +12,14 @@ import json
 import sys
 from urllib.parse import urlparse
 
+import httpx
 from sqlalchemy import make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 from config import Settings, get_settings
 from druglabels import approved_label_records
 from knowledge import DATA, KnowledgeError, KnowledgeStore, UnknownSourceError, collect_sources, index_sources
+import reranker
 from llm import LLMClient, LLMError
 
 
@@ -38,12 +41,23 @@ def masked_url(database_url: str) -> str:
 
 def run(argv: list[str], settings: Settings | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["status", "collect", "index"])
+    parser.add_argument("command", choices=["status", "collect", "index", "fetch-reranker"])
     parser.add_argument("--only", nargs="+", metavar="ID", help="collect only these manifest ids")
     args = parser.parse_args(argv)
     if args.only and args.command != "collect":
         parser.error("--only applies to collect")
     settings = settings or get_settings()
+    if args.command == "fetch-reranker":
+        if settings.rerank_model not in reranker.RERANKERS:
+            print(f"Error: unknown RERANK_MODEL {settings.rerank_model}", file=sys.stderr)
+            return 2
+        try:
+            folder = asyncio.run(reranker.fetch_reranker(settings.rerank_model))
+        except (reranker.RerankerError, httpx.HTTPError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        print(folder)
+        return 0
     llm = LLMClient(settings)
     try:
         if args.command == "collect":
