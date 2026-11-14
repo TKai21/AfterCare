@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import httpx
 from sqlalchemy import func, select
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -124,3 +125,41 @@ async def test_reseed_leaves_other_users_and_their_guidance_alone(tmp_path):
     users, guidance, _, _, _, _ = await snapshot(url)
     assert "bob" in users
     assert len(guidance) == 5
+
+
+async def test_seed_records_demo_drugs_offline(tmp_path, monkeypatch):
+    """The seed resolves labels from recorded fixtures: a guard fails any real request."""
+    import druglabels
+    from models import DocumentDrug, DrugLabel
+
+    real_init = druglabels.LabelClient.__init__
+
+    def guarded(self, transport=None):
+        # Only a fixture MockTransport is allowed; anything else would hit the network.
+        assert isinstance(transport, httpx.MockTransport)
+        real_init(self, transport)
+
+    monkeypatch.setattr(druglabels.LabelClient, "__init__", guarded)
+    url = f"sqlite+aiosqlite:///{tmp_path / 'labels.db'}"
+    await seed_demo.run_seed(url, FakeLLM(), confirm=True)
+
+    engine = make_engine(url)
+    try:
+        async with make_session_factory(engine)() as s:
+            users = {u.username: u for u in await s.scalars(select(User))}
+            docs = {d.user_id: d for d in await s.scalars(select(DischargeDocument))}
+
+            async def drugs(username):
+                doc = docs[users[username].id]
+                return sorted(d.name.lower() for d in await s.scalars(
+                    select(DocumentDrug).where(DocumentDrug.document_id == doc.id,
+                                               DocumentDrug.status == "resolved")))
+
+            assert await drugs("demo2") == ["colchicine", "naproxen"]
+            assert await drugs("demo") == ["ibuprofen", "tamsulosin"]
+            labels = list(await s.scalars(select(DrugLabel)))
+            assert {l.ingredient.lower() for l in labels} == {
+                "colchicine", "naproxen", "ibuprofen", "tamsulosin"}
+            assert {l.status for l in labels} == {"pending"}
+    finally:
+        await engine.dispose()

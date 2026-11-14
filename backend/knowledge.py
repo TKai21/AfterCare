@@ -37,6 +37,7 @@ ALLOWED_HOSTS = {
     "www.kidney.org",
     "www.upmc.com",
     "kidneystones.uchicago.edu",
+    "www.niams.nih.gov",
 }
 
 SCENARIO_TOPICS = (
@@ -62,6 +63,10 @@ HL7 = "{urn:hl7-org:v3}"
 
 class KnowledgeError(Exception):
     """The library is not usable as asked (not indexed, model changed, bad source)."""
+
+
+class UnknownSourceError(KnowledgeError):
+    """A requested source id is not in the manifest."""
 
 
 def official_url(url: str) -> bool:
@@ -201,14 +206,21 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> httpx.Response:
     raise ValueError("Too many redirects.")
 
 
-async def collect_sources(directory: Path = DATA, transport: httpx.AsyncBaseTransport | None = None) -> list[dict]:
-    """Fetch every non-curated manifest URL into an unreviewed snapshot."""
+async def collect_sources(directory: Path = DATA, transport: httpx.AsyncBaseTransport | None = None,
+                          only: list[str] | None = None) -> list[dict]:
+    """Fetch every non-curated manifest URL into an unreviewed snapshot. `only`
+    limits this to the listed manifest ids and leaves every other snapshot alone."""
     directory = Path(directory)
     destination = directory / "sources"
     destination.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((directory / "manifest.json").read_text())
     if any(not official_url(item["url"]) for item in manifest):
         raise KnowledgeError("Manifest contains a URL outside the approved source sites.")
+    if only is not None:
+        unknown = sorted(set(only) - {item["id"] for item in manifest})
+        if unknown:
+            raise UnknownSourceError("Not in the manifest: " + ", ".join(unknown))
+        manifest = [item for item in manifest if item["id"] in only]
     report = []
     async with httpx.AsyncClient(timeout=45, follow_redirects=False, transport=transport,
                                  headers={"User-Agent": USER_AGENT}) as client:
@@ -241,7 +253,8 @@ async def collect_sources(directory: Path = DATA, transport: httpx.AsyncBaseTran
                     saved.update(reviewed=False, refresh_failed_at=datetime.now(timezone.utc).isoformat(),
                                  refresh_error=str(exc))
                     previous.write_text(json.dumps(saved, indent=2) + "\n")
-    (directory / "collection-report.json").write_text(json.dumps(report, indent=2) + "\n")
+    if only is None:
+        (directory / "collection-report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
 

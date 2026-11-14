@@ -13,7 +13,9 @@ document paragraph; the script checks this before writing anything.
     .venv/bin/python scripts/seed_demo.py --confirm  # confirmed, checklist generated
 
 --confirm runs the confirm route's own function, so the checklist is generated
-exactly as when the patient presses Confirm. Resetting deletes everything the
+exactly as when the patient presses Confirm. Confirmed documents then have their
+drugs resolved to pending FDA labels from the recorded fixtures in demo/labels,
+never from the network, so a doctor can review them at /doctor#labels. Resetting deletes everything the
 demo users own (documents, checklist, conversation, care-team questions) and the
 guidance tied to them, and leaves every other user alone.
 """
@@ -35,6 +37,7 @@ from guidance import embed_entry  # noqa: E402
 from llm import LLMClient  # noqa: E402
 from db import init_db, make_engine, make_session_factory  # noqa: E402
 from documents import paragraphs  # noqa: E402
+from druglabels import DEMO_LABELS, LabelClient, fixture_transport, resolve_document  # noqa: E402
 from models import (  # noqa: E402
     CareTeamQuestion, ChatMessage, ChecklistCompletion, ChecklistItem,
     DischargeDocument, DoctorGuidance, DocumentFile, ExtractedItem, User,
@@ -330,9 +333,12 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     return embedded
 
 
-async def run_seed(database_url: str, llm, confirm: bool) -> bool:
+async def run_seed(database_url: str, llm, confirm: bool, label_client: LabelClient | None = None) -> bool:
     """Seed `database_url`. `llm` computes the guidance embeddings (None leaves the
-    entries unsearchable). Returns True when every entry was embedded."""
+    entries unsearchable). Confirmed documents get their drug labels resolved from
+    `label_client`, by default the recorded fixtures in demo/labels (no network).
+    Returns True when every entry was embedded."""
+    label_client = label_client or LabelClient(fixture_transport(DEMO_LABELS))
     discharge = date.today() - timedelta(days=2)
     text = demo_text(discharge)
     gout_text = render_text(load_case("gout"), discharge)
@@ -344,9 +350,10 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
                 raise SystemExit(f"Quote is not inside one paragraph: {quote!r}")
 
     engine = make_engine(database_url)
+    session_factory = make_session_factory(engine)
     try:
         await init_db(engine)
-        async with make_session_factory(engine)() as session:
+        async with session_factory() as session:
             user = await reset_user(session, USERNAME, PASSWORD)
             doc = await add_document(session, user, "kidney_stones", "kidney_stones_demo.pdf",
                                      text, discharge, items, UNVERIFIED)
@@ -358,7 +365,9 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
             await session.commit()
             if confirm:
                 await routes_documents.confirm(user=user, session=session)
+                await resolve_document(session_factory, label_client, doc.id)
             await routes_documents.confirm(user=user2, session=session)
+            await resolve_document(session_factory, label_client, doc2.id)
         state = "confirmed" if confirm else "pending review"
         print(f"Seeded user '{USERNAME}' with a {state} kidney-stones document ({len(items)} items).")
         print(f"Seeded user '{USERNAME2}' with a confirmed gout document ({len(gout_items)} items).")
@@ -369,6 +378,7 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
                   "answered). Log in at /doctor and use 'Retry embedding' on each entry.")
         return embedded
     finally:
+        await label_client.aclose()
         await engine.dispose()
 
 

@@ -505,5 +505,26 @@
       "34071-1",
       "34068-7"
     ]
+  },
+  {
+    "id": "medlineplus-gout",
+    "title": "MedlinePlus: Gout",
+    "topic": "Gout",
+    "url": "https://medlineplus.gov/gout.html",
+    "selector": "#topic-summary"
+  },
+  {
+    "id": "niams-gout",
+    "title": "NIAMS: Gout",
+    "topic": "Gout",
+    "url": "https://www.niams.nih.gov/health-topics/gout",
+    "exclude": [
+      ".download-pubs",
+      ".navigation-tabs",
+      ".pub-link-bottom",
+      ".card-deck",
+      ".article--add-to-any",
+      ".view-all__btn-wrap"
+    ]
   }
 ]

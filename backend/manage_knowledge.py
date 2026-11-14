@@ -2,6 +2,7 @@
 
   status   show what is indexed and whether it matches EMBEDDING_MODEL
   collect  fetch every manifest URL into knowledge/sources/ as an unreviewed snapshot
+           (--only ID [ID ...] fetches just those manifest ids and leaves the rest alone)
   index    embed every reviewed snapshot and curated summary into the index
 """
 import argparse
@@ -15,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from config import Settings, get_settings
 from druglabels import approved_label_records
-from knowledge import DATA, KnowledgeError, KnowledgeStore, collect_sources, index_sources
+from knowledge import DATA, KnowledgeError, KnowledgeStore, UnknownSourceError, collect_sources, index_sources
 from llm import LLMClient, LLMError
 
 
@@ -30,12 +31,19 @@ def needs_key(settings: Settings) -> bool:
 def run(argv: list[str], settings: Settings | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["status", "collect", "index"])
+    parser.add_argument("--only", nargs="+", metavar="ID", help="collect only these manifest ids")
     args = parser.parse_args(argv)
+    if args.only and args.command != "collect":
+        parser.error("--only applies to collect")
     settings = settings or get_settings()
     llm = LLMClient(settings)
     try:
         if args.command == "collect":
-            report = asyncio.run(collect_sources(DATA))
+            try:
+                report = asyncio.run(collect_sources(DATA, only=args.only))
+            except UnknownSourceError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 2
             print(json.dumps(report, indent=2))
             failed = [r["id"] for r in report if not r["ok"]]
             if failed:

@@ -209,6 +209,44 @@ async def test_collect_rejects_redirect_off_allowlist_and_keeps_old_snapshot(tmp
     assert saved["refresh_error"]
 
 
+async def test_collect_only_fetches_the_listed_ids_and_leaves_other_snapshots(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, text="<main>" + "<p>Gout is a painful kind of arthritis. Your doctor can treat it with medicine.</p>" * 8 + "</main>")
+
+    write_manifest(tmp_path, [
+        {"id": "a", "title": "A", "topic": "Gout", "url": "https://medlineplus.gov/a.html"},
+        {"id": "b", "title": "B", "topic": "Gout", "url": "https://medlineplus.gov/b.html"},
+    ])
+    (tmp_path / "sources").mkdir()
+    (tmp_path / "sources" / "a.json").write_text(json.dumps({"id": "a", "text": "old", "reviewed": True}))
+    report = await knowledge.collect_sources(tmp_path, transport=httpx.MockTransport(handler), only=["b"])
+    assert [r["id"] for r in report] == ["b"]
+    assert seen == ["https://medlineplus.gov/b.html"]
+    assert json.loads((tmp_path / "sources" / "a.json").read_text())["reviewed"] is True
+    assert json.loads((tmp_path / "sources" / "b.json").read_text())["reviewed"] is False
+
+
+async def test_collect_only_rejects_unknown_ids(tmp_path):
+    write_manifest(tmp_path, [{"id": "a", "title": "A", "topic": "Gout", "url": "https://medlineplus.gov/a.html"}])
+    with pytest.raises(KnowledgeError, match="nope"):
+        await knowledge.collect_sources(tmp_path, only=["nope"])
+
+
+def test_cli_collect_only_unknown_id_exits_2(capsys):
+    assert manage_knowledge.run(["collect", "--only", "no-such-source"]) == 2
+    assert "no-such-source" in capsys.readouterr().err
+
+
+def test_manifest_has_gout_sources():
+    manifest = {item["id"]: item for item in json.loads((knowledge.DATA / "manifest.json").read_text())}
+    assert manifest["medlineplus-gout"]["url"] == "https://medlineplus.gov/gout.html"
+    assert manifest["niams-gout"]["url"] == "https://www.niams.nih.gov/health-topics/gout"
+    assert all(official_url(manifest[i]["url"]) for i in ("medlineplus-gout", "niams-gout"))
+
+
 async def test_index_sources_indexes_reviewed_and_curated_only(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir()
