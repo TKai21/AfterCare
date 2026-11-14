@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import knowledge
 import manage_knowledge
 import reranker
 from app import create_app
@@ -12,7 +13,7 @@ from fake_llm import FakeLLM
 
 
 @pytest.fixture
-def clean_settings_cache(monkeypatch):
+def clean_settings_cache():
     """get_settings is cached and loads the real .env: start and end empty, and
     undo what load_dotenv writes into os.environ."""
     saved = dict(os.environ)
@@ -46,7 +47,7 @@ def missing_model_settings(tmp_path, monkeypatch):
 async def test_app_starts_without_model_files_and_reports_off(tmp_path, monkeypatch, caplog):
     settings = missing_model_settings(tmp_path, monkeypatch)
     app = create_app(settings, llm=FakeLLM())
-    with caplog.at_level(logging.INFO, logger="app"):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         async with app.router.lifespan_context(app):
             assert app.state.reranker is None
             status = app.state.store.status()
@@ -81,3 +82,26 @@ def test_cli_status_includes_reranker_field(tmp_path, monkeypatch, capsys):
     status = json.loads(capsys.readouterr().out)
     assert status["reranker"] == "off"
     assert "fetch-reranker" in status["reranker_note"]
+
+
+async def test_open_store_passes_reranker_and_logs_on(tmp_path, monkeypatch, caplog):
+    class Fake:
+        def score(self, query, passages):
+            return [0.0] * len(passages)
+
+    fake = Fake()
+    monkeypatch.setattr(knowledge, "load_reranker", lambda settings: (fake, "on: fake"))
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        jwt_secret="test-secret-not-for-production",
+        rag_db_path=str(tmp_path / "index.sqlite3"),
+        rag_min_rerank=-1.5,
+    )
+    store = knowledge.open_store(settings, FakeLLM())
+    assert store.reranker is fake and store.min_rerank == -1.5 and store.reranker_note == "on: fake"
+    app = create_app(settings, llm=FakeLLM())
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        async with app.router.lifespan_context(app):
+            assert app.state.reranker is fake
+    infos = [r for r in caplog.records if r.levelno == logging.INFO and r.getMessage() == "Library reranker: on: fake"]
+    assert len(infos) == 1

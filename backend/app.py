@@ -24,11 +24,9 @@ from llm import LLMClient
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
 logger = logging.getLogger(__name__)
-# uvicorn configures only its own loggers, so without this the INFO startup line
-# (the reranker is on) would be dropped. Only this module's logger is raised.
-logger.setLevel(logging.INFO)
-if not logging.getLogger().handlers:
-    logger.addHandler(logging.StreamHandler())
+# uvicorn configures only its own loggers (uvicorn.error is at INFO), so the startup
+# status line goes there to be shown with uvicorn's normal format.
+startup_logger = logging.getLogger("uvicorn.error")
 
 # The frontend is unbundled files with stable names, so a browser must check
 # back (a cheap 304 via ETag) every time, or it keeps running an old version.
@@ -76,7 +74,7 @@ def create_app(
                 logger.warning("Removed drug labels that are not approved from the library: %s",
                                ", ".join(removed))
             note = app.state.store.reranker_note
-            (logger.info if app.state.store.reranker is not None else logger.warning)(
+            (startup_logger.info if app.state.store.reranker is not None else startup_logger.warning)(
                 "Library reranker: %s", note)
         yield
         await label_client.aclose()

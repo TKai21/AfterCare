@@ -7,6 +7,15 @@ from fake_llm import FakeLLM
 from auth import create_doctor
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport
 from knowledge import KnowledgeStore
+import reranker
+
+
+@pytest.fixture(autouse=True)
+def no_real_reranker(tmp_path_factory, monkeypatch):
+    """open_store would load models/ when present; tests never load a real model.
+    The skip-if-missing real-model tests in test_reranker.py use the path they
+    captured at import."""
+    monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path_factory.mktemp("no-models"))
 
 
 @pytest.fixture
