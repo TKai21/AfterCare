@@ -1,5 +1,7 @@
-// Doctor page (/doctor): the question queue and "My guidance".
+// Doctor page (/doctor): the question queue, "My guidance" and the drug label
+// review (rendered by labels.js).
 import {api, clearSession, confirmDialog, escapeHtml} from '/static/api.js';
+import {countPendingLabels, hideLabels, showLabels} from '/static/labels.js';
 import {enter, initials, syncTabs} from '/static/shell.js';
 
 const esc = escapeHtml;
@@ -8,6 +10,8 @@ const SUGGEST_FAILED = 'Could not suggest tags. Add them yourself.';
 
 const state = {
   open: [], answered: [], guidance: null,
+  labelCount: 0,        // drug labels waiting for review
+  labelCountFromTab: false,
   tab: 'questions',
   notice: '',           // short success line on the Questions tab
   queueError: '',
@@ -44,8 +48,11 @@ const uniqueTags = tags => {
   });
 };
 
+const TABS = ['questions', 'guidance', 'labels'];
+
 function tabFromHash() {
-  return window.location.hash === '#guidance' ? 'guidance' : 'questions';
+  const tab = window.location.hash.slice(1);
+  return TABS.includes(tab) ? tab : 'questions';
 }
 
 function chipItemsHtml(kind, tags) {
@@ -599,26 +606,35 @@ function bindShared() {
 
 // ---------- shell ----------
 
-function renderTabs() {
-  const tabQuestions = document.getElementById('tabQuestions');
-  let badge = tabQuestions.querySelector('.tab-badge');
-  if (!state.open.length) {
+function setBadge(tab, count, one, many) {
+  let badge = tab.querySelector('.tab-badge');
+  if (!count) {
     if (badge) badge.remove();
-  } else {
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'tab-badge';
-      badge.setAttribute('role', 'img');
-      tabQuestions.append(badge);
-    }
-    badge.textContent = String(state.open.length);
-    badge.setAttribute('aria-label', state.open.length === 1 ? '1 open question' : `${state.open.length} open questions`);
+    return;
   }
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'tab-badge';
+    badge.setAttribute('role', 'img');
+    tab.append(badge);
+  }
+  badge.textContent = String(count);
+  badge.setAttribute('aria-label', count === 1 ? `1 ${one}` : `${count} ${many}`);
+}
+
+function renderTabs() {
+  setBadge(document.getElementById('tabQuestions'), state.open.length, 'open question', 'open questions');
+  setBadge(document.getElementById('tabLabels'), state.labelCount, 'label to review', 'labels to review');
   document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === state.tab) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   });
   syncTabs(document.querySelector('.tabs'));
+}
+
+function setLabelCount(count) {
+  state.labelCount = count;
+  renderTabs();
 }
 
 async function loadQueue() {
@@ -642,7 +658,10 @@ function route() {
     enter(main);
   }
   renderTabs();
-  if (state.tab === 'guidance') {
+  if (state.tab !== 'labels') hideLabels(main);
+  if (state.tab === 'labels') {
+    showLabels(main, {onCount: count => { state.labelCountFromTab = true; setLabelCount(count); }});
+  } else if (state.tab === 'guidance') {
     renderGuidance();
     loadGuidance();
   } else {
@@ -674,6 +693,8 @@ async function boot() {
   window.addEventListener('hashchange', route);
   state.tab = tabFromHash();
   main.innerHTML = '<p class="busy-note" role="status"><span class="spinner" aria-hidden="true"></span>Loading...</p>';
+  // The badge only (the tab shows its own errors); a count the tab reported wins.
+  countPendingLabels().then(count => { if (!state.labelCountFromTab) setLabelCount(count); }, () => {});
   await loadQueue();
   route();
 }
