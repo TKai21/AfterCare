@@ -73,6 +73,31 @@ async def test_resolve_service_down_raises():
     await label_client.aclose()
 
 
+@pytest.mark.parametrize("respond, message", [
+    (lambda request: (_ for _ in ()).throw(httpx.ConnectError("down", request=request)),
+     "DailyMed or RxNorm did not answer. Try again in a minute."),
+    (lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("slow", request=request)),
+     "DailyMed or RxNorm took too long to answer. Try again in a minute."),
+    (lambda request: httpx.Response(503), "DailyMed or RxNorm had a problem. Try again in a minute."),
+    (lambda request: httpx.Response(200, text="<html>"),
+     "DailyMed or RxNorm sent an answer that could not be read. Try again later."),
+], ids=["down", "timeout", "server-error", "unreadable"])
+async def test_service_errors_read_as_plain_sentences(respond, message):
+    """The doctor sees these on the card: plain words, never exception class names."""
+    label_client = LabelClient(httpx.MockTransport(respond))
+    with pytest.raises(LabelServiceError) as caught:
+        await label_client.resolve("Colchicine", None)
+    await label_client.aclose()
+    assert str(caught.value) == message
+
+
+async def test_missing_label_reads_as_no_fda_label():
+    label_client = LabelClient(httpx.MockTransport(lambda request: httpx.Response(404)))
+    with pytest.raises(LabelServiceError, match="^No FDA label found for this drug.$"):
+        await label_client.label_text("00000000-0000-0000-0000-000000000000")
+    await label_client.aclose()
+
+
 async def test_candidates_newest_first_max_five_no_combinations():
     titles = [
         ("IBUPROFEN TABLET, FILM COATED [A]", "Jan 05, 2026"),

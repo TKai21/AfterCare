@@ -28,6 +28,14 @@ LABEL_URL = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={setid}"
 INTERRUPTED = "Interrupted, try again"
 UNEXPECTED = "Unexpected error, try again"
 
+# Shown on the doctor's card as they are: plain sentences, never exception names.
+SERVICE_DOWN = "DailyMed or RxNorm did not answer. Try again in a minute."
+SERVICE_SLOW = "DailyMed or RxNorm took too long to answer. Try again in a minute."
+SERVICE_ERROR = "DailyMed or RxNorm had a problem. Try again in a minute."
+SERVICE_UNREADABLE = "DailyMed or RxNorm sent an answer that could not be read. Try again later."
+NO_FDA_LABEL = "No FDA label found for this drug."
+LABEL_UNREADABLE = "This label has no readable dosage or warnings text. Pick another label."
+
 RXNAV_APPROXIMATE = "https://rxnav.nlm.nih.gov/REST/approximateTerm.json"
 RXNAV_RELATED = "https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json"
 DAILYMED_SPLS = "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json"
@@ -89,22 +97,27 @@ class LabelClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _get(self, url: str, params: dict | None = None) -> httpx.Response:
+    async def _get(self, url: str, params: dict | None = None, missing: str = SERVICE_ERROR) -> httpx.Response:
+        """`missing` is the message for a 404."""
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
             return response
+        except httpx.TimeoutException as error:
+            raise LabelServiceError(SERVICE_SLOW) from error
+        except httpx.HTTPStatusError as error:
+            raise LabelServiceError(missing if error.response.status_code == 404 else SERVICE_ERROR) from error
         except httpx.HTTPError as error:
-            raise LabelServiceError(f"Label service request failed: {type(error).__name__}") from error
+            raise LabelServiceError(SERVICE_DOWN) from error
 
     async def _json(self, url: str, params: dict | None = None) -> dict:
         response = await self._get(url, params)
         try:
             data = response.json()
         except ValueError as error:
-            raise LabelServiceError("Label service sent unreadable data.") from error
+            raise LabelServiceError(SERVICE_UNREADABLE) from error
         if not isinstance(data, dict):
-            raise LabelServiceError("Label service sent unexpected data.")
+            raise LabelServiceError(SERVICE_UNREADABLE)
         return data
 
     async def _approximate(self, term: str) -> str | None:
@@ -132,7 +145,7 @@ class LabelClient:
                     if pair not in ingredients:
                         ingredients.append(pair)
         except (AttributeError, KeyError, TypeError) as error:
-            raise LabelServiceError("Label service sent unexpected data.") from error
+            raise LabelServiceError(SERVICE_UNREADABLE) from error
         if not ingredients:
             return Resolution([])
         strength = rxcui if rxcui not in {i for i, _ in ingredients} else None
@@ -159,16 +172,16 @@ class LabelClient:
                     "labeler": match.group(1) if match else "",
                 })
         except (AttributeError, KeyError, TypeError, ValueError) as error:
-            raise LabelServiceError("Label service sent unexpected data.") from error
+            raise LabelServiceError(SERVICE_UNREADABLE) from error
         found.sort(key=lambda label: label["published"], reverse=True)
         return found[:MAX_CANDIDATES]
 
     async def label_text(self, setid: str) -> str:
-        response = await self._get(DAILYMED_SPL_XML.format(setid=setid))
+        response = await self._get(DAILYMED_SPL_XML.format(setid=setid), missing=NO_FDA_LABEL)
         try:
             return dailymed_sections(response.text, LABEL_SECTIONS)
         except (ValueError, ET.ParseError) as error:  # no matching sections or invalid XML
-            raise LabelServiceError("Label text could not be read.") from error
+            raise LabelServiceError(LABEL_UNREADABLE) from error
 
 
 def _request_key(request: httpx.Request) -> str:
