@@ -4,7 +4,7 @@ Creates, or resets, the user `demo` / `demo-password-1` in the database named by
 DATABASE_URL (from the project .env), with one PENDING fictional kidney-stones
 discharge document and its extracted items, so the review screen can be seen
 without a language model. It also seeds the doctor clone demo: the doctor
-`dr.ting` / `doctor-password-1`, the patient `demo2` / `demo-password-2` (gout case,
+the three doctors (`dr.ting`, `dr.renny`, `dr.patel`, all `doctor-password-1`), the patient `demo2` / `demo-password-2` (gout case,
 always confirmed), and a small guidance history (see seed_guidance). Every source_quote is a verbatim substring of one
 document paragraph; the script checks this before writing anything.
 
@@ -48,6 +48,11 @@ PASSWORD2 = "demo-password-2"
 DOCTOR = "dr.ting"
 DOCTOR_PASSWORD = "doctor-password-1"
 DOCTOR_NAME = "Dr. Ting Kai"
+DOCTORS = [  # (username, display name); all share DOCTOR_PASSWORD
+    (DOCTOR, DOCTOR_NAME),
+    ("dr.renny", "Dr. Aaron Renny"),
+    ("dr.patel", "Dr. Parin Patel"),
+]
 
 # Everything below is INVENTED for the demo. Dr. Ting Kai is fictional and none of
 # this is medical advice; the numbers are plausible but made up.
@@ -64,8 +69,26 @@ PATIENT_ANSWER = (
     "No - take your naproxen with breakfast or a snack, every time. On an empty stomach it "
     "can upset your stomach. If you still get stomach pain or black stools, call the clinic."
 )
+RENNY_QUESTION = "My stent makes me feel like I have to pee all the time. Is there anything that helps?"
+RENNY_ANSWER = (
+    "Stent discomfort and urgency are common. Take your tamsulosin 0.4 mg every night at "
+    "bedtime as prescribed, because it relaxes the ureter. Drink plenty of water, and stay "
+    "away from caffeine in the afternoon. Call the clinic if you cannot urinate or you "
+    "have a fever of 101 F or higher."
+)
+RENNY_DRUG_TAGS = ["tamsulosin"]
+RENNY_CONDITION_TAGS = ["ureteral stone"]
+PATEL_QUESTION = "Do I have to eat before I take naproxen for my gout pain?"
+PATEL_ANSWER = (
+    "Yes - take naproxen 500 mg with a meal or a snack, and no more than every 12 hours. "
+    "Stop and call the clinic if you notice black stools or stomach pain."
+)
+PATEL_DRUG_TAGS = ["naproxen"]
+PATEL_CONDITION_TAGS = ["gout"]
 OPEN_QUESTION = "Is it normal to see a little blood in my urine while the stent is in?"
 OPEN_REASON = "The patient asked something the discharge document does not answer."
+RENNY_OPEN_QUESTION = "Can I drink coffee while the stent is in?"
+PATEL_OPEN_QUESTION = "Is it safe to have a beer after my gout flare settles?"
 
 
 def demo_text(discharge: date) -> str:
@@ -221,40 +244,58 @@ async def add_document(session, user: User, case: str, filename: str, text: str,
     return doc
 
 
-async def ensure_doctor(session) -> User:
-    """The demo doctor, created if missing. An existing one keeps its history."""
-    doctor = await session.scalar(select(User).where(User.username == DOCTOR))
-    if doctor is None:
-        doctor = User(username=DOCTOR, password_hash=hash_password(DOCTOR_PASSWORD),
-                      role="doctor", display_name=DOCTOR_NAME)
-        session.add(doctor)
-    else:
-        doctor.password_hash = hash_password(DOCTOR_PASSWORD)
-        doctor.role = "doctor"
-        doctor.display_name = DOCTOR_NAME
+async def ensure_doctors(session) -> dict[str, User]:
+    """The three demo doctors by username, created if missing. Existing ones keep
+    their history."""
+    doctors = {}
+    for username, name in DOCTORS:
+        doctor = await session.scalar(select(User).where(User.username == username))
+        if doctor is None:
+            doctor = User(username=username, password_hash=hash_password(DOCTOR_PASSWORD),
+                          role="doctor", display_name=name)
+            session.add(doctor)
+        else:
+            doctor.password_hash = hash_password(DOCTOR_PASSWORD)
+            doctor.role = "doctor"
+            doctor.display_name = name
+        doctors[username] = doctor
     await session.flush()
-    return doctor
+    return doctors
 
 
-async def seed_guidance(session, llm, doctor: User, demo: User, demo2: User,
+async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo2: User,
                         doc: DischargeDocument, doc2: DischargeDocument) -> bool:
-    """Dr. Ting's fictional history: one general entry (colchicine timing in a gout
-    flare), one patient-specific entry for demo2 with its answered question, and one
-    open question from `demo`. Returns True when every entry got an embedding."""
+    """The doctors' fictional history. Dr. Ting: one general entry (colchicine timing
+    in a gout flare), one patient-specific entry for demo2 with its answered question,
+    and one open question from `demo`. Dr. Renny: a general kidney-stone entry and an
+    open question from `demo`. Dr. Patel: a general naproxen/gout entry and an open
+    question from `demo2`. Returns True when every entry got an embedding."""
+    doctor = doctors[DOCTOR]
+    renny, patel = doctors["dr.renny"], doctors["dr.patel"]
+    general_questions = (GENERAL_QUESTION, RENNY_QUESTION, PATEL_QUESTION)
     await session.execute(delete(DoctorGuidance).where(
-        DoctorGuidance.doctor_id == doctor.id,
-        DoctorGuidance.question == GENERAL_QUESTION,
+        DoctorGuidance.doctor_id.in_([d.id for d in doctors.values()]),
+        DoctorGuidance.scope == "general",
+        DoctorGuidance.question.in_(general_questions),
     ))
     answered = CareTeamQuestion(
         user_id=demo2.id, document_id=doc2.id, question=PATIENT_QUESTION,
         reason="The patient asked the care team directly.", source="agent",
-        status="answered", answer=PATIENT_ANSWER, answered_by=doctor.id,
+        status="answered", answer=PATIENT_ANSWER, answered_by=doctor.id, doctor_id=doctor.id,
         answered_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     session.add(answered)
     session.add(CareTeamQuestion(
         user_id=demo.id, document_id=doc.id, question=OPEN_QUESTION, reason=OPEN_REASON,
-        source="agent",
+        source="agent", doctor_id=doctor.id,
+    ))
+    session.add(CareTeamQuestion(
+        user_id=demo.id, document_id=doc.id, question=RENNY_OPEN_QUESTION, reason=OPEN_REASON,
+        source="agent", doctor_id=renny.id,
+    ))
+    session.add(CareTeamQuestion(
+        user_id=demo2.id, document_id=doc2.id, question=PATEL_OPEN_QUESTION, reason=OPEN_REASON,
+        source="agent", doctor_id=patel.id,
     ))
     await session.flush()
     entries = [
@@ -266,6 +307,14 @@ async def seed_guidance(session, llm, doctor: User, demo: User, demo2: User,
             doctor_id=doctor.id, question=PATIENT_QUESTION, answer=PATIENT_ANSWER,
             scope="patient", patient_id=demo2.id, document_id=doc2.id,
             source_question_id=answered.id,
+        ),
+        DoctorGuidance(
+            doctor_id=renny.id, question=RENNY_QUESTION, answer=RENNY_ANSWER,
+            scope="general", drug_tags=RENNY_DRUG_TAGS, condition_tags=RENNY_CONDITION_TAGS,
+        ),
+        DoctorGuidance(
+            doctor_id=patel.id, question=PATEL_QUESTION, answer=PATEL_ANSWER,
+            scope="general", drug_tags=PATEL_DRUG_TAGS, condition_tags=PATEL_CONDITION_TAGS,
         ),
     ]
     session.add_all(entries)
@@ -302,8 +351,8 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
             user2 = await reset_user(session, USERNAME2, PASSWORD2)
             doc2 = await add_document(session, user2, "gout", "gout_demo.pdf",
                                       gout_text, discharge, gout_items, [])
-            doctor = await ensure_doctor(session)
-            embedded = await seed_guidance(session, llm, doctor, user, user2, doc, doc2)
+            doctors = await ensure_doctors(session)
+            embedded = await seed_guidance(session, llm, doctors, user, user2, doc, doc2)
             await session.commit()
             if confirm:
                 await routes_documents.confirm(user=user, session=session)
@@ -311,7 +360,8 @@ async def run_seed(database_url: str, llm, confirm: bool) -> bool:
         state = "confirmed" if confirm else "pending review"
         print(f"Seeded user '{USERNAME}' with a {state} kidney-stones document ({len(items)} items).")
         print(f"Seeded user '{USERNAME2}' with a confirmed gout document ({len(gout_items)} items).")
-        print(f"Seeded doctor '{DOCTOR}' with 2 guidance entries and 1 open question from '{USERNAME}'.")
+        print("Seeded doctors " + ", ".join(f"'{u}'" for u, _ in DOCTORS)
+              + " with their guidance entries and one open question each.")
         if not embedded:
             print("The guidance entries are saved but not searchable (no embedding model "
                   "answered). Log in at /doctor and use 'Retry embedding' on each entry.")

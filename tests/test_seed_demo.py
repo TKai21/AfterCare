@@ -40,47 +40,64 @@ async def test_seed_is_idempotent_and_creates_the_demo_history(tmp_path):
     await seed_demo.run_seed(url, llm, confirm=False)
     users, guidance, questions, docs, counts, _ = await snapshot(url)
 
-    assert counts == {"users": 3, "docs": 2}
-    assert users["dr.ting"].role == "doctor"
-    assert users["dr.ting"].display_name == "Dr. Ting Kai"
+    assert counts == {"users": 5, "docs": 2}
+    for username, name in (("dr.ting", "Dr. Ting Kai"), ("dr.renny", "Dr. Aaron Renny"),
+                           ("dr.patel", "Dr. Parin Patel")):
+        assert users[username].role == "doctor"
+        assert users[username].display_name == name
     assert docs[users["demo"].id].status == "pending_review"
     assert docs[users["demo2"].id].status == "confirmed"
 
     general = [g for g in guidance if g.scope == "general"]
     patient = [g for g in guidance if g.scope == "patient"]
-    assert len(general) == 1 and len(patient) == 1
-    (g,) = general
+    assert len(general) == 3 and len(patient) == 1
+    (g,) = [g for g in general if g.doctor_id == users["dr.ting"].id]
     assert g.drug_tags == ["colchicine / Colcrys"] and g.condition_tags == ["gout"]
     assert "0.6 mg" in g.answer and g.embedding is not None and g.active
     assert patient[0].patient_id == users["demo2"].id
     assert patient[0].document_id == docs[users["demo2"].id].id
     assert patient[0].embedding is not None
 
-    by_user = {u: [q for q in questions if q.user_id == users[u].id] for u in ("demo", "demo2")}
-    (answered,) = by_user["demo2"]
-    assert answered.status == "answered" and answered.answered_by == users["dr.ting"].id
+    (answered,) = [q for q in questions if q.status == "answered"]
+    assert answered.user_id == users["demo2"].id
+    assert answered.answered_by == users["dr.ting"].id
+    assert answered.doctor_id == users["dr.ting"].id
     assert patient[0].source_question_id == answered.id
-    (open_q,) = by_user["demo"]
-    assert open_q.status == "open" and open_q.answer is None
-    assert open_q.document_id == docs[users["demo"].id].id
-    assert len(questions) == 2
+    open_qs = [q for q in questions if q.status == "open"]
+    assert len(questions) == 4 and len(open_qs) == 3
+    # Exactly one open question per doctor, each from a demo patient's own document.
+    assert sorted(q.doctor_id for q in open_qs) == sorted(
+        users[u].id for u in ("dr.ting", "dr.renny", "dr.patel"))
+    for q in open_qs:
+        assert q.answer is None
+        assert q.document_id == docs[q.user_id].id
+    (ting_open,) = [q for q in open_qs if q.doctor_id == users["dr.ting"].id]
+    assert ting_open.user_id == users["demo"].id
 
 
-async def test_seeded_general_entry_reaches_only_the_gout_patient(tmp_path):
+async def test_every_doctor_has_a_general_entry_eligible_for_a_demo_patient(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'seed.db'}"
     await seed_demo.run_seed(url, FakeLLM(), confirm=True)
     users, guidance, _, docs, _, demo2_items = await snapshot(url)
-    (general,) = [g for g in guidance if g.scope == "general"]
-    assert eligible(general, patient_text(docs[users["demo2"].id], demo2_items))
-    assert not eligible(general, docs[users["demo"].id].text)
-    assert docs[users["demo"].id].status == "confirmed"
+    demo_doc, demo2_doc = docs[users["demo"].id], docs[users["demo2"].id]
+    assert demo_doc.status == "confirmed"
+    for username in ("dr.ting", "dr.renny", "dr.patel"):
+        entries = [g for g in guidance
+                   if g.scope == "general" and g.doctor_id == users[username].id]
+        assert entries, username
+        assert any(eligible(g, patient_text(d, items)) for g in entries
+                   for d, items in ((demo2_doc, demo2_items), (demo_doc, []))), username
+    # The colchicine entry still reaches only the gout patient.
+    (ting,) = [g for g in guidance if g.scope == "general" and g.doctor_id == users["dr.ting"].id]
+    assert eligible(ting, patient_text(demo2_doc, demo2_items))
+    assert not eligible(ting, demo_doc.text)
 
 
 async def test_seed_without_a_model_saves_unsearchable_entries(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'seed.db'}"
     await seed_demo.run_seed(url, None, confirm=False)
     _, guidance, _, _, _, _ = await snapshot(url)
-    assert len(guidance) == 2 and all(g.embedding is None for g in guidance)
+    assert len(guidance) == 4 and all(g.embedding is None for g in guidance)
 
 
 async def test_reseed_leaves_other_users_and_their_guidance_alone(tmp_path):
@@ -99,4 +116,4 @@ async def test_reseed_leaves_other_users_and_their_guidance_alone(tmp_path):
     await seed_demo.run_seed(url, FakeLLM(), confirm=False)
     users, guidance, _, _, _, _ = await snapshot(url)
     assert "bob" in users
-    assert len(guidance) == 3
+    assert len(guidance) == 5

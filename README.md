@@ -127,20 +127,32 @@ python scripts/seed_demo.py --confirm  # confirmed, checklist generated
 
 ## Doctor clone
 
-Accounts have a role: `patient` (sign up on the site) or `doctor`. A doctor cannot sign up; create one with `scripts/create_doctor.py`. The fictional doctor, Dr. Ting Kai, uses the doctor page at `/doctor`. Questions the agent cannot answer go to the doctor's queue. Each answer becomes guidance that the patient-facing agent later cites ("Dr. Ting Kai's advice") and that patients see in the Care team tab.
+Accounts have a role: `patient` (sign up on the site) or `doctor`. A doctor cannot sign up; create one with `scripts/create_doctor.py`. There are three fictional doctors, each with an AI clone, and each doctor uses the doctor page at `/doctor`.
+
+In the Ask tab the patient sees one tab per doctor. Each tab is its own conversation with that doctor's AI clone, and the clone's replies are labeled "AI clone". The clone answers only from the patient's discharge document, the education sources, and that doctor's own earlier advice (cited as "Dr. Name's advice"). A question the clone cannot answer goes to that doctor's queue, and the patient can also ask that doctor directly. Each answer a doctor gives becomes guidance for that doctor's clone and shows up in the patient's Care team tab.
 
 ```bash
 python scripts/create_doctor.py USERNAME "Display Name"   # prompts for the password twice
 ```
 
-`scripts/seed_demo.py` creates `dr.ting` / `doctor-password-1`, `demo` / `demo-password-1` (kidney stones, one open question in the queue), and `demo2` / `demo-password-2` (gout case, always confirmed), plus a general colchicine-timing entry and a patient-specific entry for `demo2`. All seeded answers are invented for the demo. Embeddings need a configured model; without one the entries are saved unsearchable and can be retried from the doctor page.
+`scripts/seed_demo.py` creates three doctors, all with the password `doctor-password-1`:
+
+| Username | Doctor |
+| --- | --- |
+| `dr.ting` | Dr. Ting Kai |
+| `dr.renny` | Dr. Aaron Renny |
+| `dr.patel` | Dr. Parin Patel |
+
+It also creates `demo` / `demo-password-1` (kidney stones) and `demo2` / `demo-password-2` (gout case, always confirmed). Each doctor has one general entry (Dr. Ting: colchicine timing; Dr. Renny: tamsulosin and stent discomfort; Dr. Patel: naproxen with food) and one open question in their queue; Dr. Ting also has a patient-specific entry for `demo2`. All seeded answers are invented for the demo. Embeddings need a configured model; without one the entries are saved unsearchable and can be retried from the doctor page.
+
+Upgrading from the single-doctor version: questions and messages now belong to a doctor, so recreate the dev database (delete `aftercare-dev.sqlite3`) and run `python scripts/seed_demo.py --confirm` again.
 
 Demo walkthrough:
 
 1. Run `python scripts/seed_demo.py --confirm` so `demo`'s document is confirmed (asking needs a confirmed document).
-2. Log in as `demo` and ask a question nobody has answered; it goes to Dr. Ting's queue.
-3. Log in as `dr.ting` at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
-4. Log in as `demo2` and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The agent answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
+2. Log in as `demo`, open the Ask tab, and pick a doctor tab. Ask a question nobody has answered; it goes to that doctor's queue. You can also press "Ask Dr. Name directly" under a doctor tab, or use "Ask a doctor directly" in the Care team tab.
+3. Log in as that doctor (`dr.ting`, `dr.renny` or `dr.patel`, password `doctor-password-1`) at `/doctor`, answer it, and tick "General advice" (suggested tags can be edited).
+4. Log in as `demo2`, pick the Dr. Ting Kai tab, and ask a similar gout question, for example "My big toe still hurts a lot after my colchicine, can I take one more?". The AI clone answers and cites Dr. Ting's advice. The same question from `demo` gets no doctor source.
 
 The gate: a general entry only reaches a patient whose discharge document or confirmed instructions mention every drug tag and at least one condition tag as whole words (alternative names such as "colchicine / Colcrys" match), and an untagged general answer is refused. Anything unclear fails closed, and a patient-specific entry is only ever used for that patient and document.
 
