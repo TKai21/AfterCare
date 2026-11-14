@@ -5,6 +5,7 @@ from config import Settings
 from app import create_app
 from fake_llm import FakeLLM
 from auth import create_doctor
+from druglabels import DEMO_LABELS, LabelClient, fixture_transport
 from knowledge import KnowledgeStore
 
 
@@ -20,7 +21,8 @@ async def client(fake_llm, tmp_path):
         jwt_secret="test-secret-not-for-production",
     )
     # An empty store under tmp_path, so tests never create the repo's index file.
-    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm))
+    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm),
+                     label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
@@ -55,7 +57,8 @@ async def file_client(fake_llm, tmp_path):
         jwt_secret="test-secret-not-for-production",
     )
     # An empty store under tmp_path, so tests never create the repo's index file.
-    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm))
+    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm),
+                     label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:

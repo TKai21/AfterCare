@@ -174,3 +174,50 @@ class DoctorGuidance(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class DrugLabel(Base):
+    """One FDA label per ingredient, shared by all patients. A doctor approves it
+    before the library may use it (see the drug label design spec, section 6)."""
+    __tablename__ = "drug_labels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rxcui: Mapped[str] = mapped_column(String(20), unique=True)
+    ingredient: Mapped[str] = mapped_column(String(200))
+    # fetching | pending | approved | rejected | no_label | failed
+    status: Mapped[str] = mapped_column(String(20), default="fetching")
+    # Up to 5 {setid, title, published, labeler}, newest first.
+    candidates: Mapped[list] = mapped_column(JSON, default=list)
+    setid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    text: Mapped[Optional[str]] = mapped_column(
+        Text().with_variant(LONGTEXT, "mysql"), nullable=True
+    )
+    sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    collected_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class DocumentDrug(Base):
+    """One confirmed medication item and one of its ingredients. A combination
+    product has several rows. rxcui is NULL while unresolved or failed."""
+    __tablename__ = "document_drugs"
+    __table_args__ = (UniqueConstraint("extracted_item_id", "rxcui", name="uq_document_drugs_item_rxcui"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("discharge_documents.id", ondelete="CASCADE"), index=True
+    )
+    extracted_item_id: Mapped[int] = mapped_column(
+        ForeignKey("extracted_items.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    rxcui: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # fetching | resolved | unresolved | failed
+    status: Mapped[str] = mapped_column(String(20), default="fetching")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -2,7 +2,7 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from documents import file_suffix, normalize_text, paragraphs, read_upload
 from extraction import extract
 from llm import LLMError
 from checklist import build_checklist
+from druglabels import resolve_document
 from models import ChecklistItem, DischargeDocument, DocumentFile, ExtractedItem, User
 from routes_care_team import add_question
 
@@ -330,7 +331,11 @@ async def confirm(
     body: Optional[dict] = Body(None),
     user: User = Depends(current_patient),
     session: AsyncSession = Depends(get_session),
+    request: Request = None,
+    background: BackgroundTasks = None,
 ):
+    # `request` and `background` are injected by FastAPI; scripts that call this
+    # function directly (the demo seed) omit them and nothing is scheduled.
     await lock_user(session, user)
     doc = await pending_document(session, user)
     now = utc_now()
@@ -355,4 +360,7 @@ async def confirm(
     await session.refresh(doc)
     await generate_checklist(session, doc)
     await session.commit()
+    if request is not None and background is not None:
+        state = request.app.state
+        background.add_task(resolve_document, state.session_factory, state.label_client, doc.id)
     return await view(session, doc)

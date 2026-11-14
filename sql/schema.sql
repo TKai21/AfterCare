@@ -146,3 +146,39 @@ CREATE TABLE IF NOT EXISTS doctor_guidance (
   FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE SET NULL,
   FOREIGN KEY (source_question_id) REFERENCES care_team_questions (id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS drug_labels (
+  id INT NOT NULL AUTO_INCREMENT,
+  rxcui VARCHAR(20) NOT NULL,
+  ingredient VARCHAR(200) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'fetching',         -- fetching | pending | approved | rejected | no_label | failed
+  candidates JSON NOT NULL,
+  setid VARCHAR(64) NULL,
+  title VARCHAR(500) NULL,
+  url VARCHAR(500) NULL,
+  text LONGTEXT NULL,
+  sha256 VARCHAR(64) NULL,
+  collected_at DATETIME NULL,
+  error TEXT NULL,
+  reviewed_by INT NULL,
+  reviewed_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_drug_labels_rxcui (rxcui),
+  FOREIGN KEY (reviewed_by) REFERENCES users (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS document_drugs (
+  id INT NOT NULL AUTO_INCREMENT,
+  document_id INT NOT NULL,
+  extracted_item_id INT NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  rxcui VARCHAR(20) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'fetching',         -- fetching | resolved | unresolved | failed
+  error TEXT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_document_drugs_item_rxcui (extracted_item_id, rxcui),
+  KEY ix_document_drugs_document_id (document_id),
+  KEY ix_document_drugs_extracted_item_id (extracted_item_id),
+  FOREIGN KEY (document_id) REFERENCES discharge_documents (id) ON DELETE CASCADE,
+  FOREIGN KEY (extracted_item_id) REFERENCES extracted_items (id) ON DELETE CASCADE
+);

@@ -3,16 +3,28 @@
 Only the medication name, the dose text, RxCUIs and setids ever leave the server.
 """
 
+import hashlib
 import json
+import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from knowledge import DAILYMED_SPL_XML, USER_AGENT, dailymed_sections
+from models import DischargeDocument, DocumentDrug, DrugLabel, ExtractedItem
+
+logger = logging.getLogger(__name__)
+
+DEMO_LABELS = Path(__file__).resolve().parent.parent / "demo" / "labels"
+DAILYMED_PAGE = "https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid={setid}"
+INTERRUPTED = "Interrupted, try again"
+UNEXPECTED = "Unexpected error, try again"
 
 RXNAV_APPROXIMATE = "https://rxnav.nlm.nih.gov/REST/approximateTerm.json"
 RXNAV_RELATED = "https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/related.json"
@@ -177,3 +189,217 @@ def failing_transport() -> httpx.MockTransport:
         raise httpx.ConnectError("label services are down", request=request)
 
     return httpx.MockTransport(handler)
+
+
+# ---------- background jobs (own sessions, never raise) ----------
+
+async def _set_status(session_factory, model, row_id: int, status: str, error: str | None = None) -> None:
+    async with session_factory() as session:
+        await session.execute(update(model).where(model.id == row_id).values(status=status, error=error))
+        await session.commit()
+
+
+async def _find_candidates(client: LabelClient, resolution: Resolution, rxcui: str, ingredient: str) -> list[dict]:
+    """Strength-level candidates for a single-ingredient product, else (or when
+    that finds nothing) the ingredient's own."""
+    if resolution.strength_rxcui and len(resolution.ingredients) == 1:
+        try:
+            found = await client.candidates(resolution.strength_rxcui, ingredient)
+        except LabelServiceError:
+            found = []  # the ingredient query below raises if the service is really down
+        if found:
+            return found
+    return await client.candidates(rxcui, ingredient)
+
+
+async def fetch_label(session_factory, client: LabelClient, label_id: int, setid: str | None = None) -> None:
+    """Fetch the text of one label (the newest candidate unless `setid` is given)
+    and leave it pending, no_label or failed. Never raises."""
+    try:
+        async with session_factory() as session:
+            label = await session.get(DrugLabel, label_id)
+            if label is None:
+                return
+            label.status, label.error = "fetching", None
+            rxcui, ingredient, candidates = label.rxcui, label.ingredient, list(label.candidates or [])
+            await session.commit()
+        try:
+            if not candidates:
+                candidates = await client.candidates(rxcui, ingredient)
+                async with session_factory() as session:
+                    await session.execute(
+                        update(DrugLabel).where(DrugLabel.id == label_id).values(candidates=candidates)
+                    )
+                    await session.commit()
+            if setid is None and not candidates:
+                await _set_status(session_factory, DrugLabel, label_id, "no_label")
+                return
+            chosen = setid or candidates[0]["setid"]
+            title = next((c["title"] for c in candidates if c["setid"] == chosen), "")
+            text = await client.label_text(chosen)
+        except LabelServiceError as error:
+            await _set_status(session_factory, DrugLabel, label_id, "failed", str(error))
+            return
+        async with session_factory() as session:
+            await session.execute(
+                update(DrugLabel).where(DrugLabel.id == label_id).values(
+                    status="pending", error=None, setid=chosen, title=title,
+                    url=DAILYMED_PAGE.format(setid=chosen), text=text,
+                    sha256=hashlib.sha256(text.encode()).hexdigest(),
+                    collected_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    reviewed_by=None, reviewed_at=None,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Fetching drug label %s failed", label_id)
+        await _record_failure(session_factory, DrugLabel, label_id)
+
+
+async def _record_failure(session_factory, model, row_id: int) -> None:
+    try:
+        await _set_status(session_factory, model, row_id, "failed", UNEXPECTED)
+    except Exception:
+        logger.exception("Could not record the failure of %s %s", model.__tablename__, row_id)
+
+
+async def _ensure_label(session_factory, client: LabelClient, resolution: Resolution, rxcui: str, ingredient: str) -> None:
+    """Create the label for a new ingredient and fetch it. An ingredient with a
+    row (any status) is left alone, so a rejected drug is not fetched again."""
+    async with session_factory() as session:
+        if await session.scalar(select(DrugLabel.id).where(DrugLabel.rxcui == rxcui)) is not None:
+            return
+        label = DrugLabel(rxcui=rxcui, ingredient=ingredient, status="fetching", candidates=[])
+        session.add(label)
+        try:
+            await session.commit()
+        except IntegrityError:  # another job claimed the ingredient first
+            return
+        label_id = label.id
+    try:
+        candidates = await _find_candidates(client, resolution, rxcui, ingredient)
+    except LabelServiceError as error:
+        await _set_status(session_factory, DrugLabel, label_id, "failed", str(error))
+        return
+    if not candidates:
+        await _set_status(session_factory, DrugLabel, label_id, "no_label")
+        return
+    async with session_factory() as session:
+        await session.execute(update(DrugLabel).where(DrugLabel.id == label_id).values(candidates=candidates))
+        await session.commit()
+    await fetch_label(session_factory, client, label_id)
+
+
+async def _resolve_row(session_factory, client: LabelClient, row_id: int) -> None:
+    async with session_factory() as session:
+        row = await session.get(DocumentDrug, row_id)
+        if row is None:
+            return
+        item = await session.get(ExtractedItem, row.extracted_item_id)
+        details = (item.details if item else None) or {}
+        name = str(details.get("name") or "").strip()
+        dose = str(details.get("dose") or "").strip() or None
+        row.status, row.error = "fetching", None
+        await session.commit()
+    if not name:
+        await _set_status(session_factory, DocumentDrug, row_id, "unresolved")
+        return
+    try:
+        resolution = await client.resolve(name, dose)
+    except LabelServiceError as error:
+        await _set_status(session_factory, DocumentDrug, row_id, "failed", str(error))
+        return
+    if not resolution.ingredients:
+        await _set_status(session_factory, DocumentDrug, row_id, "unresolved")
+        return
+    async with session_factory() as session:
+        row = await session.get(DocumentDrug, row_id)
+        taken = set(await session.scalars(
+            select(DocumentDrug.rxcui).where(DocumentDrug.extracted_item_id == row.extracted_item_id)
+        ))
+        row_free = row.rxcui is None
+        for rxcui, ingredient in resolution.ingredients:
+            if rxcui in taken:
+                continue
+            if row_free:
+                row.rxcui, row.status, row_free = rxcui, "resolved", False
+            else:
+                session.add(DocumentDrug(
+                    document_id=row.document_id, extracted_item_id=row.extracted_item_id,
+                    name=row.name, rxcui=rxcui, status="resolved",
+                ))
+        if row_free:  # every ingredient already has its own row
+            await session.delete(row)
+        await session.commit()
+    for rxcui, ingredient in resolution.ingredients:
+        await _ensure_label(session_factory, client, resolution, rxcui, ingredient)
+
+
+async def resolve_document(session_factory, client: LabelClient, document_id: int) -> None:
+    """Resolve every medication of a confirmed document to ingredients and labels.
+    Never raises."""
+    try:
+        async with session_factory() as session:
+            items = list(await session.scalars(
+                select(ExtractedItem)
+                .where(ExtractedItem.document_id == document_id,
+                       ExtractedItem.category == "medication",
+                       ExtractedItem.status == "active")
+                .order_by(ExtractedItem.id)
+            ))
+            rows = [
+                DocumentDrug(
+                    document_id=document_id, extracted_item_id=item.id,
+                    name=str((item.details or {}).get("name") or "").strip()[:200], status="fetching",
+                )
+                for item in items
+            ]
+            session.add_all(rows)
+            await session.commit()
+            row_ids = [row.id for row in rows]
+    except Exception:
+        logger.exception("Resolving drugs of document %s failed", document_id)
+        return
+    for row_id in row_ids:
+        await _resolve_row_safely(session_factory, client, row_id)
+
+
+async def _resolve_row_safely(session_factory, client: LabelClient, row_id: int) -> None:
+    try:
+        await _resolve_row(session_factory, client, row_id)
+    except Exception:
+        logger.exception("Resolving document drug %s failed", row_id)
+        await _record_failure(session_factory, DocumentDrug, row_id)
+
+
+async def resolve_document_drug(session_factory, client: LabelClient, document_drug_id: int) -> None:
+    """Retry one document_drugs row. Never raises."""
+    await _resolve_row_safely(session_factory, client, document_drug_id)
+
+
+async def mark_interrupted(session_factory) -> int:
+    """Rows left `fetching` by a restart become `failed`. Returns how many."""
+    count = 0
+    async with session_factory() as session:
+        for model in (DrugLabel, DocumentDrug):
+            result = await session.execute(
+                update(model).where(model.status == "fetching").values(status="failed", error=INTERRUPTED)
+            )
+            count += result.rowcount
+        await session.commit()
+    return count
+
+
+async def patient_rxcuis(session, document_id: int | None) -> frozenset[str]:
+    """Resolved RxCUIs of a confirmed document; empty for None or any other status."""
+    if document_id is None:
+        return frozenset()
+    rows = await session.scalars(
+        select(DocumentDrug.rxcui)
+        .join(DischargeDocument, DischargeDocument.id == DocumentDrug.document_id)
+        .where(DocumentDrug.document_id == document_id,
+               DischargeDocument.status == "confirmed",
+               DocumentDrug.status == "resolved",
+               DocumentDrug.rxcui.is_not(None))
+    )
+    return frozenset(rows)

@@ -8,6 +8,7 @@ from agent import FALLBACK, fallback_answer
 from app import create_app
 from auth import create_doctor
 from config import Settings
+from druglabels import DEMO_LABELS, LabelClient, fixture_transport
 from conftest import auth_headers
 from guidance import embed_entry
 from knowledge import KnowledgeStore
@@ -219,7 +220,8 @@ async def app_and_client(fake_llm, tmp_path):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:", jwt_secret="test-secret-not-for-production"
     )
-    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "i.sqlite3", fake_llm))
+    app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "i.sqlite3", fake_llm),
+                     label_client=LabelClient(fixture_transport(DEMO_LABELS)))
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
