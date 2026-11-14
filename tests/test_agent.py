@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -9,7 +10,8 @@ from agent import FALLBACK, Evidence, number_tokens, render_food, run_agent, val
 from fake_llm import FakeLLM
 from foods import FoodTable
 from knowledge import KnowledgeStore
-from models import DischargeDocument, ExtractedItem
+from llm import LLMError
+from models import DischargeDocument, DoctorGuidance, ExtractedItem
 
 DOC_TEXT = (
     "Discharge date: 2026-03-02\n\n"
@@ -181,7 +183,8 @@ async def test_cited_answer_with_food_lookup(store, foods, document, items):
     assert tool_results(llm, 1)[0]["foods"][0]["evidence_number"] == 5
     assert tool_results(llm, 2)[1]["passages"][0]["evidence_number"] == 6
     tools = {t["function"]["name"] for t in llm.calls[0][1]}
-    assert tools == {"search_education_library", "lookup_food", "add_care_team_question"}
+    assert tools == {"search_doctor_guidance", "search_education_library", "lookup_food",
+                     "add_care_team_question"}
 
 
 async def test_uncited_number_falls_back(store, foods, document, items):
@@ -545,7 +548,7 @@ def test_render_food_omits_nulls_and_prefers_fdc_url_without_oxalate(foods):
 def test_system_prompt_states_rules():
     prompt = agent.SYSTEM_PROMPT
     assert "\u2014" not in prompt
-    for phrase in ("doctor's document wins", "never from your own knowledge",
+    for phrase in ("discharge document wins", "never from your own knowledge",
                    "Never suggest changing, stopping, adding, or substituting",
                    "add_care_team_question", "Your discharge document does not cover this; here is general information.",
                    "call 911", "decline briefly", "untrusted data", "different food",
@@ -664,3 +667,186 @@ def test_system_prompt_example_names_no_specific_nutrient():
     # document said to avoid high-oxalate foods.
     rules = agent.SYSTEM_PROMPT.split("Authority rules:")[1].split("Food data:")[0]
     assert "oxalate" not in rules.lower()
+
+
+# ---------- the doctor clone: guidance as evidence ----------
+
+COLCHICINE_ADVICE = "Yes, one extra 0.6 mg tablet after 1 hour, then no more that day."
+
+
+def guidance(id=7, question="Can I take another colchicine if it still hurts?",
+             answer=COLCHICINE_ADVICE, scope="general", updated_at=datetime(2026, 11, 12, 15, 30)):
+    return DoctorGuidance(id=id, doctor_id=1, question=question, answer=answer, scope=scope,
+                          updated_at=updated_at)
+
+
+def searching(*entries):
+    queries = []
+
+    async def search(query):
+        queries.append(query)
+        return list(entries)
+
+    search.queries = queries
+    return search
+
+
+async def test_doctor_guidance_is_evidence(store, foods, document, items):
+    search = searching(guidance())
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_doctor_guidance", {"query": "extra colchicine"}),
+        final("Dr. Ting Kai advised one extra 0.6 mg tablet after 1 hour [5].", [5]),
+    )
+    result = await ask(llm, store, foods, document, items, question="Can I take more colchicine?",
+                       guidance_search=search, doctor_name="Dr. Ting Kai")
+
+    assert search.queries == ["extra colchicine"]
+    assert result.kind == "answer"
+    (source,) = result.sources
+    assert source.kind == "doctor" and source.number == 5
+    assert source.title == "Dr. Ting Kai's advice, Nov 12, 2026"
+    assert source.url is None
+    assert source.content == COLCHICINE_ADVICE and source.check_text == COLCHICINE_ADVICE
+    assert source.guidance_id == 7
+    assert result.guidance_ids == [7]
+    (hits,) = tool_results(llm, 1)
+    (entry,) = hits["entries"]
+    assert entry["evidence_number"] == 5
+    assert entry["question_answered"] == "Can I take another colchicine if it still hurts?"
+    assert entry["advice"] == COLCHICINE_ADVICE
+    # The system prompt names the doctor; no placeholder is left.
+    system = llm.calls[0][0][0]["content"]
+    assert "Dr. Ting Kai" in system and "{DOCTOR}" not in system
+
+
+async def test_doctor_guidance_entries_are_numbered_once_and_no_hits_say_so(foods, document):
+    turn = agent._Turn(None, foods, document, guidance_search=searching(guidance()))
+    first = await turn.search_doctor_guidance("colchicine")
+    again = await turn.search_doctor_guidance("colchicine again")
+    assert first["entries"][0]["evidence_number"] == again["entries"][0]["evidence_number"] == 5
+    assert len(turn.evidence) == 5
+    # Without a configured name the title still reads as a label.
+    assert turn.evidence[5].title == "Your doctor's advice, Nov 12, 2026"
+    empty = agent._Turn(None, foods, document, guidance_search=searching())
+    assert await empty.search_doctor_guidance("colchicine") == {
+        "query": "colchicine", "entries": [], "result": "no matching advice",
+    }
+
+
+async def test_answers_citing_no_doctor_advice_have_no_guidance_ids(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        tool_call("search_doctor_guidance", {"query": "oxalate"}),
+        final("Limit high-oxalate foods [2].", [2]),
+    )
+    result = await ask(llm, store, foods, document, items, guidance_search=searching(guidance()))
+    assert result.guidance_ids == []
+
+
+def test_doctor_question_text_does_not_ground_numbers():
+    ev = {5: Evidence(5, "doctor", "Dr. Ting Kai's advice, Nov 12, 2026", None, "No.",
+                      check_text="No.", guidance_id=3)}
+    assert validate(raw(answer="No [5].", citations=[5]), ev)[1] == "No [5]."
+    with pytest.raises(ValueError, match="Numbers not in the cited evidence"):
+        validate(raw(answer="You can take 2 tablets [5].", citations=[5]), ev)
+
+
+async def test_doctor_question_is_not_check_text(foods, document):
+    entry = guidance(question="Can I take 2 tablets at once?", answer="No.")
+    turn = agent._Turn(None, foods, document, guidance_search=searching(entry))
+    await turn.search_doctor_guidance("2 tablets")
+    assert turn.evidence[5].check_text == "No." and turn.evidence[5].content == "No."
+    with pytest.raises(ValueError, match="Numbers not in the cited evidence"):
+        validate(raw(answer="You can take 2 tablets [5].", citations=[5]), turn.evidence)
+
+
+MEDICATION_CHANGE_ERROR = "A medication change must cite the discharge document or the doctor's advice."
+
+
+def test_medication_change_needs_document_or_doctor():
+    library = Evidence(1, "library", "Colchicine", "https://medlineplus.gov/x",
+                       "Colchicine tablets contain 0.6 mg.", check_text="Colchicine tablets contain 0.6 mg.")
+    doctor = Evidence(2, "doctor", "Dr. Ting Kai's advice, Nov 12, 2026", None,
+                      "Take an extra 0.6 mg colchicine if it still hurts after 1 hour.",
+                      check_text="Take an extra 0.6 mg colchicine if it still hurts after 1 hour.",
+                      guidance_id=4)
+    document = evidence("Take colchicine 0.6 mg twice daily.")[1]
+    ev = {1: library, 2: doctor}
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer="Take an extra 0.6 mg colchicine [1].", citations=[1]), ev)
+    assert str(exc.value) == MEDICATION_CHANGE_ERROR
+    assert validate(raw(answer="Take an extra 0.6 mg colchicine [2].", citations=[2]), ev)[0] \
+        == "answer"
+    assert validate(raw(answer="Take an extra 0.6 mg colchicine [1, 2].", citations=[1, 2]),
+                    ev)[0] == "answer"
+    document.number = 3
+    ev[3] = document
+    assert validate(raw(answer="Stop taking colchicine 0.6 mg [3].", citations=[3]), ev)[0] \
+        == "answer"
+    # Ordinary instructions need no special source.
+    assert validate(raw(answer="Colchicine tablets contain 0.6 mg [1].", citations=[1]),
+                    ev)[0] == "answer"
+
+
+async def test_medication_change_from_library_gets_repaired_then_falls_back(
+    store, foods, document, items
+):
+    llm = FakeLLM()
+    bad = final("Stop taking your pills if a flare is bad [5].", [5])
+    llm.script(tool_call("search_education_library", {"query": "oxalate"}), bad, bad)
+    result = await ask(llm, store, foods, document, items)
+    assert_fallback(result)
+    assert MEDICATION_CHANGE_ERROR in llm.calls[2][0][-1]["content"]
+
+
+@pytest.mark.parametrize("text", [
+    "take an extra", "Take an extra tablet", "double your dose", "stop taking", "skip your",
+    "switch to", "increase", "Increase the dose", "reduce your dose", "take another dose",
+    "you can take more", "STOP TAKING it", "skipping a dose", "lower your dose",
+    "decrease the dosage", "start taking aspirin", "substitute ibuprofen", "increased",
+])
+def test_medication_change_pattern_matches(text):
+    assert agent.MEDICATION_CHANGE.search(text), text
+
+
+@pytest.mark.parametrize("text", [
+    "take it with food", "take your medicine at bedtime", "Take colchicine 0.6 mg twice daily.",
+    "keep taking it as directed", "the doubled-checked list", "skipper",
+])
+def test_medication_change_pattern_ignores_ordinary_instructions(text):
+    assert not agent.MEDICATION_CHANGE.search(text), text
+
+
+def test_prompt_states_clone_rules():
+    prompt = agent.SYSTEM_PROMPT
+    assert "\u2014" not in prompt
+    for phrase in ('"Sources disagree"', "third person", "never as \"I\"",
+                   "unless a cited document paragraph or doctor's advice says so",
+                   "Library passages and your own knowledge never justify it",
+                   "does not apply", "search_doctor_guidance",
+                   "before search_education_library", "sent to {DOCTOR}"):
+        assert phrase in prompt, phrase
+    rules = prompt.split("Authority rules:")[1].split("Food data:")[0]
+    order = ["discharge document", "advice for this patient", "general advice",
+             "library passages", "food data"]
+    first_rule = rules.split("\n2.")[0]
+    positions = [first_rule.find(name) for name in order]
+    assert -1 not in positions and positions == sorted(positions), positions
+    numbers = [int(n) for n in re.findall(r"^(\d+)\.", rules, re.MULTILINE)]
+    assert numbers == list(range(1, len(numbers) + 1))
+
+
+async def test_guidance_unavailable_tool_error(store, foods, document, items):
+    async def broken(query):
+        raise LLMError("embedding down")
+
+    for search in (None, broken):
+        llm = FakeLLM()
+        llm.script(
+            tool_call("search_doctor_guidance", {"query": "colchicine"}),
+            final("Limit high-oxalate foods [2].", [2]),
+        )
+        result = await ask(llm, store, foods, document, items, guidance_search=search)
+        assert result.kind == "answer"
+        assert tool_results(llm, 1) == [{"error": "Doctor guidance is not available right now."}]
