@@ -1,0 +1,184 @@
+{
+  "note": "Fictional earlier advice of the demo doctors, for the clone evaluation only. Invented for this evaluation; not medical advice.",
+  "entries": [
+    {
+      "doctor": "dr.renny",
+      "question": "I get dizzy when I stand up since I started tamsulosin. What should I do?",
+      "answer": "Tamsulosin can make you dizzy or lightheaded when you stand up. Get up slowly from bed or a chair, and sit down right away if you feel faint. If you actually faint, call 911.",
+      "drug_tags": [
+        "tamsulosin"
+      ],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "Is pink urine normal with the stent?",
+      "answer": "Pink or light red urine is common while the stent is in, especially after you have been active. Drink extra water and it should clear. Call the clinic if you pass clots or your urine turns dark red.",
+      "drug_tags": [],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "Can I drink coffee with a kidney stone?",
+      "answer": "You can have 1 cup of coffee in the morning. Water should make up most of your fluids.",
+      "drug_tags": [],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "Can I add lemon to my water?",
+      "answer": "Adding fresh lemon juice to your water is fine, and it can help prevent new stones.",
+      "drug_tags": [],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "It hurts in my side when I pee. Is that the stent?",
+      "answer": "A pulling pain in your side or back when you pee is common with a stent. Keep taking your tamsulosin, which helps with it, and take ibuprofen the way your instructions say if you need more relief.",
+      "drug_tags": [
+        "tamsulosin",
+        "ibuprofen"
+      ],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "What exercise can I do with a stent?",
+      "answer": "Walking is good for you with a stent. Avoid running, jumping and contact sports until the stent is out.",
+      "drug_tags": [],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "Is sex OK with a stent?",
+      "answer": "Sex is fine with a stent if it is comfortable. It will not move the stent.",
+      "drug_tags": [],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.renny",
+      "question": "Ibuprofen upsets my stomach. What should I do?",
+      "answer": "Take ibuprofen with food or a glass of milk. Stop taking it and call the clinic if you have stomach pain or black stools.",
+      "drug_tags": [
+        "ibuprofen"
+      ],
+      "condition_tags": [
+        "ureteral stone"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "Can I have grapefruit while I take colchicine?",
+      "answer": "Do not drink grapefruit juice or eat grapefruit while you take colchicine. It raises the amount of colchicine in your blood.",
+      "drug_tags": [
+        "colchicine / Colcrys"
+      ],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "I missed a colchicine dose. What do I do?",
+      "answer": "If you miss a dose of colchicine, take it when you remember, unless your next dose is due within 4 hours; then skip the missed dose. Never take 2 doses at once.",
+      "drug_tags": [
+        "colchicine / Colcrys"
+      ],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "Should I ice a gout flare?",
+      "answer": "Put an ice pack on the painful joint for 20 minutes at a time, with a thin towel between the ice and your skin.",
+      "drug_tags": [],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "Are cherries OK with gout?",
+      "answer": "Cherries are fine to eat during and after a flare.",
+      "drug_tags": [],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "Should I change what meat I eat?",
+      "answer": "Cut back on red meat and organ meats like liver for the next few weeks; they can trigger another flare.",
+      "drug_tags": [],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.ting",
+      "question": "When can I walk on my foot again?",
+      "answer": "You can walk short distances as soon as the pain allows. Wear a loose shoe or a sandal on the sore foot.",
+      "drug_tags": [],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.patel",
+      "question": "Can I take ibuprofen or aspirin with naproxen?",
+      "answer": "Do not take ibuprofen or aspirin while you take naproxen. They are the same kind of medicine, and together they raise your risk of stomach bleeding.",
+      "drug_tags": [
+        "naproxen"
+      ],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.patel",
+      "question": "Can I drink alcohol with naproxen?",
+      "answer": "Do not drink any alcohol within 12 hours of a naproxen dose.",
+      "drug_tags": [
+        "naproxen"
+      ],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.patel",
+      "question": "Are sodas bad for gout?",
+      "answer": "Avoid sugary sodas and fruit juice with added sugar. They can trigger gout flares.",
+      "drug_tags": [],
+      "condition_tags": [
+        "gout"
+      ]
+    },
+    {
+      "doctor": "dr.patel",
+      "question": "What can I add for pain if naproxen is not enough?",
+      "answer": "You can take acetaminophen (Tylenol) 500 mg every 6 hours for extra pain relief along with naproxen. Do not take more than 3,000 mg of acetaminophen in a day.",
+      "drug_tags": [
+        "naproxen"
+      ],
+      "condition_tags": [
+        "gout"
+      ]
+    }
+  ]
+}

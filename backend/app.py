@@ -14,6 +14,7 @@ import routes_checklist
 import routes_doctor
 import routes_labels
 import routes_documents
+from confidence import load_threshold
 from config import PROJECT_DIR, Settings, get_settings
 from druglabels import DEMO_LABELS, LabelClient, approved_rxcuis, fixture_transport, mark_interrupted
 from db import init_db, make_engine, make_session_factory
@@ -38,6 +39,15 @@ class FrontendFiles(StaticFiles):
         response = await super().get_response(path, scope)
         response.headers.update(REVALIDATE)
         return response
+
+
+def clone_threshold(settings: Settings) -> Optional[float]:
+    """The clone's confidence gate: CLONE_MIN_CONFIDENCE, else the calibration
+    file's threshold for this chat model, else None (no gate)."""
+    if settings.clone_min_confidence is not None:
+        return settings.clone_min_confidence
+    path = Path(settings.clone_calibration_path)
+    return load_threshold(path if path.is_absolute() else PROJECT_DIR / path, settings.llm_model)
 
 
 def create_app(
@@ -91,6 +101,7 @@ def create_app(
     app.state.reranker = store.reranker if store is not None else None
     app.state.foods = foods
     app.state.label_client = label_client
+    app.state.clone_threshold = clone_threshold(settings)
 
     app.include_router(auth.router)
     app.include_router(routes_documents.router)

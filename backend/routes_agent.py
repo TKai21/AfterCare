@@ -6,8 +6,11 @@ from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent import HISTORY_LIMIT, GuidanceUnavailable, emergency_result, run_agent
+from agent import (
+    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, emergency_result, fallback_answer, run_agent,
+)
 from auth import current_patient
+from confidence import LOW_CONFIDENCE_REASON, score_answer
 from db import get_session
 from doctors import doctor_label, require_doctor
 from druglabels import patient_rxcuis
@@ -164,6 +167,21 @@ async def ask(
                     detail="The assistant could not answer right now. Please try again.",
                 ) from exc
             result = emergency_result()
+
+        threshold = request.app.state.clone_threshold
+        # The gate never runs when the backstop saw an emergency term: that
+        # answer must not wait on another model call.
+        if threshold is not None and result.kind == "answer" and not terms:
+            try:
+                confidence = await score_answer(llm, body.question, result.answer, result.sources)
+            except (LLMError, ValueError) as exc:
+                log.warning("Answer verifier failed, escalating: %s", exc)
+                confidence = None  # fail closed
+            if confidence is None or confidence < threshold:
+                result = AgentResult(
+                    kind="not_covered", answer=fallback_answer(name), sources=[], flagged=True,
+                    care_team_question=body.question, care_team_reason=LOW_CONFIDENCE_REASON,
+                )
 
     payload = answer_payload(result, terms, doctor_id, name)
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",

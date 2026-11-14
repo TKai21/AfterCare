@@ -275,13 +275,29 @@ On each open question in the doctor's inbox, "Draft with my clone" asks the mode
 
 When the doctor sends, the app records how much of the draft was kept (a word-level similarity) and whether it was sent unchanged. The inbox shows these numbers, and the doctor's three most recent corrected drafts (what the clone wrote and what the doctor sent instead) are given to the model as examples for the next drafts, so the clone picks up the doctor's corrections without retraining.
 
+### Calibrated confidence gate
+
+The clone's own checks (citations exist, numbers are grounded) cannot tell a cited but wrong answer from a right one. The confidence gate adds a verifier call that scores each answer against its cited sources (0 to 1), and an answer below a threshold goes to the doctor instead, with the reason "Low confidence" (design: `docs/superpowers/specs/2026-11-14-calibrated-abstention-design.md`). The gate never runs for an emergency, and a verifier failure counts as low confidence.
+
+The threshold is chosen by **conformal risk control** (Angelopoulos et al., 2022) on a labeled calibration set: with n calibration questions, t* is the smallest threshold with n/(n+1) x (wrong-answer rate at t) + 1/(n+1) <= alpha. For new questions drawn like the calibration questions, the expected rate of wrong answers delivered to patients is then at most alpha, whatever the model or the score. The guarantee is in expectation and only as good as that likeness: `eval/clone_questions.json` (93 questions: 62 the clone should answer from the demo documents and the doctors' advice, some needing two pieces of advice combined, and 31 it should escalate, including near misses such as another doctor's drug) is written by the team, not drawn from real patients. `eval/clone_guidance.json` is the doctors' fictional earlier advice those questions rely on.
+
+Run the evaluation with the real model (dev only; it costs model calls, about 4 per question):
+
+```bash
+.venv/bin/python scripts/eval_clone.py                 # alpha 0.1; writes eval/clone_runs.json,
+                                                       # eval/clone_calibration.json, eval/clone_risk_coverage.svg
+.venv/bin/python scripts/eval_clone.py --from-runs --alpha 0.05   # recalibrate without model calls
+```
+
+The server reads `eval/clone_calibration.json` when its `chat_model` matches `LLM_MODEL`; `CLONE_MIN_CONFIDENCE` overrides it. With neither, there is no gate and the clone behaves as before.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 700 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 717 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 
@@ -304,8 +320,8 @@ frontend/    index.html + login.js (login), app.html + app.css + api.js (shell),
 knowledge/   manifest.json, sources/*.json (index.sqlite3 is built locally)
 data/        foods.json, oxalate.json, build_foods.py
 demo/        generate_demo.py, cases/*.json, out/ (generated .txt and .pdf)
-scripts/     seed_demo.py, eval_library.py (library search evaluation)
-eval/        library_questions.json
+scripts/     seed_demo.py, eval_library.py (library search evaluation), eval_clone.py (clone calibration)
+eval/        library_questions.json, clone_questions.json, clone_guidance.json
 sql/         schema.sql (MySQL)
 tests/       unit tests and the fake LLM
 docs/        design spec

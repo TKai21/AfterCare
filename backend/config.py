@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -33,6 +34,10 @@ class Settings:
     rerank_enabled: bool = False
     # Calibrated by scripts/eval_library.py --sweep on the tune split.
     rag_min_rerank: float = -6.5
+    # The clone's confidence gate. CLONE_MIN_CONFIDENCE wins; else the threshold
+    # in the calibration file, when it was calibrated for LLM_MODEL; else no gate.
+    clone_min_confidence: Optional[float] = None
+    clone_calibration_path: str = "eval/clone_calibration.json"
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -72,4 +77,8 @@ def get_settings() -> Settings:
         rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),
         rerank_enabled=env.get("RERANK_ENABLED", "") == "1",
         rag_min_rerank=float(env.get("RAG_MIN_RERANK", defaults.rag_min_rerank)),
+        clone_min_confidence=(
+            float(env["CLONE_MIN_CONFIDENCE"]) if env.get("CLONE_MIN_CONFIDENCE") else None
+        ),
+        clone_calibration_path=env.get("CLONE_CALIBRATION_PATH", defaults.clone_calibration_path),
     )
