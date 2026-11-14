@@ -67,6 +67,26 @@ def test_negated_directive_is_not_a_recommendation():
     assert recommended_unprescribed("Do not take prednisone.", {"naproxen"}) == []
 
 
+@pytest.mark.parametrize("text", [
+    "Take 0.6 mg of colchicine now.",
+    "Take 1.2 mg colchicine at the first sign.",
+    "Take colchicine now and contact us if it gets worse.",
+    "Take colchicine now, and avoid alcohol.",
+    "Don't wait - take colchicine now.",
+])
+def test_real_recommendations_are_detected(text):
+    assert recommended_unprescribed(text, {"naproxen"}) == ["colchicine"]
+
+
+@pytest.mark.parametrize("text", [
+    "Do not take colchicine.",
+    "You should never start colchicine without asking your doctor.",
+    "Colchicine is not prescribed to you, so check with your care team.",
+])
+def test_non_recommendations_are_not_flagged(text):
+    assert recommended_unprescribed(text, {"naproxen"}) == []
+
+
 def test_prescribed_drug_is_never_flagged():
     assert recommended_unprescribed("Take naproxen with food.", {"naproxen"}) == []
 
@@ -81,6 +101,16 @@ def test_judge_messages_hide_doctor_and_condition():
     blob = json.dumps(msgs)
     assert "Ting" not in blob and "Patel" not in blob and "Renny" not in blob and "memory" not in blob.lower()
     assert "dr." not in blob.lower()
+
+
+@pytest.mark.parametrize("name", ["Dr. Ting Kai", "Dr. Parin Patel", "Dr. Aaron Renny", "Dr. Ting", "Doctor Patel"])
+def test_judge_messages_scrub_doctor_names_from_answer(name):
+    msgs = judge_messages(CASE, PATIENT, f"{name} usually prefers colchicine first. {name}'s plan is clear.",
+                          {"c1": ("first_ask", "timing")})
+    blob = json.dumps(msgs)
+    for bad in ("Ting", "Kai", "Patel", "Parin", "Renny", "Aaron"):
+        assert bad not in blob
+    assert "the doctor usually prefers colchicine first" in msgs[1]["content"]
 
 
 def test_judge_messages_contain_context_and_one_question_per_check():
@@ -140,13 +170,39 @@ def test_checks_for_adds_other_doctors_conflicts():
     assert checks["c2"] == ("first_choice", "naproxen") and owner["c2"] == "other"
 
 
-def test_checks_for_own_judge_items_and_no_conflict_same_value():
+def test_checks_for_referral_doctor_has_no_first_choice_conflicts():
     checks, owner = checks_for(CASE, "dr.renny")
-    assert checks["c1"] == ("refer_to_clinic", "true")
-    assert checks["c2"] == ("first_ask", "current_plan")
-    others = [checks[c] for c in checks if owner[c] == "other"]
-    assert sorted(others) == [("first_choice", "colchicine"), ("first_choice", "naproxen")]
+    assert checks == {"c1": ("refer_to_clinic", "true"), "c2": ("first_ask", "current_plan")}
+    assert set(owner.values()) == {"own"}
     assert checks_for(CASE, "dr.renny") == (checks, owner)
+
+
+D2_CASE = {"expected": {
+    "dr.ting": {"plan_behavior": "point_to_plan"},
+    "dr.patel": {"plan_behavior": "call_first"},
+    "dr.renny": {"plan_behavior": "follow_plan"}}}
+
+
+def test_checks_for_pins_conflict_pairs():
+    # D1: only first_choice vs a different first_choice.
+    checks, owner = checks_for(CASE, "dr.patel")
+    assert checks == {"c1": ("first_choice", "naproxen"), "c2": ("first_choice", "colchicine")}
+    assert owner == {"c1": "own", "c2": "other"}
+    # D2: point_to_plan and follow_plan are the same behaviour, never a pair.
+    checks, owner = checks_for(D2_CASE, "dr.ting")
+    assert checks == {"c1": ("plan_behavior", "point_to_plan"), "c2": ("plan_behavior", "call_first")}
+    checks, _ = checks_for(D2_CASE, "dr.renny")
+    assert checks == {"c1": ("plan_behavior", "follow_plan"), "c2": ("plan_behavior", "call_first")}
+    checks, _ = checks_for(D2_CASE, "dr.patel")
+    assert checks == {"c1": ("plan_behavior", "call_first"), "c2": ("plan_behavior", "point_to_plan"),
+                      "c3": ("plan_behavior", "follow_plan")}
+
+
+def test_plan_questions_are_distinct_except_same_behaviour():
+    qs = {v: judge_messages(CASE, PATIENT, "a", {"c1": ("plan_behavior", v)})[1]["content"].split("Check c1: ")[1]
+          for v in ["point_to_plan", "follow_plan", "set_up_plan", "call_first", "contact_clinic"]}
+    assert qs["point_to_plan"] == qs["follow_plan"]
+    assert len({qs["point_to_plan"], qs["set_up_plan"], qs["call_first"], qs["contact_clinic"]}) == 4
 
 
 def test_checks_for_skips_equal_values():
@@ -185,6 +241,13 @@ def test_score_counts_blocked_and_no_memory_use():
     assert score_answer(_rec(), nm, {}, set())["items"]["no_memory_use"] is True
 
 
+def test_score_missing_verdict_raises_unless_blocked():
+    items = {"first_choice": "colchicine"}
+    with pytest.raises(KeyError):
+        score_answer(_rec(), items, {}, {"colchicine"})
+    assert score_answer(_rec(fallback=True), items, {}, {"colchicine"})["items"] == {"first_choice": False}
+
+
 def _scored(doctor, repeat, items, case="c01", dim="D1", cond="with_memory", conflicts=(), blocked=False,
             guidance=(), kind="answer"):
     return _rec(case=case, dimension=dim, doctor=doctor, condition=cond, repeat=repeat,
@@ -194,16 +257,18 @@ def _scored(doctor, repeat, items, case="c01", dim="D1", cond="with_memory", con
 
 def test_hit_rates_mean_and_range_over_repeats():
     scored = [
-        _scored("dr.ting", 0, {"a": True, "b": True}),
-        _scored("dr.ting", 0, {"a": True, "b": False}, case="c02"),
-        _scored("dr.ting", 1, {"a": False, "b": False}),
-        _scored("dr.ting", 1, {"a": False, "b": False}, case="c02"),
-        _scored("dr.ting", 0, {"a": True}, cond="without_memory"),
+        _scored("dr.ting", 0, {"first_choice": True, "first_ask": True, "must_not_recommend": False}),
+        _scored("dr.ting", 0, {"first_choice": True, "first_ask": False}, case="c02"),
+        _scored("dr.ting", 1, {"first_choice": False, "first_ask": False, "must_not_recommend": True}),
+        _scored("dr.ting", 1, {"first_choice": False, "first_ask": False}, case="c02"),
+        _scored("dr.ting", 0, {"first_choice": True}, cond="without_memory"),
+        _scored("dr.ting", 0, {"must_not_recommend": False, "no_memory_use": False}, dim="none"),
     ]
     out = hit_rates(scored)
     r = out["dr.ting|D1|with_memory"]
     assert r == {"mean": 0.375, "min": 0.0, "max": 0.75, "n": 4}
     assert out["dr.ting|D1|without_memory"] == {"mean": 1.0, "min": 1.0, "max": 1.0, "n": 1}
+    assert not [k for k in out if "|none|" in k]
     json.dumps(out)
 
 
@@ -213,6 +278,7 @@ def test_distinctness_flags_a_clone_following_another_doctor():
         _scored("dr.ting", 1, {"first_choice": True, "must_not_recommend": True}, conflicts=["first_choice"]),
         _scored("dr.patel", 0, {"first_choice": False}),
         _scored("dr.patel", 0, {"first_choice": True}, cond="without_memory"),
+        _scored("dr.ting", 0, {"no_memory_use": True}, case="c22", dim="none"),
     ]
     out = distinctness(scored)
     assert out["c01|dr.ting"] == {"distinct": 0.5, "n": 2}
