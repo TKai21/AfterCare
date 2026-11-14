@@ -309,3 +309,57 @@ async def test_stale_after_patient_uploads_new_document(client, fake_llm):
     await upload_text(client, h, fake_llm, text="A brand new discharge document.")
     (e,) = (await client.get("/api/doctor/guidance", headers=dh)).json()["entries"]
     assert e["stale"] is True
+
+
+async def test_answer_lost_race_hits_conditional_update_409(client, fake_llm):
+    """The answer lands between the handler's read and its UPDATE: only the
+    UPDATE's rowcount can catch it."""
+    from datetime import datetime
+    from sqlalchemy import update
+    from models import CareTeamQuestion
+    import routes_doctor
+
+    h, doc, qid = await asked(client, fake_llm)
+    dh = await doctor_headers(client)
+    original_get = routes_doctor.AsyncSession.get
+
+    async def get_then_answer(self, entity, ident, *a, **k):
+        row = await original_get(self, entity, ident, *a, **k)
+        if entity is CareTeamQuestion:
+            async with client.app.state.session_factory() as other:
+                await other.execute(update(CareTeamQuestion).where(CareTeamQuestion.id == ident).values(
+                    answer="Rival answer", answered_at=datetime(2026, 1, 1), status="answered"))
+                await other.commit()
+        return row
+
+    routes_doctor.AsyncSession.get = get_then_answer
+    try:
+        resp = await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh, json=answer_body())
+    finally:
+        routes_doctor.AsyncSession.get = original_get
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "This question already has an answer."
+    assert await entries(client) == []
+
+
+async def test_queue_loads_each_document_once(client, fake_llm):
+    h = await auth_headers(client)
+    doc = (await upload_text(client, h, fake_llm)).json()
+    for item in doc["items"]:
+        await client.post(f"/api/documents/active/items/{item['id']}/reject", headers=h)
+    dh = await doctor_headers(client)
+    import routes_doctor
+    calls = []
+    real = routes_doctor.load_items
+
+    async def counting(session, d):
+        calls.append(d.id)
+        return await real(session, d)
+
+    routes_doctor.load_items = counting
+    try:
+        data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    finally:
+        routes_doctor.load_items = real
+    assert len(data["open"]) >= 2
+    assert calls == [doc["id"]]

@@ -81,24 +81,19 @@ async def doctor_names(session: AsyncSession, questions) -> dict[int, str]:
     return {u.id: u.display_name or u.username for u in rows}
 
 
-async def queue_item(
-    session: AsyncSession, q: CareTeamQuestion, patient: User, names: dict[int, str]
-) -> dict:
-    item = question_view(q, names)
-    item["patient"] = {"id": patient.id, "username": patient.username}
+async def document_context(session: AsyncSession, document_id: int | None) -> dict:
     context: dict = {"document_paragraphs": None, "confirmed_items": [], "conversation": []}
-    doc = await session.get(DischargeDocument, q.document_id) if q.document_id else None
-    if doc is not None:
-        items = await load_items(session, doc)
-        context = {
-            "document_paragraphs": paragraphs(doc.text or ""),
-            "confirmed_items": [
-                {"category": i.category, "text": i.text} for i in items if i.status != "rejected"
-            ],
-            "conversation": await recent_history(session, doc.id),
-        }
-    item["context"] = context
-    return item
+    doc = await session.get(DischargeDocument, document_id) if document_id else None
+    if doc is None:
+        return context
+    items = await load_items(session, doc)
+    return {
+        "document_paragraphs": paragraphs(doc.text or ""),
+        "confirmed_items": [
+            {"category": i.category, "text": i.text} for i in items if i.status != "rejected"
+        ],
+        "conversation": await recent_history(session, doc.id),
+    }
 
 
 @router.get("/api/doctor/questions")
@@ -122,10 +117,19 @@ async def list_questions(
         for u in await session.scalars(select(User).where(User.id.in_({q.user_id for q in rows})))
     } if rows else {}
     names = await doctor_names(session, rows)
-    return {
-        "open": [await queue_item(session, q, patients[q.user_id], names) for q in open_rows],
-        "answered": [await queue_item(session, q, patients[q.user_id], names) for q in answered_rows],
-    }
+    contexts: dict[int | None, dict] = {}
+    for q in rows:
+        if q.document_id not in contexts:
+            contexts[q.document_id] = await document_context(session, q.document_id)
+
+    def item(q: CareTeamQuestion) -> dict:
+        patient = patients[q.user_id]
+        view = question_view(q, names)
+        view["patient"] = {"id": patient.id, "username": patient.username}
+        view["context"] = contexts[q.document_id]
+        return view
+
+    return {"open": [item(q) for q in open_rows], "answered": [item(q) for q in answered_rows]}
 
 
 async def cited_counts(session: AsyncSession) -> dict[int, int]:
@@ -207,9 +211,6 @@ async def answer_question(
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
     if body.general and not drug_tags and not condition_tags:
         raise HTTPException(status_code=422, detail=GENERAL_TAG_ERROR)
-    conflict = HTTPException(status_code=409, detail="This question already has an answer.")
-    if q.answer is not None:
-        raise conflict
     # Only one concurrent answer can match "answer IS NULL" and win.
     result = await session.execute(
         update(CareTeamQuestion)
@@ -224,7 +225,7 @@ async def answer_question(
     )
     if result.rowcount != 1:
         await session.rollback()
-        raise conflict
+        raise HTTPException(status_code=409, detail="This question already has an answer.")
     entry = DoctorGuidance(
         doctor_id=doctor.id,
         question=(body.saved_question or q.question) if body.general else q.question,
