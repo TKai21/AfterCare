@@ -176,18 +176,21 @@
     });
 
     document.getElementById('username').textContent = state.username;
-    try {
-      const me = await api('/api/me');
-      if (me.role === 'doctor') { window.location.replace('/doctor'); return; }
-      state.username = me.username;
-      document.getElementById('username').textContent = me.username;
-      state.document = await loadDocument();
-      state.ready = true;
-      render();
-      refreshCareTeam();
-    } catch (error) {
-      if (error.status !== 401) renderFatal(error.message);
+    async function boot() {
+      try {
+        const me = await api('/api/me');
+        if (me.role === 'doctor') { window.location.replace('/doctor'); return; }
+        state.username = me.username;
+        document.getElementById('username').textContent = me.username;
+        state.document = await loadDocument();
+        state.ready = true;
+        render();
+        refreshCareTeam();
+      } catch (error) {
+        if (error.status !== 401) renderFatal(error.message);
+      }
     }
+    boot();
   </script>
 </body>
 </html>
