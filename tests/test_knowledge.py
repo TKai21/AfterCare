@@ -319,6 +319,17 @@ async def test_retrieve_filters_labels_before_ranking(tmp_path):
     assert got[0]["source_id"] == "dailymed-rxcui-2683"
 
 
+async def test_retrieve_with_every_document_filtered_out_is_empty(tmp_path):
+    """Only label documents, none of them the patient's: no rows reach scoring."""
+    store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM(), min_similarity=0.0)
+    await store.add(record("dailymed-rxcui-2683", "Colchicine gout flare dose.", topic="Medications",
+                           url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc")
+                    | {"rxcui": "2683"})
+    assert await store.retrieve("colchicine gout flare dose", rxcuis=()) == []
+    assert await store.retrieve("colchicine gout flare dose", rxcuis={"7258"}) == []
+    assert len(await store.retrieve("colchicine gout flare dose", rxcuis={"2683"})) == 1
+
+
 async def test_prune_labels_keeps_listed_rxcuis_and_manifest_sources(tmp_path):
     store = KnowledgeStore(tmp_path / "index.sqlite3", FakeLLM())
     label_url = "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc"

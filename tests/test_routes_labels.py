@@ -443,3 +443,33 @@ async def test_list_shows_medications_still_being_looked_up(client, fake_llm):
         await session.commit()
     (entry,) = (await client.get("/api/doctor/labels", headers=doctor)).json()["unresolved"]
     assert (entry["id"], entry["status"]) == (drug.id, "fetching")
+
+
+async def test_patient_without_the_drug_or_a_confirmed_document_gets_no_label(client, fake_llm):
+    """Review Focus 3: an approved colchicine label never reaches a patient whose
+    confirmed document lacks it (their set is empty), while manifest passages
+    still do; a patient without a confirmed document cannot ask at all."""
+    _, _, doctor = await setup(client, fake_llm)
+    colchicine = await label_by_ingredient(client, "colchicine")
+    assert (await review(client, colchicine, "approve", doctor)).status_code == 200
+    await client.app.state.store.add({
+        "id": "medlineplus-gout", "title": "Gout", "url": "https://medlineplus.gov/gout.html",
+        "topic": "Gout", "collected_at": "2026-11-14", "sha256": "0",
+        "text": "Gout flares: colchicine dosage and other medicines for gout flares."})
+    stone_doc, stone = await confirm_meds(client, fake_llm, "stone-patient", med("Tamsulosin", "0.4 mg"))
+    async with client.app.state.session_factory() as session:
+        assert await patient_rxcuis(session, stone_doc) == frozenset()  # tamsulosin still pending
+    passages = await library_passages(client, fake_llm, stone)
+    assert [p["url"] for p in passages] == ["https://medlineplus.gov/gout.html"]
+
+    pending = await auth_headers(client, "pending-patient")
+    fake_llm.script({"content": json.dumps({"discharge_date": "2026-03-02", "items": [GOUT[0]]})})
+    up = await client.post("/api/documents", data={"text": "Discharge date: 2026-03-02\n\nTake Colchicine 0.6 mg"},
+                           headers=pending)
+    assert up.status_code == 200, up.text
+    nobody = await auth_headers(client, "no-document-patient")
+    for headers in (pending, nobody):
+        before = len(fake_llm.calls)
+        resp = await post_ask(client, headers, "How much colchicine should I take?")
+        assert resp.status_code == 409
+        assert len(fake_llm.calls) == before  # no model turn, so no library search

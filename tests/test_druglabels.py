@@ -347,3 +347,78 @@ async def test_approved_label_records_build_library_records(tmp_path):
         "topic": "Medications", "text": "Label text.", "sha256": "1" * 64,
         "collected_at": "2026-11-14T01:02:03", "rxcui": "2683",
     }]
+
+
+LABEL_XML = """<document xmlns="urn:hl7-org:v3"><component><structuredBody><component><section>
+<code code="34068-7"/><title>DOSAGE AND ADMINISTRATION</title><text><paragraph>Take {name} as directed.</paragraph>
+</text></section></component></structuredBody></component></document>"""
+
+
+def services(ingredients, spls, strength="9001"):
+    """A MockTransport for one medication: approximateTerm gives `strength`, which
+    relates to `ingredients` [(rxcui, name)]; `spls` maps an rxcui to its label list
+    (or to an int status). Records the rxcuis whose labels were asked for."""
+    asked = []
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith("approximateTerm.json"):
+            return httpx.Response(200, json={"approximateGroup": {"candidate": [{"rxcui": strength}]}})
+        if path.endswith("related.json"):
+            return httpx.Response(200, json={"relatedGroup": {"conceptGroup": [{"tty": "IN", "conceptProperties": [
+                {"rxcui": rxcui, "name": name} for rxcui, name in ingredients]}]}})
+        if path.endswith("spls.json"):
+            rxcui = request.url.params["rxcui"]
+            asked.append(rxcui)
+            found = spls.get(rxcui, [])
+            if isinstance(found, int):
+                return httpx.Response(found)
+            return httpx.Response(200, json={"data": [
+                {"setid": setid, "title": title, "published_date": "Nov 09, 2026"} for setid, title in found]})
+        setid = path.rsplit("/", 1)[-1].removesuffix(".xml")
+        return httpx.Response(200, text=LABEL_XML.format(name=setid))
+
+    transport = httpx.MockTransport(handler)
+    transport.asked = asked
+    return transport
+
+
+async def test_combination_product_gives_one_row_and_label_per_ingredient(client, fake_llm):
+    """Spec 13.3: a combination pill has a document_drugs row and a label per
+    ingredient, and the patient's set holds every ingredient. Strength-level
+    labels are not used for a combination."""
+    transport = services(
+        [("5489", "hydrocodone"), ("161", "acetaminophen")],
+        {"5489": [("set-h", "HYDROCODONE BITARTRATE TABLET [A]")],
+         "161": [("set-a", "ACETAMINOPHEN TABLET [B]")]})
+    client.app.state.label_client = LabelClient(transport)
+    doc_id, _ = await confirm_meds(client, fake_llm, "alice", med("Norco", "5-325 mg"))
+    await client.app.state.label_client.aclose()
+    drugs = await rows(client, DocumentDrug)
+    assert [(d.name, d.rxcui, d.status) for d in drugs] == [
+        ("Norco", "5489", "resolved"), ("Norco", "161", "resolved")]
+    assert drugs[0].extracted_item_id == drugs[1].extracted_item_id
+    labels = await rows(client, DrugLabel)
+    assert [(l.rxcui, l.ingredient, l.status, l.setid) for l in labels] == [
+        ("5489", "hydrocodone", "pending", "set-h"), ("161", "acetaminophen", "pending", "set-a")]
+    assert transport.asked == ["5489", "161"]  # never the strength rxcui 9001
+    await set_label_status(client, "5489", "approved")
+    await set_label_status(client, "161", "approved")
+    async with client.app.state.session_factory() as session:
+        assert await patient_rxcuis(session, doc_id) == frozenset({"5489", "161"})
+
+
+@pytest.mark.parametrize("strength_answer, asked, setid", [
+    ([("set-s", "COLCHICINE TABLET [S]")], ["9001"], "set-s"),  # strength labels win
+    ([], ["9001", "2683"], "set-i"),                              # none: the ingredient's
+    (500, ["9001", "2683"], "set-i"),                             # error: the ingredient's
+])
+async def test_strength_candidates_fall_back_to_the_ingredient(client, fake_llm, strength_answer, asked, setid):
+    transport = services([("2683", "colchicine")],
+                         {"9001": strength_answer, "2683": [("set-i", "COLCHICINE TABLET [I]")]})
+    client.app.state.label_client = LabelClient(transport)
+    await confirm_meds(client, fake_llm, "alice", med("Colchicine", "0.6 mg"))
+    await client.app.state.label_client.aclose()
+    (label,) = await rows(client, DrugLabel)
+    assert (label.status, label.setid) == ("pending", setid)
+    assert transport.asked == asked
