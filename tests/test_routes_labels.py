@@ -4,12 +4,16 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import update
 
+from app import create_app
+from config import Settings
 from conftest import auth_headers, doctor_headers
+from db import init_db, make_engine, make_session_factory
 from druglabels import DEMO_LABELS, LabelClient, failing_transport, fixture_transport, patient_rxcuis
+from knowledge import KnowledgeStore
 from llm import LLMError
-from models import DischargeDocument, DocumentDrug, DrugLabel
+from models import DocumentDrug, DrugLabel
 from test_routes_agent import answer, post_ask, tool, tool_results
 from test_druglabels import GOUT, confirm_meds, json_transport, med, rows
 
@@ -69,6 +73,7 @@ async def test_list_shows_pending_with_sources(client, fake_llm):
         "candidates", "sources", "reviewed_by_name", "reviewed_at"}
     assert colchicine["status"] == "pending" and colchicine["rxcui"] == "2683"
     assert colchicine["setid"] == COLCHICINE_SETID
+    assert (colchicine["labeler"], colchicine["published"]) == ("A-S MEDICATION SOLUTIONS", "2026-11-09")
     # One DailyMed URL: the doctor's link is the page the library record cites.
     assert colchicine["url"] == f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={COLCHICINE_SETID}"
     assert colchicine["sources"] == [{"medication": "Take Colchicine 0.6 mg", "username": "gout-patient"}]
@@ -93,8 +98,8 @@ async def test_list_orders_pending_first_and_hides_old_closed(client, fake_llm):
     assert ids == [colchicine.id]
 
 
-async def test_list_shows_unresolved_drugs(client, fake_llm):
-    client.app.state.label_client = LabelClient(failing_transport())
+async def test_list_shows_unresolved_drugs(client, fake_llm, swap_labels):
+    swap_labels(failing_transport())
     _, _, doctor = await setup(client, fake_llm)
     data = (await client.get("/api/doctor/labels", headers=doctor)).json()
     assert data["labels"] == []
@@ -219,10 +224,10 @@ async def test_pick_candidate_on_rejected_refetches(client, fake_llm):
     assert (await label_by_ingredient(client, "colchicine")).setid == HIKMA_SETID
 
 
-async def test_pick_candidate_validates_setid_before_any_outside_call(client, fake_llm):
+async def test_pick_candidate_validates_setid_before_any_outside_call(client, fake_llm, swap_labels):
     _, _, doctor = await setup(client, fake_llm)
     colchicine = await label_by_ingredient(client, "colchicine")
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     resp = await client.post(f"/api/doctor/labels/{colchicine.id}/candidate",
                              json={"setid": "../../etc/passwd"}, headers=doctor)
     assert resp.status_code == 422
@@ -252,9 +257,9 @@ async def test_retry_label_only_failed_or_no_label(client, fake_llm):
     assert resp.status_code == 200 and resp.json()["status"] == "pending" and resp.json()["error"] is None
 
 
-async def test_retry_failed_document_drug_resolves(client, fake_llm):
+async def test_retry_failed_document_drug_resolves(client, fake_llm, swap_labels):
     real = client.app.state.label_client
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     _, _, doctor = await setup(client, fake_llm, med("Colchicine", "0.6 mg"))
     (drug,) = await rows(client, DocumentDrug)
     assert drug.status == "failed"
@@ -269,12 +274,12 @@ async def test_retry_failed_document_drug_resolves(client, fake_llm):
     assert (await client.post(path, headers=doctor)).status_code == 409
 
 
-async def test_retry_document_drug_still_failing_shows_the_new_error(client, fake_llm):
-    client.app.state.label_client = LabelClient(failing_transport())
+async def test_retry_document_drug_still_failing_shows_the_new_error(client, fake_llm, swap_labels):
+    swap_labels(failing_transport())
     _, _, doctor = await setup(client, fake_llm, med("Colchicine", "0.6 mg"))
     (drug,) = await rows(client, DocumentDrug)
     first_error = drug.error
-    client.app.state.label_client = LabelClient(httpx.MockTransport(lambda request: httpx.Response(500)))
+    swap_labels(httpx.MockTransport(lambda request: httpx.Response(500)))
     resp = await client.post(f"/api/doctor/document-drugs/{drug.id}/retry", headers=doctor)
     assert resp.status_code == 200, resp.text
     (entry,) = resp.json()["unresolved"]
@@ -283,13 +288,13 @@ async def test_retry_document_drug_still_failing_shows_the_new_error(client, fak
     assert entry["error"] == drug.error
 
 
-async def test_retry_document_drug_that_turns_unresolved_shows_it(client, fake_llm):
-    client.app.state.label_client = LabelClient(failing_transport())
+async def test_retry_document_drug_that_turns_unresolved_shows_it(client, fake_llm, swap_labels):
+    swap_labels(failing_transport())
     _, _, doctor = await setup(client, fake_llm, med("Multivitamin"))
     (drug,) = await rows(client, DocumentDrug)
     assert drug.status == "failed"
     nothing = {"approximateTerm.json": {"approximateGroup": {"inputTerm": None}}}
-    client.app.state.label_client = LabelClient(json_transport(nothing))
+    swap_labels(json_transport(nothing))
     resp = await client.post(f"/api/doctor/document-drugs/{drug.id}/retry", headers=doctor)
     assert resp.status_code == 200, resp.text
     (entry,) = resp.json()["unresolved"]
@@ -327,10 +332,6 @@ async def test_review_needs_the_setid(client, fake_llm):
 async def test_startup_drops_library_labels_that_are_not_approved(tmp_path, fake_llm):
     """The store and the database can drift (a restored index, a label row reset by
     the seed): on startup every label document without an approved row leaves."""
-    from app import create_app
-    from config import Settings
-    from db import init_db, make_engine, make_session_factory
-    from knowledge import KnowledgeStore
 
     url = f"sqlite+aiosqlite:///{tmp_path / 'app.db'}"
     engine = make_engine(url)
@@ -356,15 +357,14 @@ async def test_startup_drops_library_labels_that_are_not_approved(tmp_path, fake
         assert sorted(d["id"] for d in store.status()["documents"]) == ["dailymed-rxcui-2683", "gout"]
 
 
-async def test_failed_pick_is_retried_with_the_chosen_label(client, fake_llm):
+async def test_failed_pick_is_retried_with_the_chosen_label(client, fake_llm, swap_labels):
     """A pick that fails keeps the doctor's choice, and Try again fetches that one."""
     _, _, doctor = await setup(client, fake_llm)
     colchicine = await label_by_ingredient(client, "colchicine")
     path = f"/api/doctor/labels/{colchicine.id}"
     real = client.app.state.label_client
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     resp = await client.post(f"{path}/candidate", json={"setid": HIKMA_SETID}, headers=doctor)
-    await client.app.state.label_client.aclose()
     assert resp.status_code == 200, resp.text
     view = resp.json()
     assert (view["status"], view["setid"], view["text"]) == ("failed", HIKMA_SETID, None)
@@ -396,12 +396,11 @@ async def upload_new_document(client, fake_llm, headers):
     assert resp.status_code == 200, resp.text
 
 
-async def test_list_shows_only_confirmed_documents(client, fake_llm):
+async def test_list_shows_only_confirmed_documents(client, fake_llm, swap_labels):
     """Sources and problem rows of an archived document are stale and not shown."""
     _, patient, doctor = await setup(client, fake_llm)
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     _, other = await confirm_meds(client, fake_llm, "other-patient", med("Ibuprofen", "600 mg"))
-    await client.app.state.label_client.aclose()
     data = (await client.get("/api/doctor/labels", headers=doctor)).json()
     assert [l["sources"] for l in data["labels"] if l["ingredient"] == "colchicine"] == [
         [{"medication": "Take Colchicine 0.6 mg", "username": "gout-patient"}]]
@@ -423,13 +422,12 @@ async def test_sources_show_the_document_line(client, fake_llm):
     assert label["sources"] == [{"medication": quote, "username": "gout-patient"}]
 
 
-async def test_problem_rows_carry_the_medication_name(client, fake_llm):
+async def test_problem_rows_carry_the_medication_name(client, fake_llm, swap_labels):
     quote = "Colchicine 0.6 mg by mouth twice daily."
     item = {"category": "medication", "text": "Take colchicine twice a day.",
             "source_quote": quote, "details": {"name": "Colchicine", "dose": "0.6 mg"}}
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     _, _, doctor = await setup(client, fake_llm, item)
-    await client.app.state.label_client.aclose()
     (entry,) = (await client.get("/api/doctor/labels", headers=doctor)).json()["unresolved"]
     assert set(entry) == {"id", "name", "medication", "username", "status", "error"}
     assert (entry["name"], entry["medication"], entry["status"]) == ("Colchicine", quote, "failed")

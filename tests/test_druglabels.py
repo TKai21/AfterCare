@@ -1,9 +1,21 @@
+import json
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import select, update
 
-from druglabels import LabelClient, LabelServiceError, failing_transport, fixture_transport
+import config
+from app import create_app
+from config import Settings
+from conftest import auth_headers
+from db import init_db, make_engine, make_session_factory
+from druglabels import (
+    INTERRUPTED, LABEL_SECTIONS, LabelClient, LabelServiceError, approved_label_records,
+    failing_transport, fixture_transport, mark_interrupted, patient_rxcuis, resolve_document_drug,
+)
+from models import ChecklistItem, DocumentDrug, DrugLabel
 
 FIXTURES = Path(__file__).resolve().parent.parent / "demo" / "labels"
 
@@ -143,7 +155,6 @@ async def test_label_text_has_interactions_and_patient_counseling(labels):
 
 
 def test_label_sections_cover_the_spec_list():
-    from druglabels import LABEL_SECTIONS
     # Boxed warning, dosage, contraindications, warnings (both kinds), drug
     # interactions, adverse reactions, patient counseling (both codes).
     assert {"34066-1", "34068-7", "34070-3", "34071-1", "43685-7", "34073-7", "34084-4",
@@ -185,16 +196,6 @@ async def test_only_names_leave_the_server():
 
 # ---------- confirm hook and background jobs ----------
 
-import json as _json
-
-from sqlalchemy import select, update
-
-from conftest import auth_headers
-from druglabels import (
-    DEMO_LABELS, INTERRUPTED, mark_interrupted, patient_rxcuis, resolve_document_drug,
-)
-from models import DischargeDocument, DocumentDrug, DrugLabel
-
 
 def med(name, dose=None):
     details = {"name": name}
@@ -210,7 +211,7 @@ def doc_text(*meds):
 
 async def confirm_meds(http, fake_llm, username, *meds):
     h = await auth_headers(http, username)
-    fake_llm.script({"content": _json.dumps({"discharge_date": "2026-03-02", "items": list(meds)})})
+    fake_llm.script({"content": json.dumps({"discharge_date": "2026-03-02", "items": list(meds)})})
     up = await http.post("/api/documents", data={"text": doc_text(*meds)}, headers=h)
     assert up.status_code == 200, up.text
     resp = await http.post("/api/documents/active/confirm", json={}, headers=h)
@@ -237,13 +238,16 @@ async def test_confirm_resolves_medications(client, fake_llm):
     assert all(l.title and l.text and l.setid and l.sha256 and l.url for l in labels)
 
 
-async def test_confirm_succeeds_when_services_down(client, fake_llm):
-    client.app.state.label_client = LabelClient(failing_transport())
+async def test_confirm_succeeds_when_services_down(client, fake_llm, swap_labels):
+    swap_labels(failing_transport())
     doc_id, _ = await confirm_meds(client, fake_llm, "alice", *GOUT)
     drugs = await rows(client, DocumentDrug)
     assert [d.status for d in drugs] == ["failed", "failed"]
     assert all(d.error for d in drugs)
     assert await rows(client, DrugLabel) == []
+    # The confirm itself went through: the checklist was generated.
+    checklist = [c for c in await rows(client, ChecklistItem) if c.document_id == doc_id]
+    assert checklist
 
 
 async def set_label_status(http, rxcui, status):
@@ -273,18 +277,18 @@ async def test_rejected_ingredient_not_requeued(client, fake_llm):
     assert [d.status for d in await rows(client, DocumentDrug)] == ["resolved", "resolved"]
 
 
-async def test_unresolvable_name_is_unresolved(client, fake_llm):
+async def test_unresolvable_name_is_unresolved(client, fake_llm, swap_labels):
     nothing = {"approximateTerm.json": {"approximateGroup": {"inputTerm": None}}}
-    client.app.state.label_client = LabelClient(json_transport(nothing))
+    swap_labels(json_transport(nothing))
     await confirm_meds(client, fake_llm, "alice", med("Multivitamin"))
     (drug,) = await rows(client, DocumentDrug)
     assert (drug.status, drug.rxcui) == ("unresolved", None)
     assert await rows(client, DrugLabel) == []
 
 
-async def test_retry_resolves_a_failed_row(client, fake_llm):
+async def test_retry_resolves_a_failed_row(client, fake_llm, swap_labels):
     real = client.app.state.label_client
-    client.app.state.label_client = LabelClient(failing_transport())
+    swap_labels(failing_transport())
     await confirm_meds(client, fake_llm, "alice", med("Colchicine", "0.6 mg"))
     (drug,) = await rows(client, DocumentDrug)
     assert drug.status == "failed"
@@ -298,7 +302,7 @@ async def test_patient_rxcuis_empty_without_confirmed_document(client, fake_llm)
     async with client.app.state.session_factory() as session:
         assert await patient_rxcuis(session, None) == frozenset()
     h = await auth_headers(client, "alice")
-    fake_llm.script({"content": _json.dumps({"discharge_date": "2026-03-02", "items": [GOUT[0]]})})
+    fake_llm.script({"content": json.dumps({"discharge_date": "2026-03-02", "items": [GOUT[0]]})})
     up = await client.post("/api/documents", data={"text": doc_text(GOUT[0])}, headers=h)
     async with client.app.state.session_factory() as session:
         assert await patient_rxcuis(session, up.json()["id"]) == frozenset()
@@ -338,8 +342,8 @@ async def test_no_real_network_in_default_app_client(client):
     assert isinstance(transport, httpx.MockTransport)
 
 
-async def test_missing_name_is_unresolved_without_lookup(client, fake_llm):
-    client.app.state.label_client = LabelClient(failing_transport())
+async def test_missing_name_is_unresolved_without_lookup(client, fake_llm, swap_labels):
+    swap_labels(failing_transport())
     unnamed = {"category": "medication", "text": "Take your pills.", "source_quote": "Take your pills.", "details": {}}
     await confirm_meds(client, fake_llm, "alice", unnamed)
     (drug,) = await rows(client, DocumentDrug)
@@ -347,9 +351,6 @@ async def test_missing_name_is_unresolved_without_lookup(client, fake_llm):
 
 
 async def test_approved_label_records_build_library_records(tmp_path):
-    from datetime import datetime
-    from db import init_db, make_engine, make_session_factory
-    from druglabels import approved_label_records
 
     url = f"sqlite+aiosqlite:///{tmp_path / 'labels.db'}"
     engine = make_engine(url)
@@ -408,7 +409,7 @@ def services(ingredients, spls, strength="9001"):
     return transport
 
 
-async def test_combination_product_gives_one_row_and_label_per_ingredient(client, fake_llm):
+async def test_combination_product_gives_one_row_and_label_per_ingredient(client, fake_llm, swap_labels):
     """Spec 13.3: a combination pill has a document_drugs row and a label per
     ingredient, and the patient's set holds every ingredient. Strength-level
     labels are not used for a combination."""
@@ -416,9 +417,8 @@ async def test_combination_product_gives_one_row_and_label_per_ingredient(client
         [("5489", "hydrocodone"), ("161", "acetaminophen")],
         {"5489": [("set-h", "HYDROCODONE BITARTRATE TABLET [A]")],
          "161": [("set-a", "ACETAMINOPHEN TABLET [B]")]})
-    client.app.state.label_client = LabelClient(transport)
+    swap_labels(transport)
     doc_id, _ = await confirm_meds(client, fake_llm, "alice", med("Norco", "5-325 mg"))
-    await client.app.state.label_client.aclose()
     drugs = await rows(client, DocumentDrug)
     assert [(d.name, d.rxcui, d.status) for d in drugs] == [
         ("Norco", "5489", "resolved"), ("Norco", "161", "resolved")]
@@ -438,12 +438,11 @@ async def test_combination_product_gives_one_row_and_label_per_ingredient(client
     ([], ["9001", "2683"], "set-i"),                              # none: the ingredient's
     (500, ["9001", "2683"], "set-i"),                             # error: the ingredient's
 ])
-async def test_strength_candidates_fall_back_to_the_ingredient(client, fake_llm, strength_answer, asked, setid):
+async def test_strength_candidates_fall_back_to_the_ingredient(client, fake_llm, strength_answer, asked, setid, swap_labels):
     transport = services([("2683", "colchicine")],
                          {"9001": strength_answer, "2683": [("set-i", "COLCHICINE TABLET [I]")]})
-    client.app.state.label_client = LabelClient(transport)
+    swap_labels(transport)
     await confirm_meds(client, fake_llm, "alice", med("Colchicine", "0.6 mg"))
-    await client.app.state.label_client.aclose()
     (label,) = await rows(client, DrugLabel)
     assert (label.status, label.setid) == ("pending", setid)
     assert transport.asked == asked
@@ -452,9 +451,6 @@ async def test_strength_candidates_fall_back_to_the_ingredient(client, fake_llm,
 async def test_label_fixtures_switch_is_off_by_default(monkeypatch):
     """LABEL_FIXTURES=1 serves demo/labels instead of the real services, for a
     local browser check; production defaults never do."""
-    import config
-    from app import create_app
-    from config import Settings
 
     assert Settings().label_fixtures is False
     for value, expected in (("1", True), ("", False)):

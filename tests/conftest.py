@@ -64,3 +64,21 @@ async def file_client(fake_llm, tmp_path):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             c.app = app
             yield c
+
+
+@pytest_asyncio.fixture
+async def swap_labels(client):
+    """swap_labels(transport) gives the app a new label client on `transport`.
+    Every client made this way is closed at teardown and the original comes back."""
+    original = client.app.state.label_client
+    made = []
+
+    def swap(transport):
+        made.append(LabelClient(transport))
+        client.app.state.label_client = made[-1]
+        return made[-1]
+
+    yield swap
+    client.app.state.label_client = original
+    for label_client in made:
+        await label_client.aclose()
