@@ -15,12 +15,16 @@ document paragraph; the script checks this before writing anything.
 --confirm runs the confirm route's own function, so the checklist is generated
 exactly as when the patient presses Confirm. Confirmed documents then have their
 drugs resolved to pending FDA labels from the recorded fixtures in demo/labels,
-never from the network, so a doctor can review them at /doctor#labels. Resetting deletes everything the
-demo users own (documents, checklist, conversation, care-team questions) and the
-guidance tied to them, and leaves every other user alone.
+never from the network, so a doctor can review them at /doctor#labels.
+
+Resetting deletes everything the demo users own (documents, their drugs,
+checklist, conversation, care-team questions) and the guidance tied to them,
+and leaves every other user alone. It also resets the demo drugs' labels (in
+the database and in the library index), so every run starts with them pending.
 """
 import argparse
 import asyncio
+import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -40,7 +44,7 @@ from documents import paragraphs  # noqa: E402
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport, resolve_document  # noqa: E402
 from models import (  # noqa: E402
     CareTeamQuestion, ChatMessage, ChecklistCompletion, ChecklistItem,
-    DischargeDocument, DoctorGuidance, DocumentFile, ExtractedItem, User,
+    DischargeDocument, DoctorGuidance, DocumentDrug, DocumentFile, DrugLabel, ExtractedItem, User,
 )
 import routes_documents  # noqa: E402
 from generate_demo import load_case, long_date, render_pdf, render_text  # noqa: E402
@@ -57,6 +61,11 @@ DOCTORS = [  # (username, display name); all share DOCTOR_PASSWORD
     ("dr.renny", "Dr. Aaron Renny"),
     ("dr.patel", "Dr. Parin Patel"),
 ]
+
+# Ingredient RxCUIs of the demo medications (colchicine, naproxen, tamsulosin,
+# ibuprofen in demo/labels). Their labels are reset on every run, so the
+# walkthrough always starts with them pending.
+DEMO_RXCUIS = frozenset({"2683", "7258", "77492", "5640"})
 
 # Everything below is INVENTED for the demo. Dr. Ting Kai is fictional and none of
 # this is medical advice; the numbers are plausible but made up.
@@ -212,6 +221,7 @@ async def reset_user(session, username: str, password: str) -> User:
             delete(ChecklistCompletion).where(ChecklistCompletion.checklist_item_id.in_(item_ids))
         )
         await session.execute(delete(ChecklistItem).where(ChecklistItem.document_id.in_(doc_ids)))
+        await session.execute(delete(DocumentDrug).where(DocumentDrug.document_id.in_(doc_ids)))
         await session.execute(delete(ExtractedItem).where(ExtractedItem.document_id.in_(doc_ids)))
         await session.execute(delete(ChatMessage).where(ChatMessage.document_id.in_(doc_ids)))
         await session.execute(delete(DocumentFile).where(DocumentFile.document_id.in_(doc_ids)))
@@ -223,6 +233,27 @@ async def reset_user(session, username: str, password: str) -> User:
     session.add(user)
     await session.flush()
     return user
+
+
+async def reset_demo_labels(session) -> None:
+    """Delete the demo ingredients' label rows, so they are fetched again as pending."""
+    await session.execute(delete(DrugLabel).where(DrugLabel.rxcui.in_(DEMO_RXCUIS)))
+
+
+def remove_demo_labels_from_store(store_path: Path | None) -> None:
+    """Delete the demo labels from the library index, when the file exists (the
+    server also drops labels without an approved row when it starts)."""
+    if store_path is None or not store_path.is_file():
+        return
+    ids = [f"dailymed-rxcui-{rxcui}" for rxcui in sorted(DEMO_RXCUIS)]
+    db = sqlite3.connect(store_path, timeout=30)
+    try:
+        with db:
+            db.execute("PRAGMA foreign_keys=ON")
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'").fetchone():
+                db.executemany("DELETE FROM documents WHERE id=?", [(i,) for i in ids])
+    finally:
+        db.close()
 
 
 async def add_document(session, user: User, case: str, filename: str, text: str,
@@ -333,10 +364,12 @@ async def seed_guidance(session, llm, doctors: dict[str, User], demo: User, demo
     return embedded
 
 
-async def run_seed(database_url: str, llm, confirm: bool, label_client: LabelClient | None = None) -> bool:
+async def run_seed(database_url: str, llm, confirm: bool, label_client: LabelClient | None = None,
+                   store_path: Path | None = None) -> bool:
     """Seed `database_url`. `llm` computes the guidance embeddings (None leaves the
     entries unsearchable). Confirmed documents get their drug labels resolved from
     `label_client`, by default the recorded fixtures in demo/labels (no network).
+    The demo labels are reset first, also in the library index at `store_path`.
     Returns True when every entry was embedded."""
     label_client = label_client or LabelClient(fixture_transport(DEMO_LABELS))
     discharge = date.today() - timedelta(days=2)
@@ -358,11 +391,13 @@ async def run_seed(database_url: str, llm, confirm: bool, label_client: LabelCli
             doc = await add_document(session, user, "kidney_stones", "kidney_stones_demo.pdf",
                                      text, discharge, items, UNVERIFIED)
             user2 = await reset_user(session, USERNAME2, PASSWORD2)
+            await reset_demo_labels(session)
             doc2 = await add_document(session, user2, "gout", "gout_demo.pdf",
                                       gout_text, discharge, gout_items, [])
             doctors = await ensure_doctors(session)
             embedded = await seed_guidance(session, llm, doctors, user, user2, doc, doc2)
             await session.commit()
+            remove_demo_labels_from_store(store_path)
             if confirm:
                 await routes_documents.confirm(user=user, session=session)
                 await resolve_document(session_factory, label_client, doc.id)
@@ -389,7 +424,9 @@ def main() -> None:
     confirm = parser.parse_args().confirm
     settings = get_settings()
     llm = LLMClient(settings) if settings.llm_model else None
-    asyncio.run(run_seed(settings.database_url, llm, confirm))
+    store_path = Path(settings.rag_db_path)
+    store_path = store_path if store_path.is_absolute() else ROOT / store_path
+    asyncio.run(run_seed(settings.database_url, llm, confirm, store_path=store_path))
 
 
 if __name__ == "__main__":

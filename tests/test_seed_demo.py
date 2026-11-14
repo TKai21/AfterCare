@@ -163,3 +163,52 @@ async def test_seed_records_demo_drugs_offline(tmp_path, monkeypatch):
             assert {l.status for l in labels} == {"pending"}
     finally:
         await engine.dispose()
+
+
+async def test_seed_twice_starts_with_pending_labels_and_no_orphans(tmp_path):
+    """A rerun deletes the demo documents' drug rows and resets the demo labels,
+    in the database and in the library store, so the walkthrough starts again."""
+    import sqlite3
+
+    from knowledge import KnowledgeStore
+    from models import DocumentDrug, DrugLabel
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'seed.db'}"
+    store_path = tmp_path / "index.sqlite3"
+    llm = FakeLLM()
+    await seed_demo.run_seed(url, llm, confirm=True, store_path=store_path)
+    store = KnowledgeStore(store_path, llm)
+    for source_id, rxcui in (("dailymed-rxcui-2683", "2683"), ("gout", None)):
+        await store.add({"id": source_id, "title": source_id, "url": "https://medlineplus.gov/gout.html",
+                         "topic": "Gout", "collected_at": "2026-11-14", "sha256": "0",
+                         "text": "Gout and colchicine text.", "rxcui": rxcui})
+    engine = make_engine(url)
+    async with make_session_factory(engine)() as s:
+        label = await s.scalar(select(DrugLabel).where(DrugLabel.rxcui == "2683"))
+        label.status = "approved"
+        await s.commit()
+    await engine.dispose()
+
+    await seed_demo.run_seed(url, llm, confirm=True, store_path=store_path)
+    engine = make_engine(url)
+    try:
+        async with make_session_factory(engine)() as s:
+            drugs = list(await s.scalars(select(DocumentDrug)))
+            doc_ids = set(await s.scalars(select(DischargeDocument.id)))
+            item_ids = set(await s.scalars(select(ExtractedItem.id)))
+            assert len(drugs) == 4
+            assert all(d.document_id in doc_ids and d.extracted_item_id in item_ids for d in drugs)
+            labels = list(await s.scalars(select(DrugLabel)))
+            assert {l.rxcui for l in labels} == seed_demo.DEMO_RXCUIS == {d.rxcui for d in drugs}
+            assert {l.status for l in labels} == {"pending"}
+    finally:
+        await engine.dispose()
+    assert [d["id"] for d in store.status()["documents"]] == ["gout"]
+    with sqlite3.connect(store_path) as db:
+        assert db.execute("SELECT count(*) FROM chunks WHERE document_id='dailymed-rxcui-2683'").fetchone()[0] == 0
+
+
+async def test_seed_without_a_store_file_creates_none(tmp_path):
+    url = f"sqlite+aiosqlite:///{tmp_path / 'seed.db'}"
+    await seed_demo.run_seed(url, FakeLLM(), confirm=False, store_path=tmp_path / "missing.sqlite3")
+    assert not (tmp_path / "missing.sqlite3").exists()
