@@ -1,0 +1,20 @@
+{
+  "dr.ting": {
+    "D1": {"text": "When the case allows, colchicine first for an acute gout flare.", "preferred": "colchicine"},
+    "D2": {"text": "Prefers a written individual flare plan in advance."},
+    "D3": {"text": "When a patient reports a side effect, first clarifies the timing between the symptom and the doses.", "first_ask": "timing"},
+    "D4": {"text": "When information is missing, asks about past experience with the drug.", "first_ask": "past_experience"}
+  },
+  "dr.patel": {
+    "D1": {"text": "When the case allows, an NSAID (naproxen) first for an acute gout flare.", "preferred": "naproxen"},
+    "D2": {"text": "Prefers the patient to call first, then confirm the plan."},
+    "D3": {"text": "When a patient reports a side effect, first reviews the full medication list and recent changes.", "first_ask": "medication_list"},
+    "D4": {"text": "When information is missing, asks about other conditions and other medicines.", "first_ask": "other_conditions"}
+  },
+  "dr.renny": {
+    "D1": {"text": "For an acute gout flare, the regimen that worked and was tolerated before.", "preferred": "past_effective"},
+    "D2": {"text": "Uses the existing individual plan when one exists and fits."},
+    "D3": {"text": "When a patient reports a side effect, first asks whether the same reaction happened before.", "first_ask": "past_reaction"},
+    "D4": {"text": "When information is missing, confirms the current prescription and existing plan.", "first_ask": "current_plan"}
+  }
+}

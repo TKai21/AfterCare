@@ -1,0 +1,726 @@
+[
+  {
+    "id": "c01",
+    "patient": "gout_both",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "My toe is starting to throb again tonight. Which of my medicines should I reach for first?",
+    "expected": {
+      "dr.ting": {
+        "first_choice": "colchicine",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_choice": "naproxen",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "refer_to_clinic": true,
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c02",
+    "patient": "gout_ckd_colchicine",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "The pain in my knee is coming back. What do you usually use first for a flare like this?",
+    "expected": {
+      "dr.ting": {
+        "first_choice": "colchicine",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "refer_to_clinic": true,
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "refer_to_clinic": true,
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c03",
+    "patient": "gout_naproxen",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "I think another flare is starting in my ankle. What does the doctor normally like to treat a flare with?",
+    "expected": {
+      "dr.ting": {
+        "refer_to_clinic": true,
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_choice": "naproxen",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "refer_to_clinic": true,
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c04",
+    "patient": "gout_prednisone_plan",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "I can feel a new flare starting in my toe. What should I use to treat it?",
+    "expected": {
+      "dr.ting": {
+        "refer_to_clinic": true,
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.patel": {
+        "refer_to_clinic": true,
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.renny": {
+        "first_choice": "prednisone",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c05",
+    "patient": "gout_ckd_both",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "My wrist flared up again this afternoon. Which pill is the best one to start with?",
+    "expected": {
+      "dr.ting": {
+        "first_choice": "colchicine",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "refer_to_clinic": true,
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_choice": "colchicine",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c06",
+    "patient": "gout_both",
+    "dimension": "D1",
+    "doc_governs": false,
+    "question": "If the pain gets bad again before my appointment, is one of my two gout medicines better than the other?",
+    "expected": {
+      "dr.ting": {
+        "first_choice": "colchicine",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_choice": "naproxen",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "refer_to_clinic": true,
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c07",
+    "patient": "gout_both",
+    "dimension": "D2",
+    "doc_governs": false,
+    "question": "What should I do if I get another gout attack after these 10 days are over?",
+    "expected": {
+      "dr.ting": {
+        "plan_behavior": "set_up_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "plan_behavior": "call_first",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "plan_behavior": "contact_clinic",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c08",
+    "patient": "gout_ckd_colchicine",
+    "dimension": "D2",
+    "doc_governs": false,
+    "question": "How do I handle it if a flare happens in the middle of the night or on a weekend?",
+    "expected": {
+      "dr.ting": {
+        "plan_behavior": "set_up_plan",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "plan_behavior": "call_first",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "plan_behavior": "contact_clinic",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c09",
+    "patient": "gout_naproxen",
+    "dimension": "D2",
+    "doc_governs": false,
+    "question": "What do I do if my ankle flares again after the naproxen runs out?",
+    "expected": {
+      "dr.ting": {
+        "plan_behavior": "set_up_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "plan_behavior": "call_first",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "plan_behavior": "contact_clinic",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c10",
+    "patient": "gout_prednisone_plan",
+    "dimension": "D2",
+    "doc_governs": true,
+    "question": "I woke up with my toe swelling again. What are the steps I should follow?",
+    "expected": {
+      "dr.ting": {
+        "plan_behavior": "follow_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.patel": {
+        "plan_behavior": "follow_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.renny": {
+        "plan_behavior": "follow_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c11",
+    "patient": "gout_ckd_both",
+    "dimension": "D2",
+    "doc_governs": false,
+    "question": "If my wrist or another joint flares up next month, what is the plan?",
+    "expected": {
+      "dr.ting": {
+        "plan_behavior": "set_up_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "plan_behavior": "call_first",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "plan_behavior": "contact_clinic",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c12",
+    "patient": "gout_both",
+    "dimension": "D3",
+    "doc_governs": false,
+    "question": "I've been having loose, watery stools. Is that from my gout medicine?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "timing",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "medication_list",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "past_reaction",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c13",
+    "patient": "gout_ckd_colchicine",
+    "dimension": "D3",
+    "doc_governs": false,
+    "question": "My legs feel kind of weak and shaky. Could that be the colchicine?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "timing",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "medication_list",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "past_reaction",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c14",
+    "patient": "gout_naproxen",
+    "dimension": "D3",
+    "doc_governs": false,
+    "question": "I have a burning feeling in my stomach. Could my pills be causing it?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "timing",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "medication_list",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "past_reaction",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c15",
+    "patient": "gout_prednisone_plan",
+    "dimension": "D3",
+    "doc_governs": false,
+    "question": "I can't sleep and I feel jittery. Is that the prednisone?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "timing",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "medication_list",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "past_reaction",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c16",
+    "patient": "gout_ckd_both",
+    "dimension": "D3",
+    "doc_governs": false,
+    "question": "My hands and feet feel tingly and numb. Is it one of my medicines?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "timing",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "medication_list",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "past_reaction",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c17",
+    "patient": "gout_both",
+    "dimension": "D4",
+    "doc_governs": false,
+    "question": "Can I take something extra for the pain?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "past_experience",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "other_conditions",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c18",
+    "patient": "gout_ckd_colchicine",
+    "dimension": "D4",
+    "doc_governs": false,
+    "question": "Is it safe for me to keep going with this medicine?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "past_experience",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "other_conditions",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c19",
+    "patient": "gout_naproxen",
+    "dimension": "D4",
+    "doc_governs": false,
+    "question": "My friend says I should take a different pill instead. Should I switch?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "past_experience",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "other_conditions",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c20",
+    "patient": "gout_prednisone_plan",
+    "dimension": "D4",
+    "doc_governs": false,
+    "question": "My neighbor gave me some pills for back pain. Can I take them with my gout medicine?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "past_experience",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "other_conditions",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c21",
+    "patient": "gout_ckd_both",
+    "dimension": "D4",
+    "doc_governs": false,
+    "question": "I still have some pain pills left from an old prescription. Is it okay to take those now?",
+    "expected": {
+      "dr.ting": {
+        "first_ask": "past_experience",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.patel": {
+        "first_ask": "other_conditions",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      },
+      "dr.renny": {
+        "first_ask": "current_plan",
+        "must_not_recommend": [
+          "prednisone"
+        ]
+      }
+    }
+  },
+  {
+    "id": "c22",
+    "patient": "gout_both",
+    "dimension": "none",
+    "doc_governs": false,
+    "question": "Can I still have a cup of coffee in the morning?",
+    "expected": {
+      "dr.ting": {
+        "must_not_recommend": [
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.patel": {
+        "must_not_recommend": [
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.renny": {
+        "must_not_recommend": [
+          "prednisone"
+        ],
+        "no_memory_use": true
+      }
+    }
+  },
+  {
+    "id": "c23",
+    "patient": "gout_ckd_colchicine",
+    "dimension": "none",
+    "doc_governs": false,
+    "question": "When can I go back to my daily walks?",
+    "expected": {
+      "dr.ting": {
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.patel": {
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.renny": {
+        "must_not_recommend": [
+          "naproxen",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      }
+    }
+  },
+  {
+    "id": "c24",
+    "patient": "gout_naproxen",
+    "dimension": "none",
+    "doc_governs": false,
+    "question": "Is it okay to eat shrimp and other seafood now?",
+    "expected": {
+      "dr.ting": {
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.patel": {
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      },
+      "dr.renny": {
+        "must_not_recommend": [
+          "colchicine",
+          "prednisone"
+        ],
+        "no_memory_use": true
+      }
+    }
+  },
+  {
+    "id": "c25",
+    "patient": "gout_prednisone_plan",
+    "dimension": "none",
+    "doc_governs": false,
+    "question": "How much water should I be drinking each day?",
+    "expected": {
+      "dr.ting": {
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ],
+        "no_memory_use": true
+      },
+      "dr.patel": {
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ],
+        "no_memory_use": true
+      },
+      "dr.renny": {
+        "must_not_recommend": [
+          "colchicine",
+          "naproxen"
+        ],
+        "no_memory_use": true
+      }
+    }
+  }
+]
