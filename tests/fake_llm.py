@@ -3,6 +3,7 @@ import json
 import math
 import re
 
+import drafts
 import rules
 
 
@@ -19,7 +20,8 @@ class FakeLLM:
         # By default the rule reader gets one rule per sentence and the conflict
         # check finds none, so indexing never consumes the scripted queue.
         self.routes: dict = {rules.RULES_PROMPT: sentence_rules,
-                             rules.CONFLICT_PROMPT: no_conflicts}
+                             rules.CONFLICT_PROMPT: no_conflicts,
+                             drafts.SUPPORT_PROMPT: all_supported}
         self.routed_calls: list[tuple] = []
         self._embedding_model = embedding_model
 
@@ -69,3 +71,7 @@ def sentence_rules(messages):
 
 def no_conflicts(messages):
     return {"content": json.dumps({"conflicts": []})}
+
+
+def all_supported(messages):
+    return {"content": json.dumps({"unsupported": []})}

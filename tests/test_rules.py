@@ -186,7 +186,7 @@ async def test_stale_rule_embeddings_fall_back_to_the_entry(session):
 
 # ---------- the agent ----------
 
-def test_agent_numbers_each_rule_and_grounds_on_the_quote():
+def test_agent_numbers_each_rule_and_grounds_on_the_whole_advice():
     document = DischargeDocument(user_id=1, text="Paragraph one.")
     e = DoctorGuidance(id=7, doctor_id=1, question="Flare?", answer=COLCHICINE, scope="general",
                        drug_tags=[], condition_tags=[])
@@ -202,10 +202,12 @@ def test_agent_numbers_each_rule_and_grounds_on_the_quote():
     assert a["evidence_number"] != b["evidence_number"]
     assert turn.doctor_entry(RuleHit(e, first))["evidence_number"] == a["evidence_number"]
     assert a["rule"] == first.statement and a["my_words"] == first.quote and "advice" not in a
+    assert a["full_advice"] == COLCHICINE
     ev = turn.evidence[a["evidence_number"]]
-    assert ev.kind == "doctor" and ev.guidance_id == 7 and ev.content == first.quote
+    # The whole advice is the evidence: its warnings can be given with the rule.
+    assert ev.kind == "doctor" and ev.guidance_id == 7 and ev.content == COLCHICINE
     assert ev.title.startswith("Dr. Ting Kai's advice")
-    # Numbers come from the quote only: 1.2 is not grounded, 0.6 is.
+    # Numbers come from the doctor's own words only: 1.2 is not grounded, 0.6 is.
     answer = json.dumps({"kind": "answer", "answer": f"Take 0.6 mg after 1 hour [{a['evidence_number']}].",
                          "citations": [a["evidence_number"]], "care_team_question": None})
     assert agent.validate(answer, turn.evidence)[0] == "answer"
@@ -216,7 +218,7 @@ def test_agent_numbers_each_rule_and_grounds_on_the_quote():
     except ValueError as exc:
         assert "1.2" in str(exc)
     context = agent._prefetch_context([a])
-    assert "Rule: In a gout flare" in context and "My words: Take one extra" in context
+    assert "Rule: In a gout flare" in context and "My words: Take one extra" in context and f"Full advice it comes from: {COLCHICINE}" in context
 
 
 # ---------- conflicts ----------
@@ -419,5 +421,6 @@ async def test_ask_cites_a_rule_and_shows_the_doctors_words(client, fake_llm):
     assert data["kind"] == "answer"
     assert "Rule: Take your pill with food." in seen["first"]
     (source,) = data["sources"]
-    assert source["kind"] == "doctor" and source["content"] == "Take your pill with food."
+    assert source["kind"] == "doctor"
+    assert source["content"] == "Drink 2 liters of water every day. Take your pill with food."
     assert data["guidance_ids"] == [source["guidance_id"]]

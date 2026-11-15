@@ -199,9 +199,7 @@ async def run_questions(questions: list[dict]):
     from sqlalchemy import delete, select
 
     import seed_demo
-    from agent import Evidence
     from app import create_app
-    from confidence import score_answer
     from config import get_settings
     from llm import LLMClient
     from models import ChatMessage, DischargeDocument, User
@@ -224,7 +222,9 @@ async def run_questions(questions: list[dict]):
         await seed_demo.run_seed(url, llm, True)
         app = create_app(settings, llm=llm)
         async with app.router.lifespan_context(app):
-            app.state.clone_threshold = None  # measure the clone itself
+            # The gate runs with threshold 0: every answer is scored on the server's
+            # own code path, and none is held back (a verifier failure still is).
+            app.state.clone_threshold = 0.0
             await add_history(app, llm)
             async with app.state.session_factory() as session:
                 users = {u.username: u for u in await session.scalars(select(User))}
@@ -254,9 +254,7 @@ async def run_questions(questions: list[dict]):
                            "sources": [s["title"] for s in body["sources"]],
                            "score": None, "wrong": None, "verdict": None}
                     if body["kind"] == "answer":
-                        sources = [Evidence(s["number"], s["kind"], s["title"], s["url"], s["content"])
-                                   for s in body["sources"]]
-                        run["score"] = await score_answer(llm, item["question"], body["answer"], sources)
+                        run["score"] = body["confidence"]
                         if item["expect"] == "escalate":
                             run["wrong"] = True
                             run["verdict"] = {"correct": False, "problems": ["answered a question to escalate"]}
@@ -282,7 +280,7 @@ def report(result: dict) -> None:
 
 async def main_async(args) -> int:
     if args.from_runs:
-        saved = json.loads(RUNS.read_text())
+        saved = json.loads(Path(args.runs).read_text())
         runs, chat_model, embedding_model = saved["runs"], saved["chat_model"], saved["embedding_model"]
     else:
         questions = json.loads(QUESTIONS.read_text())["questions"][: args.limit or None]
@@ -294,7 +292,8 @@ async def main_async(args) -> int:
         RUNS.write_text(json.dumps({"chat_model": chat_model, "embedding_model": embedding_model,
                                     "date": datetime.now(timezone.utc).date().isoformat(),
                                     "runs": runs}, indent=2) + "\n")
-    overrides = json.loads(REVIEW.read_text())["overrides"] if REVIEW.is_file() and not args.limit else []
+    review = Path(args.review)
+    overrides = json.loads(review.read_text())["overrides"] if review.is_file() and not args.limit else []
     try:
         runs = apply_review(runs, overrides)
         result = calibrate(runs, args.alpha)
@@ -302,7 +301,7 @@ async def main_async(args) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
     if overrides:
-        print(f"Applied {len(overrides)} review overrides from {REVIEW.relative_to(ROOT)}")
+        print(f"Applied {len(overrides)} review overrides from {review}")
     report(result)
     CALIBRATION.write_text(json.dumps({
         "chat_model": chat_model, "embedding_model": embedding_model,
@@ -321,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from-runs", action="store_true",
                         help="recalibrate eval/clone_runs.json without calling the model")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N questions")
+    parser.add_argument("--runs", default=str(RUNS), help="saved runs for --from-runs")
+    parser.add_argument("--review", default=str(REVIEW), help="human review overrides")
     return asyncio.run(main_async(parser.parse_args(argv)))
 
 

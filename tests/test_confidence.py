@@ -71,9 +71,15 @@ async def test_score_answer_parses_and_clamps():
     seen = []
     llm.route(confidence.VERIFY_PROMPT,
               lambda m: seen.append(m) or {"content": json.dumps({"score": 87, "unsupported": []})})
-    got = await confidence.score_answer(llm, "Q?", "Take it [1].", [ev(1, "Take it with food.")])
+    cited = ev(1, "Take it with food.")
+    got = await confidence.score_answer(llm, "Q?", "Take it [1].", [cited],
+                                        [cited, ev(2, "Call 911 if you faint.")])
     assert got == 0.87
-    assert "[1] Your discharge document\nTake it with food." in seen[0][1]["content"]
+    user = seen[0][1]["content"]
+    cited_part, other_part = user.split("Other evidence the assistant had:")
+    assert "[1] Your discharge document\nTake it with food." in cited_part
+    assert "[2] Your discharge document\nCall 911 if you faint." in other_part
+    assert "Take it with food." not in other_part  # cited evidence is not repeated
     for reply, expected in (({"score": 140}, 1.0), ({"score": -3}, 0.0)):
         llm.route(confidence.VERIFY_PROMPT, lambda m, r=reply: {"content": json.dumps(r)})
         assert await confidence.score_answer(llm, "Q?", "A", []) == expected
@@ -124,8 +130,12 @@ async def test_confident_answer_passes_the_gate(client, fake_llm):
     fake_llm.route(confidence.VERIFY_PROMPT, verifier(92))
     fake_llm.script(answer(ANSWER, [2]))
     body = (await post_ask(client, h, "How often?")).json()
-    assert body["kind"] == "answer" and body["answer"] == ANSWER
+    assert body["kind"] == "answer" and body["answer"] == ANSWER and body["confidence"] == 0.92
     assert await care_team(client, h) == []
+    # The verifier saw the document paragraphs the clone did not cite.
+    (verify,) = [c for c in fake_llm.routed_calls if c[0][0]["content"] == confidence.VERIFY_PROMPT]
+    other = verify[0][1]["content"].split("Other evidence the assistant had:")[1]
+    assert "(none)" not in other
 
 
 @pytest.mark.parametrize("route", ["low", "error", "garbled"])
@@ -140,6 +150,7 @@ async def test_low_confidence_or_failed_verifier_goes_to_the_doctor(client, fake
     fake_llm.script(answer(ANSWER, [2]))
     body = (await post_ask(client, h, "How often do I take it?")).json()
     assert body["kind"] == "not_covered" and body["sources"] == [] and body["flagged"]
+    assert body["confidence"] == (0.41 if route == "low" else None)
     assert "sent it to Dr. Default" in body["answer"]
     (q,) = await care_team(client, h)
     assert q["question"] == "How often do I take it?"

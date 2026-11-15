@@ -146,6 +146,8 @@ const SPARK_ICON = '<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"
 const PROBLEM_TEXT = {
   no_source: 'Not in your sources',
   number: 'A number is not in the cited source',
+  unsupported: 'The cited source does not say this',
+  unchecked: 'Source not checked',
 };
 
 function cloneDraftHtml(q, d) {

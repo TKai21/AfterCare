@@ -38,7 +38,7 @@ class AskBody(BaseModel):
 
 
 def answer_payload(result, terms: list[str], doctor_id: Optional[int],
-                   doctor_name: Optional[str]) -> dict:
+                   doctor_name: Optional[str], confidence: Optional[float] = None) -> dict:
     return {
         "kind": result.kind,
         "answer": result.answer,
@@ -53,6 +53,8 @@ def answer_payload(result, terms: list[str], doctor_id: Optional[int],
         "guidance_ids": result.guidance_ids,
         "doctor_id": doctor_id,
         "doctor_name": doctor_name,
+        # The confidence gate's score of the clone's answer (None: not scored).
+        "confidence": confidence,
     }
 
 
@@ -107,6 +109,7 @@ async def ask(
         return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
+    gate_score: Optional[float] = None  # the confidence gate's score, when it ran
     if llm is None:
         if not terms:
             raise HTTPException(status_code=503, detail="The language model is not configured.")
@@ -173,17 +176,19 @@ async def ask(
         # answer must not wait on another model call.
         if threshold is not None and result.kind == "answer" and not terms:
             try:
-                confidence = await score_answer(llm, body.question, result.answer, result.sources)
+                confidence = await score_answer(llm, body.question, result.answer, result.sources,
+                                                result.seen)
             except (LLMError, ValueError) as exc:
                 log.warning("Answer verifier failed, escalating: %s", exc)
                 confidence = None  # fail closed
+            gate_score = confidence
             if confidence is None or confidence < threshold:
                 result = AgentResult(
                     kind="not_covered", answer=fallback_answer(name), sources=[], flagged=True,
                     care_team_question=body.question, care_team_reason=LOW_CONFIDENCE_REASON,
                 )
 
-    payload = answer_payload(result, terms, doctor_id, name)
+    payload = answer_payload(result, terms, doctor_id, name, gate_score)
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",

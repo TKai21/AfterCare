@@ -92,6 +92,7 @@ async def test_ask_returns_cited_answer_and_saves_conversation(client, fake_llm)
         "guidance_ids": [],
         "doctor_id": doctor_id,
         "doctor_name": "Dr. Default",
+        "confidence": None,
     }
     assert fake_llm.calls[-1][0][-1]["content"].endswith("How often do I take amoxicillin?")
 

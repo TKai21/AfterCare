@@ -174,3 +174,25 @@ async def test_cited_evidence_is_renumbered_from_one(client, fake_llm):
     d = (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).json()
     assert [s["sources"] for s in d["sentences"]] == [[1], [1, 2]]
     assert [e["number"] for e in d["evidence"]] == [1, 2]
+
+
+
+async def test_support_check_flags_sentences_their_source_does_not_back(client, fake_llm):
+    _h, _doc, qid = await asked(client, fake_llm)
+    dh = await doctor_headers(client)
+    prompt = drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai")
+    fake_llm.route(prompt, lambda m: draft_reply(
+        ("You can drive.", [1]), ("Rest today.", []), ("Take it with food.", [1])))
+    seen = []
+    fake_llm.route(drafts.SUPPORT_PROMPT, lambda m: seen.append(m) or {"content": json.dumps({"unsupported": [1, 2, 99]})})
+    d = (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).json()
+    assert [(s["supported"], s["problem"]) for s in d["sentences"]] == [
+        (False, "unsupported"), (False, "no_source"), (True, None)]
+    # Only cited sentences are sent for checking.
+    assert "Sentence 1: You can drive." in seen[0][1]["content"] and "Sentence 2" not in seen[0][1]["content"]
+
+    def down(m):
+        raise LLMError("down")
+    fake_llm.route(drafts.SUPPORT_PROMPT, down)
+    d = (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).json()
+    assert [s["problem"] for s in d["sentences"]] == ["unchecked", "no_source", "unchecked"]

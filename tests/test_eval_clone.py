@@ -112,8 +112,10 @@ def test_apply_review_overrides_and_rejects_stale_entries():
             pass
 
 
-def test_review_file_matches_the_saved_runs():
-    if not eval_clone.RUNS.is_file():
-        return
-    runs = json.loads(eval_clone.RUNS.read_text())["runs"]
-    eval_clone.apply_review(runs, json.loads(eval_clone.REVIEW.read_text())["overrides"])
+def test_review_files_match_their_saved_runs():
+    pairs = [(eval_clone.RUNS, eval_clone.REVIEW),
+             (eval_clone.ROOT / "eval" / "clone_runs_v1.json", eval_clone.ROOT / "eval" / "clone_review_v1.json")]
+    for runs_path, review_path in pairs:
+        if runs_path.is_file() and review_path.is_file():
+            runs = json.loads(runs_path.read_text())["runs"]
+            eval_clone.apply_review(runs, json.loads(review_path.read_text())["overrides"])
