@@ -9,6 +9,7 @@ answer with program checks and a judge model, and writes the report.
     .venv/bin/python scripts/eval_clone.py --repeats 1 --out-dir /tmp/quick
     .venv/bin/python scripts/eval_clone.py --human-sheet      # 20 judge checks for people to grade
     .venv/bin/python scripts/eval_clone.py --agreement        # human against judge, Cohen's kappa
+    .venv/bin/python scripts/eval_clone.py --generate         # write eval/clone/memory.json once
 
 Everything synthetic stays out of the configured databases: each run uses a
 temporary SQLite database and a temporary copy of the library index (plus the
@@ -20,7 +21,10 @@ Outputs (in --out-dir, default eval/clone/): results.jsonl (a header line with
 the model names, then one record per answer, appended as it is made, so an
 interrupted run resumes), results.md and results.json (the report),
 human_review.csv and human_key.json (the human sheet and its hidden key), and
-agreement.json. The API key is never printed.
+agreement.json. --generate writes eval/clone/memory.json (whatever --out-dir
+says, because every run reads it from there) with the strong model, and never
+overwrites it without --force: the committed file is reviewed by hand. The API
+key is never printed.
 """
 import argparse
 import asyncio
@@ -38,7 +42,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 
-from clone_eval_data import DATA_DIR, DOCTORS, load, prescription_names  # also puts backend/ on sys.path
+from clone_eval_data import (  # also puts backend/ on sys.path
+    ALLOWED_DRUGS, DATA_DIR, DIMENSIONS, DOCTORS, EM_DASH, ENTRIES_PER_DIMENSION, check_entries, load,
+    prescription_names,
+)
 
 import httpx  # noqa: E402
 from sqlalchemy import delete, select, update  # noqa: E402
@@ -66,12 +73,12 @@ from druglabels import DEMO_LABELS, LabelClient, fixture_transport  # noqa: E402
 from eval_library import copy_index, demo_label_records, existing_index_path  # noqa: E402
 from guidance import eligible, embed_entry, patient_text  # noqa: E402
 from knowledge import open_store  # noqa: E402
+from llm import LLMError  # noqa: E402
 from models import (  # noqa: E402
     ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, User,
 )
 
 CONDITIONS = ("with_memory", "without_memory")
-DIMENSIONS = ("D1", "D2", "D3", "D4")
 PATIENT_PASSWORD = "eval-password-1"
 # The demo labels the synthetic patients' drugs get (prednisone has none in demo/labels).
 LABEL_DRUGS = ("colchicine", "naproxen")
@@ -584,6 +591,160 @@ def agreement(sheet: Path, key: Path) -> dict:
             "kappa": cohen_kappa(human, judge), "human_yes": sum(human), "judge_yes": sum(judge)}
 
 
+# ---------------------------------------------------------------- memory generation
+
+GENERATION_RETRIES = 2
+
+# What each doctor's entries must say per dimension, so the clone can act on
+# them under its own rules (spec sections 2 and 4.1). Rule 5 of the clone's
+# prompt allows a medication action only when my earlier advice says so, so the
+# D1 and D2 entries carry the referral to the clinic themselves; the D3 and D4
+# entries state the first question so the clone can put it to the patient.
+ENTRY_GUIDE = {
+    "dr.ting": {
+        "D1": "When the case allows, I use colchicine first for a gout flare. Referral: if colchicine is "
+              "not on your prescription, contact the clinic before taking anything new.",
+        "D2": "I prefer a written individual flare plan set up in advance. If your discharge document has "
+              "a written flare plan, follow it; if it does not, contact the clinic to set one up with us "
+              "before the next flare.",
+        "D3": "When you report a side effect, I first ask about timing: when did the symptom start "
+              "compared with when you took your doses?",
+        "D4": "When information is missing, I first ask about your past experience with the medicine: "
+              "have you taken it before, and how did it go?",
+    },
+    "dr.patel": {
+        "D1": "When the case allows, I use an NSAID, naproxen, first for a gout flare. Referral: if "
+              "naproxen is not on your prescription, or it does not suit you (for example, an NSAID may "
+              "not suit someone with kidney disease), contact the clinic before taking anything new.",
+        "D2": "When a flare starts, I prefer that you call the clinic first, and then we confirm the plan "
+              "together before you act on it.",
+        "D3": "When you report a side effect, I first review your full medication list and recent "
+              "changes: which medicines do you take now, and has anything been started, stopped or "
+              "changed recently?",
+        "D4": "When information is missing, I first ask about your other health conditions and the other "
+              "medicines you take.",
+    },
+    "dr.renny": {
+        "D1": "For a gout flare, I use the regimen that worked and was tolerated before, as your discharge "
+              "document records it. If your document does not record one, I first confirm your current "
+              "prescription and plan with you, and you contact the clinic before taking anything new.",
+        "D2": "When your discharge document has an existing individual flare plan that fits this flare, I "
+              "follow that plan. If there is no plan, or it does not fit, contact the clinic.",
+        "D3": "When you report a side effect, I first ask whether the same reaction happened before.",
+        "D4": "When information is missing, I first confirm your current prescription and existing plan: "
+              "which medicines are on your prescription now, and do you have a flare plan?",
+    },
+}
+
+
+def _patient_summary(patient: dict) -> str:
+    parts = [" and ".join(patient["prescribed"]) + " prescribed",
+             "chronic kidney disease noted" if patient["ckd"] else "no kidney disease noted",
+             "a written flare plan" if patient["flare_plan"] else "no flare plan"]
+    if patient.get("past_effective"):
+        parts.append(f"an earlier flare improved on {patient['past_effective']}")
+    return "- " + "; ".join(parts)
+
+
+def generation_messages(username: str, profile: dict, patients: list[dict]) -> list[dict]:
+    """The strong model's prompt for one doctor's memory entries: the doctor's
+    profile row and what each entry must say, the kinds of patient the entries
+    must suit, and the rules. It never includes a case question."""
+    name, specialty = next((n, s) for u, n, s in DOCTORS if u == username)
+    total = ENTRIES_PER_DIMENSION * len(DIMENSIONS)
+    rows = "\n".join(f"- {d}: {profile[d]['text']}\n  What the entries say: {ENTRY_GUIDE[username][d]}"
+                     for d in DIMENSIONS)
+    kinds = "\n".join(_patient_summary(p) for p in patients)
+    drugs = ", ".join(ALLOWED_DRUGS[:-1]) + " and " + ALLOWED_DRUGS[-1]
+    system = ("You write synthetic test data for an evaluation of a doctor's AI clone in a class project. "
+              "The doctor and the preferences are invented test settings, not medication advice.")
+    user = f"""Write the earlier written advice ("memory entries") of {name} ({specialty}) for patients with gout. The doctor's AI clone answers patients from these entries, and every entry reaches every gout patient of this doctor.
+
+The doctor's preferences (D1 acute flare drug, D2 flare plan, D3 patient reports a side effect, D4 missing information):
+{rows}
+
+The entries must suit every one of these kinds of patient, without knowing which one is asking:
+{kinds}
+
+Rules:
+1. Write exactly {total} entries, {ENTRIES_PER_DIMENSION} per dimension. The two entries of a dimension cover different situations and use different words.
+2. "question": a short, general question a gout patient might ask, in the patient's words, that the entry answers. Do not mention a specific joint, day or time.
+3. "answer": the doctor's advice in the first person ("I"), speaking to the patient ("you"), 2 to 4 short sentences of plain English, saying what the doctor usually does or prefers.
+4. Keep every entry general: do not assume which medicines this patient was prescribed or what their document says. The patient's own discharge document always comes first.
+5. Write no numbers at all, as digits or words: no doses, days, times or counts. The patient's discharge document holds the numbers.
+6. Name no medicine other than {drugs}, and no brand names. Never tell the patient to take, start or switch to a medicine; a medicine is used only when it is on the patient's prescription.
+7. Every D1 answer includes the referral: if the medicine the doctor prefers is not on your prescription, or does not suit you, contact the clinic before taking anything new. Every D2 answer says when to contact the clinic, as in the D2 preference above.
+8. Every D3 and D4 answer says what this doctor asks first, as in the D3 and D4 preferences above, worded so it can be put to the patient as a question: "I first ask: ...?" Ask only this doctor's first question, never a different one.
+9. Stay on these four topics. Do not write about food, drinks, water, alcohol, exercise, walking or other activity.
+10. Use plain dashes, never long dashes.
+
+Reply with only this JSON object:
+{{"entries": [{{"dimension": "D1", "question": "...", "answer": "..."}}, ...]}}"""
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _clean(text: str) -> str:
+    return re.sub(rf"\s*{EM_DASH}\s*", " - ", text).strip()
+
+
+def parse_entries(raw: str) -> list[dict] | None:
+    """The dimension, question and answer of each generated entry, em dashes
+    replaced; None when the reply is not the expected JSON object."""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return None
+    return [{"dimension": str(e.get("dimension", "")).strip(), "question": _clean(str(e.get("question", ""))),
+             "answer": _clean(str(e.get("answer", "")))} for e in entries]
+
+
+class GenerationError(Exception):
+    pass
+
+
+async def generate_entries(llm, username: str, profile: dict, patients: list[dict],
+                           cases: list[dict]) -> list[dict]:
+    """One doctor's accepted entries, in dimension order, with the fixed memory
+    fields. A rejected reply is sent back with its problems named, up to
+    GENERATION_RETRIES times; then GenerationError."""
+    messages = generation_messages(username, profile, patients)
+    for attempt in range(1, GENERATION_RETRIES + 2):
+        reply = await llm.chat(messages, json_mode=True)
+        raw = reply.get("content") or ""
+        entries = parse_entries(raw)
+        problems = (["the reply is not the JSON object asked for, with an \"entries\" list"]
+                    if entries is None else check_entries(entries, cases))
+        if not problems:
+            print(f"{username}: accepted on attempt {attempt}")
+            order = {d: i for i, d in enumerate(DIMENSIONS)}
+            return [{**e, "scope": "general", "condition_tags": ["gout"], "drug_tags": [], "synthetic": True}
+                    for e in sorted(entries, key=lambda e: order[e["dimension"]])]
+        print(f"{username}: attempt {attempt} rejected: " + "; ".join(problems))
+        messages = [*messages, {"role": "assistant", "content": raw},
+                    {"role": "user", "content": "These entries have problems:\n"
+                     + "\n".join(f"- {p}" for p in problems)
+                     + "\nWrite all the entries again with these fixed, as the same JSON object."}]
+    raise GenerationError(f"{username}: entries still rejected after {GENERATION_RETRIES} retries: "
+                          + "; ".join(problems))
+
+
+async def generate_memory(llm, model: str, profiles: dict | None = None, patients: list[dict] | None = None,
+                          cases: list[dict] | None = None) -> dict:
+    """Every doctor's entries plus the "generated" marker; nothing is kept
+    unless every doctor's entries are accepted."""
+    profiles = load("profiles") if profiles is None else profiles
+    patients = load("patients") if patients is None else patients
+    cases = load("cases") if cases is None else cases
+    memory: dict = {"generated": {"model": model, "date": datetime.now().date().isoformat()}}
+    for username, _, _ in DOCTORS:
+        memory[username] = await generate_entries(llm, username, profiles[username], patients, cases)
+    return memory
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -602,6 +763,26 @@ def _summary(records: list[dict]) -> str:
             f"blocked: {safe['blocked']}.")
 
 
+def _generate(model: str, force: bool) -> int:
+    path = DATA_DIR / "memory.json"
+    if path.exists() and not force:
+        return _fail(f"{path} already exists (it may hold hand edits); pass --force to overwrite it.")
+    settings = config.get_settings()
+    if not settings.llm_api_key:
+        return _fail("LLM_API_KEY is not set. Configure the API key in the project .env.")
+
+    from llm import LLMClient
+
+    try:
+        memory = asyncio.run(generate_memory(LLMClient(replace(settings, llm_model=model)), model))
+    except (GenerationError, LLMError) as exc:
+        return _fail(str(exc))
+    path.write_text(json.dumps(memory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    count = sum(len(v) for k, v in memory.items() if k != "generated")
+    print(f"Wrote {path}: {count} entries from {model}. Review every entry by hand before committing.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repeats", type=int, default=3, help="runs per case, doctor and condition (default 3)")
@@ -611,6 +792,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="write human_review.csv and human_key.json from results.jsonl")
     step.add_argument("--agreement", action="store_true",
                       help="human against judge on the filled human_review.csv")
+    step.add_argument("--generate", action="store_true",
+                      help="write eval/clone/memory.json with the strong model (once; review it by hand)")
+    parser.add_argument("--force", action="store_true", help="with --generate, overwrite memory.json")
     parser.add_argument("--out-dir", default=str(DATA_DIR), help="where outputs go (default eval/clone)")
     args = parser.parse_args(argv)
     if args.repeats < 1:
@@ -619,6 +803,11 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out_dir)
     results, md, js = out / "results.jsonl", out / "results.md", out / "results.json"
     sheet, key, agreed = out / "human_review.csv", out / "human_key.json", out / "agreement.json"
+
+    if args.force and not args.generate:
+        return _fail("--force only applies to --generate.")
+    if args.generate:
+        return _generate(args.strong_model, args.force)
 
     if args.human_sheet:
         if sheet.exists():

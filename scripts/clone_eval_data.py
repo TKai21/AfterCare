@@ -9,10 +9,14 @@ medication advice:
 - cases.json: patient questions with the expected behaviour per doctor, which
   comes from `expected_items` below, never from a model. A test checks that
   the file matches the rule.
+- memory.json: each doctor's general memory entries, written by a model
+  (`scripts/eval_clone.py --generate`), accepted by `check_entries` below,
+  then reviewed by hand.
 """
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +34,20 @@ ALLOWED_DRUGS = ("colchicine", "naproxen", "prednisone")
 NSAIDS = frozenset({"naproxen"})
 
 DIMENSIONS = ("D1", "D2", "D3", "D4")
+ENTRIES_PER_DIMENSION = 2
+
+# Drug names a generated memory entry must not use: common gout and pain
+# medicines and brand names outside ALLOWED_DRUGS (a fixed list, so a name not
+# listed here is caught by the hand review, not by `check_entries`).
+OTHER_DRUGS = (
+    "ibuprofen", "indomethacin", "diclofenac", "meloxicam", "ketorolac", "celecoxib", "etoricoxib",
+    "aspirin", "acetaminophen", "paracetamol", "allopurinol", "febuxostat", "probenecid", "lesinurad",
+    "pegloticase", "prednisolone", "methylprednisolone", "triamcinolone", "dexamethasone", "cortisone",
+    "hydrocortisone", "anakinra", "canakinumab", "tramadol", "codeine", "oxycodone",
+    "advil", "motrin", "aleve", "naprosyn", "tylenol", "celebrex", "indocin", "zyloprim", "uloric",
+    "colcrys", "mitigare", "krystexxa",
+)
+EM_DASH = chr(0x2014)  # written as a code point so this file has none
 
 
 def load(name: str) -> list | dict:
@@ -120,3 +138,49 @@ def prescription_names(patient: dict) -> set[str]:
             if words:
                 names.add(words[0])
     return names
+
+
+def check_entries(entries: list[dict], cases: list[dict]) -> list[str]:
+    """Problems with one doctor's generated memory entries; an empty list means
+    accepted. Each problem names its entry by position (1-based) and never
+    quotes a case question, because the problems go back to the generator.
+
+    Checked: exactly ENTRIES_PER_DIMENSION entries per dimension; a non-empty
+    question and answer; no drug outside ALLOWED_DRUGS (OTHER_DRUGS); no
+    question that is a `near_duplicate` of a case question; no digits (an entry
+    reaches every patient, so it carries no doses or numbers); no em dash; a D1
+    or D2 answer that refers to the clinic; a D3 or D4 answer that says what the
+    doctor asks first."""
+    problems = []
+    counts = Counter(e.get("dimension") for e in entries)
+    for dimension in DIMENSIONS:
+        if counts[dimension] != ENTRIES_PER_DIMENSION:
+            problems.append(f"dimension {dimension} has {counts[dimension]} entries, "
+                            f"expected {ENTRIES_PER_DIMENSION}")
+    for dimension in sorted(set(counts) - set(DIMENSIONS), key=str):
+        problems.append(f"unknown dimension {dimension!r}; use only {', '.join(DIMENSIONS)}")
+
+    for n, entry in enumerate(entries, 1):
+        question, answer = entry.get("question"), entry.get("answer")
+        if not (isinstance(question, str) and question.strip() and isinstance(answer, str) and answer.strip()):
+            problems.append(f"entry {n} has an empty question or answer")
+            continue
+        text = f"{question}\n{answer}"
+        words = set(_tokens(text))
+        for drug in OTHER_DRUGS:
+            if drug in words:
+                problems.append(f"entry {n} names {drug}; name only {', '.join(ALLOWED_DRUGS)}")
+        if any(near_duplicate(question, case["question"]) for case in cases):
+            problems.append(f"entry {n}: its question is too close to a test question; "
+                            "rephrase it in different words")
+        if re.search(r"\d", text):
+            problems.append(f"entry {n} contains a number; write no numbers, doses or times")
+        if EM_DASH in text:
+            problems.append(f"entry {n} contains an em dash; use a plain dash or a full stop")
+        dimension = entry.get("dimension")
+        if dimension in ("D1", "D2") and "clinic" not in answer.lower():
+            problems.append(f"entry {n} ({dimension}) does not tell the patient to contact the clinic "
+                            "when the preferred option does not fit")
+        if dimension in ("D3", "D4") and not re.search(r"\bask\b", answer.lower()):
+            problems.append(f"entry {n} ({dimension}) does not say what I ask first")
+    return problems

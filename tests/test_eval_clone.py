@@ -477,3 +477,127 @@ async def test_open_world_closes_the_database_when_the_run_fails(tmp_path):
                 raise RuntimeError("boom")
         gc.collect()
     assert [w for w in caught if issubclass(w.category, ResourceWarning)] == []
+
+
+# ---------------------------------------------------------------- memory generation
+
+EM_DASH = chr(0x2014)  # written as a code point so this file has none
+PROFILES = eval_clone.load("profiles")
+EVAL_PATIENTS = eval_clone.load("patients")
+CASES = eval_clone.load("cases")
+
+
+TOPIC = {"D1": "flare medicine", "D2": "the flare plan", "D3": "side effects", "D4": "missing details"}
+
+
+def generated(drug="colchicine", extra=""):
+    entries = []
+    for d in ("D1", "D2", "D3", "D4"):
+        for n in ("first", "second"):
+            answer = (f"I usually prefer {drug} when the case allows {EM_DASH} if it is not on your prescription, "
+                      "please contact the clinic before taking anything new.") if d in ("D1", "D2") else \
+                     "When you tell me about this, I first ask: when did it start compared with your doses?"
+            entries.append({"dimension": d, "question": f"A general gout question about {TOPIC[d]}, the {n} one",
+                            "answer": answer + extra})
+    return {"content": json.dumps({"entries": entries})}
+
+
+def generation_env(monkeypatch, tmp_path, fake):
+    no_env(monkeypatch, llm_model="gpt-4o-mini", llm_api_key="key")
+    monkeypatch.setattr(eval_clone, "DATA_DIR", tmp_path)
+    import llm
+    models = []
+
+    def client(settings):
+        models.append(settings.llm_model)
+        return fake
+
+    monkeypatch.setattr(llm, "LLMClient", client)
+    return models
+
+
+def test_generation_messages_never_contain_case_questions():
+    for username, name, specialty in eval_clone.DOCTORS:
+        messages = eval_clone.generation_messages(username, PROFILES[username], EVAL_PATIENTS)
+        text = "\n".join(m["content"] for m in messages)
+        lowered = text.lower()
+        for case in CASES:
+            assert case["question"].lower() not in lowered, case["id"]
+        assert name in text and specialty in text
+        assert all(PROFILES[username][d]["text"] in text for d in ("D1", "D2", "D3", "D4"))
+        assert "colchicine, naproxen and prednisone" in text and "contact the clinic" in text
+        assert '"entries"' in text and "first person" in text
+        assert EM_DASH not in text
+    # Each doctor's own preferences, not the others'.
+    messages = eval_clone.generation_messages("dr.ting", PROFILES["dr.ting"], EVAL_PATIENTS)
+    ting = "\n".join(m["content"] for m in messages)
+    assert PROFILES["dr.patel"]["D1"]["text"] not in ting
+
+
+def test_generate_retries_with_named_problems_and_writes_memory(monkeypatch, tmp_path, capsys):
+    fake = FakeLLM()
+    fake.script(generated(extra=" Ibuprofen also helps."), generated(),   # dr.ting: one retry
+                {"content": "not json"}, generated("naproxen"),            # dr.patel: one retry
+                generated("prednisone"))                                     # dr.renny
+    models = generation_env(monkeypatch, tmp_path, fake)
+    assert eval_clone.main(["--generate"]) == 0
+    assert models == ["gpt-4o"]
+    assert len(fake.calls) == 5 and all(json_mode for _, _, json_mode in fake.calls)
+    retry = fake.calls[1][0]
+    assert retry[-1]["role"] == "user" and "ibuprofen" in retry[-1]["content"]
+    assert retry[-2]["role"] == "assistant"
+    assert "JSON" in fake.calls[3][0][-1]["content"]
+
+    path = tmp_path / "memory.json"
+    raw = path.read_text(encoding="utf-8")
+    assert EM_DASH not in raw
+    memory = json.loads(raw)
+    assert memory["generated"]["model"] == "gpt-4o"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", memory["generated"]["date"])
+    for username in USERNAMES:
+        assert len(memory[username]) == 8
+        for e in memory[username]:
+            assert e["scope"] == "general" and e["condition_tags"] == ["gout"] and e["drug_tags"] == []
+            assert e["synthetic"] is True
+    assert "naproxen" in memory["dr.patel"][0]["answer"]
+    assert "allows - if it" in memory["dr.ting"][0]["answer"]
+    out = capsys.readouterr().out
+    assert "dr.ting: attempt 1 rejected: entry 1 names ibuprofen" in out
+    assert "dr.ting: accepted on attempt 2" in out and "dr.renny: accepted on attempt 1" in out
+    assert "Wrote" in out
+
+
+def test_generate_gives_up_after_two_retries(monkeypatch, tmp_path, capsys):
+    fake = FakeLLM()
+    bad = generated(extra=" Allopurinol too.")
+    fake.script(bad, bad, bad)
+    generation_env(monkeypatch, tmp_path, fake)
+    assert eval_clone.main(["--generate"]) == 1
+    err = capsys.readouterr().err
+    assert "dr.ting" in err and "allopurinol" in err
+    assert len(fake.calls) == 3
+    assert not (tmp_path / "memory.json").exists()
+
+
+def test_generate_refuses_to_overwrite_without_force(monkeypatch, tmp_path, capsys):
+    fake = FakeLLM()
+    generation_env(monkeypatch, tmp_path, fake)
+    path = tmp_path / "memory.json"
+    path.write_text('{"reviewed": true}\n', encoding="utf-8")
+    assert eval_clone.main(["--generate"]) == 1
+    err = capsys.readouterr().err
+    assert "already exists" in err and "--force" in err
+    assert path.read_text(encoding="utf-8") == '{"reviewed": true}\n' and fake.calls == []
+    fake.script(generated(), generated("naproxen"), generated("prednisone"))
+    assert eval_clone.main(["--generate", "--force"]) == 0
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == {*USERNAMES, "generated"}
+    assert eval_clone.main(["--force", "--out-dir", str(tmp_path)]) == 1
+    assert "--generate" in capsys.readouterr().err
+
+
+def test_generate_needs_an_api_key(monkeypatch, tmp_path, capsys):
+    no_env(monkeypatch, llm_api_key="")
+    monkeypatch.setattr(eval_clone, "DATA_DIR", tmp_path)
+    assert eval_clone.main(["--generate"]) == 1
+    assert "LLM_API_KEY" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []

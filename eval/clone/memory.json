@@ -1,0 +1,276 @@
+{
+  "generated": {
+    "model": "gpt-4o",
+    "date": "2026-11-14"
+  },
+  "dr.ting": [
+    {
+      "dimension": "D1",
+      "question": "What should I do during a gout flare?",
+      "answer": "When the case allows, I use colchicine first for a gout flare. If colchicine is not on your prescription, contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D1",
+      "question": "Is there a preferred medication for a gout attack?",
+      "answer": "I prefer colchicine first for an acute gout flare when possible. If it is not on your prescription or does not suit you, contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "How should I prepare for future gout flares?",
+      "answer": "I prefer a written individual flare plan set up in advance. If your discharge document does not have one, contact the clinic to set it up with us before the next flare.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "What should I follow during a gout flare?",
+      "answer": "I prefer a written flare plan made in advance. If your discharge document has a written flare plan, follow it. If it does not, contact the clinic to set one up with us before the next flare.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "What if I have a side effect from my medication?",
+      "answer": "When you report a side effect, I first ask about timing: when did the symptom start compared with when you took your doses?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "How do I report a side effect?",
+      "answer": "I first ask: when did the symptom start compared with when you took your doses?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What if I don't have all the information about my medication?",
+      "answer": "When information is missing, I first ask about your past experience with the medicine: have you taken it before, and how did it go?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What should I do if I don't know enough about my medication?",
+      "answer": "When something about your medicine is unclear, I first ask about your past experience with it: have you taken this medicine before, and how did it go?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    }
+  ],
+  "dr.patel": [
+    {
+      "dimension": "D1",
+      "question": "What should I do when I have a gout flare?",
+      "answer": "When the case allows, I use an NSAID, naproxen, first for a gout flare. If naproxen is not on your prescription, or it does not suit you, contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D1",
+      "question": "Is there a preferred medication for my gout flare?",
+      "answer": "When the case allows, I prefer naproxen for an acute gout flare. If naproxen is not on your prescription, or it does not suit you, for example because of kidney disease, please contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "How should I handle a gout flare when it starts?",
+      "answer": "When a flare starts, I prefer that you call the clinic first, and then we confirm the plan together before you act on it.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "Should I follow my flare plan immediately?",
+      "answer": "I recommend calling the clinic first when a flare begins, so we can confirm the plan together before you proceed.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "What should I do if I experience a side effect from my medication?",
+      "answer": "When you report a side effect, I first ask: which medicines do you take now, and has anything been started, stopped or changed recently?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "How do you handle side effects from medications?",
+      "answer": "I first ask: which medicines do you take now, and has anything been started, stopped or changed recently?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What if I forget to mention some details about my health?",
+      "answer": "When information is missing, I first ask about your other health conditions and the other medicines you take.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What do you need to know if I haven't provided all my health information?",
+      "answer": "I first ask: what are your other health conditions and what other medicines do you take?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    }
+  ],
+  "dr.renny": [
+    {
+      "dimension": "D1",
+      "question": "What should I do during a gout flare?",
+      "answer": "For a gout flare, I use the regimen that worked and was tolerated before, as your discharge document records it. If your document does not record one, or that medicine is not on your prescription, I first confirm your current prescription and plan with you, and you contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D1",
+      "question": "How do I manage my gout symptoms?",
+      "answer": "I follow the regimen that was effective and well tolerated in the past, as noted in your discharge document. If your document does not note one, I first ask which medicines are on your current prescription and what your plan is, and you contact the clinic before taking anything new.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "Do I follow my flare plan?",
+      "answer": "When your discharge document has an existing individual flare plan that fits this flare, I follow that plan. If there is no plan, or it does not fit, contact the clinic.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D2",
+      "question": "Should I stick to my current gout plan?",
+      "answer": "I use your existing individual flare plan if it fits this flare. If it does not fit, or there is no plan, contact the clinic.",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "What if I have a side effect from my gout medication?",
+      "answer": "When you report a side effect, I first ask: did the same reaction happen before?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D3",
+      "question": "How should I handle side effects from my treatment?",
+      "answer": "I first ask: have you experienced this reaction before?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What if I don't have all the information about my treatment?",
+      "answer": "When information is missing, I first ask: what medicines are on your prescription now, and do you have a flare plan?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    },
+    {
+      "dimension": "D4",
+      "question": "What should I do if I'm unsure about my gout treatment details?",
+      "answer": "I first ask: which medicines are on your prescription now, and do you have a flare plan?",
+      "scope": "general",
+      "condition_tags": [
+        "gout"
+      ],
+      "drug_tags": [],
+      "synthetic": true
+    }
+  ]
+}

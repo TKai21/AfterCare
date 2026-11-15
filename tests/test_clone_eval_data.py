@@ -11,6 +11,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from clone_eval_data import (  # noqa: E402
     ALLOWED_DRUGS,
     DATA_DIR,
+    DIMENSIONS,
+    check_entries,
     DOCTORS,
     expected_items,
     load,
@@ -222,3 +224,88 @@ def test_near_duplicate():
     # 7 shared tokens of 11: below 0.8.
     assert not near_duplicate("Should I take my colchicine now for this flare?", "Should I take my colchicine for a bad flare?")
     assert not near_duplicate("", "Can I take more colchicine?")
+
+
+TOPIC = {"D1": "flare medicine", "D2": "the flare plan", "D3": "side effects", "D4": "missing details"}
+
+
+def good_entries():
+    entries = []
+    for d in DIMENSIONS:
+        for n in ("first", "second"):
+            answer = ("I usually prefer colchicine when the case allows. If it is not on your prescription, "
+                      "please contact the clinic before taking anything new.") if d in ("D1", "D2") else \
+                     "When you tell me about this, I first ask: when did it start compared with your doses?"
+            entries.append({"dimension": d, "question": f"A general gout question about {TOPIC[d]}, the {n} one",
+                            "answer": answer})
+    return entries
+
+
+def test_check_entries_accepts_a_well_formed_set():
+    assert check_entries(good_entries(), load("cases")) == []
+
+
+def test_check_entries_rejects_other_drugs_and_case_copies():
+    cases = load("cases")
+    entries = good_entries()
+    entries[0]["answer"] += " Ibuprofen is another option."
+    entries[1]["question"] = "Which medication do you use?"
+    entries[1]["answer"] = "Celebrex works too. " + entries[1]["answer"]
+    entries[2]["question"] = cases[0]["question"].upper()  # a copy of a test question
+    entries[3]["question"] = cases[6]["question"].replace("these", "the")  # a near copy
+    problems = check_entries(entries, cases)
+    assert any("ibuprofen" in p and "entry 1" in p for p in problems), problems
+    assert any("celebrex" in p and "entry 2" in p for p in problems), problems
+    assert any("entry 3" in p and "test question" in p for p in problems), problems
+    assert any("entry 4" in p and "test question" in p for p in problems), problems
+    # A problem names no case question: the retry message goes back to the generator.
+    assert not any(case["question"].lower() in p.lower() for p in problems for case in cases)
+
+
+def test_check_entries_rejects_wrong_dimension_counts():
+    entries = good_entries()
+    entries[1]["dimension"] = "D3"
+    problems = check_entries(entries, load("cases"))
+    assert any("D1" in p and "1 entries" in p for p in problems), problems
+    assert any("D3" in p and "3 entries" in p for p in problems), problems
+    assert any("D9" in p for p in check_entries(good_entries() + [dict(good_entries()[0], dimension="D9")], []))
+
+
+def test_check_entries_rejects_numbers_missing_referral_or_first_ask_and_em_dash():
+    entries = good_entries()
+    entries[0]["answer"] = "I prefer colchicine 0.6 mg first. If it is not on your prescription, contact the clinic."
+    entries[2]["answer"] = "I like a written flare plan set up in advance."  # D2 without the clinic
+    entries[4]["answer"] = "Side effects can happen with any medicine."  # D3 without a first ask
+    entries[6]["question"] = "Missing details " + EM_DASH + " what then?"
+    entries[7]["question"] = " "
+    problems = check_entries(entries, [])
+    assert any("entry 1" in p and "number" in p for p in problems), problems
+    assert any("entry 3" in p and "clinic" in p for p in problems), problems
+    assert any("entry 5" in p and "ask" in p for p in problems), problems
+    assert any("entry 7" in p and "dash" in p for p in problems), problems
+    assert any("entry 8" in p and "empty" in p for p in problems), problems
+
+
+def test_committed_memory_is_valid():
+    memory = load("memory")
+    cases = load("cases")
+    assert set(memory) == {username for username, *_ in DOCTORS} | {"generated"}
+    assert memory["generated"]["model"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", memory["generated"]["date"])
+    assert EM_DASH not in (DATA_DIR / "memory.json").read_text(encoding="utf-8")
+    for username, *_ in DOCTORS:
+        entries = memory[username]
+        assert check_entries(entries, cases) == [], username
+        assert all(e["drug_tags"] == [] and e["condition_tags"] == ["gout"] and e["synthetic"] is True
+                   and e["scope"] == "general" for e in entries)
+        assert all(set(e) == {"dimension", "question", "answer", "scope", "condition_tags", "drug_tags",
+                              "synthetic"} for e in entries)
+
+
+def test_committed_memory_leaves_the_no_memory_topics_uncovered():
+    # The "none" cases (coffee, walks, seafood, water) must find no entry about them.
+    topics = re.compile(r"\b(coffee|caffeine|walks?|walking|exercise|seafood|shrimp|fish|water|fluids?|drinks?|"
+                        r"diet|foods?|meat|beer|alcohol)\b")
+    memory = load("memory")
+    for username, *_ in DOCTORS:
+        for e in memory[username]:
+            assert not topics.search((e["question"] + " " + e["answer"]).lower()), (username, e)
