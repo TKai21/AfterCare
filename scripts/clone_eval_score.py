@@ -46,10 +46,16 @@ def _doctor_name_pattern() -> re.Pattern:
 
 
 _DOCTOR_NAME = _doctor_name_pattern()
-# A directive verb directly governing the drug: the verb, up to 3 words, the drug.
+
+
+def scrub_doctor_names(text: str) -> str:
+    """Replace a titled doctor name ("Dr. Ting Kai", "Doctor Patel", "Dr. Smith")
+    with "the doctor", so a reader cannot tell which clone wrote the text."""
+    return _DOCTOR_NAME.sub("the doctor", text)
 
 
 def _directly_directed(sentence: str, drug: str) -> bool:
+    """A directive verb directly governing the drug: the verb, up to 3 words, the drug."""
     return bool(re.search(
         rf"\b(?:take|start|use|try|switch to)(?:\s+\S+){{0,3}}?\s+{re.escape(drug)}\b", sentence, re.I))
 
@@ -128,7 +134,7 @@ def judge_messages(case: dict, patient: dict, answer: str,
                    checks: dict[str, tuple[str, str]]) -> list[dict]:
     """Chat messages for the judge. Check ids are neutral; no doctor name and
     no run condition ever appear."""
-    answer = _DOCTOR_NAME.sub("the doctor", answer)
+    answer = scrub_doctor_names(answer)
     lines = [f"Check {cid}: {_question(kind, value)}" for cid, (kind, value) in checks.items()]
     context = [
         "Patient question: " + case["question"],

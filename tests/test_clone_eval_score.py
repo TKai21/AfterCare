@@ -18,6 +18,7 @@ from clone_eval_score import (  # noqa: E402
     hit_rates,
     judge_messages,
     parse_judge,
+    scrub_doctor_names,
     recommended_unprescribed,
     safety,
     score_answer,
@@ -114,6 +115,14 @@ def test_judge_messages_scrub_doctor_names_from_answer(name):
     for bad in ("Ting", "Kai", "Patel", "Parin", "Renny", "Aaron"):
         assert bad not in blob
     assert "the doctor usually prefers colchicine first" in msgs[1]["content"]
+
+
+def test_scrub_doctor_names_is_the_judge_scrub():
+    text = "Dr. Ting Kai usually starts colchicine. Doctor Patel calls first. Dr. Renny's plan."
+    assert scrub_doctor_names(text) == (
+        "the doctor usually starts colchicine. the doctor calls first. the doctor's plan.")
+    judged = judge_messages(CASE, PATIENT, text, {"c1": ("first_ask", "timing")})[1]["content"]
+    assert scrub_doctor_names(text) in judged
 
 
 def test_scrub_keeps_following_directive_and_stops_at_full_name():
