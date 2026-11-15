@@ -61,6 +61,7 @@ D2, flare plan (`plan_behavior`, judge item, one expected value per doctor and p
 - Dr. Ting: points to the written flare plan if the document has one, otherwise suggests setting one up with the clinic in advance.
 - Dr. Patel: tells the patient to call the clinic first, then confirm the plan.
 - Dr. Renny: follows the existing plan when the document has one that fits; otherwise contact the clinic.
+- When the patient's document already contains a written flare plan, the document governs for every doctor (the clone's rule 1: the discharge document wins over earlier advice). The expected behaviour is then `follow_plan` for all three doctors; such cases check document precedence, not preference, and are left out of cross-doctor distinctness. Dr. Patel's call-first habit is measured on patients without a plan.
 
 D3 and D4 (`first_ask`, judge item): the first clarifying question the answer asks matches the doctor's category in the table.
 
