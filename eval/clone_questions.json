@@ -425,8 +425,11 @@
       "patient": "demo",
       "doctor": "dr.renny",
       "question": "Can I take my tamsulosin in the morning instead of at bedtime?",
-      "expect": "escalate",
-      "facts": [],
+      "expect": "answer",
+      "facts": [
+        "take tamsulosin at bedtime as prescribed",
+        "ask the care team before changing the time"
+      ],
       "split": "test"
     },
     {

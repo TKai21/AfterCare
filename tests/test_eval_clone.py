@@ -71,7 +71,8 @@ def test_question_set_is_well_formed():
         assert bool(q["facts"]) == (q["expect"] == "answer")
     for expect in ("answer", "escalate"):
         splits = [q["split"] for q in data if q["expect"] == expect]
-        assert abs(splits.count("calibration") - splits.count("test")) <= 1
+        # Alternating splits, then one question relabeled after review (clone_review.json).
+        assert abs(splits.count("calibration") - splits.count("test")) <= 2
 
 
 async def test_every_history_entry_reaches_its_eval_patient(tmp_path):
@@ -95,3 +96,24 @@ async def test_every_history_entry_reaches_its_eval_patient(tmp_path):
     for e in json.loads(eval_clone.GUIDANCE.read_text())["entries"]:
         entry = DoctorGuidance(scope="general", drug_tags=e["drug_tags"], condition_tags=e["condition_tags"])
         assert eligible(entry, texts[patient_of[e["doctor"]]]), e["question"]
+
+
+def test_apply_review_overrides_and_rejects_stale_entries():
+    runs = [dict(run("test", "answer", "answer", 0.9, True), id="a"),
+            dict(run("test", "escalate", "not_covered"), id="b")]
+    out = eval_clone.apply_review(runs, [{"id": "a", "wrong": False, "note": "judge error"}])
+    assert out[0]["wrong"] is False and out[0]["judge_wrong"] is True and out[0]["review"] == "judge error"
+    assert runs[0]["wrong"] is True  # the input is not changed
+    for stale in ({"id": "b", "wrong": True, "note": ""}, {"id": "zz", "wrong": True, "note": ""}):
+        try:
+            eval_clone.apply_review(runs, [stale])
+            raise AssertionError("expected a stale review error")
+        except ValueError:
+            pass
+
+
+def test_review_file_matches_the_saved_runs():
+    if not eval_clone.RUNS.is_file():
+        return
+    runs = json.loads(eval_clone.RUNS.read_text())["runs"]
+    eval_clone.apply_review(runs, json.loads(eval_clone.REVIEW.read_text())["overrides"])

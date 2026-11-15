@@ -23,6 +23,7 @@ never written. The API key is never printed.
 import argparse
 import asyncio
 import json
+import math
 import secrets
 import shutil
 import sys
@@ -43,6 +44,7 @@ GUIDANCE = ROOT / "eval" / "clone_guidance.json"
 RUNS = ROOT / "eval" / "clone_runs.json"
 CALIBRATION = ROOT / "eval" / "clone_calibration.json"
 FIGURE = ROOT / "eval" / "clone_risk_coverage.svg"
+REVIEW = ROOT / "eval" / "clone_review.json"
 PASSWORDS = {"demo": "demo-password-1", "demo2": "demo-password-2"}
 
 JUDGE_PROMPT = """You grade an AI assistant's answer to a patient's question against the key facts a correct answer must state.
@@ -52,6 +54,20 @@ Reply with JSON only: {"correct": true or false, "missing": ["each key fact the 
 
 
 # ---------- grading and calibration (pure; tested) ----------
+
+def apply_review(runs: list[dict], overrides: list[dict]) -> list[dict]:
+    """Runs with the human review's verdicts applied. An override for an
+    unanswered question or an unknown id is an error: the review is stale."""
+    by_id = {r["id"]: r for r in runs}
+    out = [dict(r) for r in runs]
+    index = {r["id"]: i for i, r in enumerate(out)}
+    for o in overrides:
+        if o["id"] not in by_id or by_id[o["id"]]["kind"] != "answer":
+            raise ValueError(f"Review override {o['id']} does not match an answered question.")
+        run = out[index[o["id"]]]
+        run["judge_wrong"], run["wrong"], run["review"] = run["wrong"], bool(o["wrong"]), o["note"]
+    return out
+
 
 def loss_inputs(runs: list[dict]) -> tuple[list[Optional[float]], list[bool]]:
     """Scores (None when the clone did not answer) and wrong flags for CRC."""
@@ -110,7 +126,9 @@ def svg_curve(test: list[dict], threshold: float, alpha: float) -> str:
     w, h, left, right, top, bottom = 560, 340, 64, 24, 28, 52
     pw, ph = w - left - right, h - top - bottom
     points = curve(test)
-    ymax = max(0.2, max(p["risk"] for p in points) * 1.15, alpha * 1.4)
+    # The y axis runs in whole 5% steps up to just above the highest point.
+    step = 0.05
+    ymax = step * math.ceil(max(0.2, max(p["risk"] for p in points) * 1.1, alpha * 1.4) / step)
 
     def x(v):
         return left + v * pw
@@ -120,7 +138,7 @@ def svg_curve(test: list[dict], threshold: float, alpha: float) -> str:
     path = " ".join(f"{'M' if i == 0 else 'L'}{x(p['answer_rate']):.1f},{y(p['risk']):.1f}"
                     for i, p in enumerate(sorted(points, key=lambda p: p["answer_rate"])))
     chosen = metrics(test, threshold)
-    ticks_y = [round(ymax * i / 4, 3) for i in range(5)]
+    ticks_y = [round(step * i, 3) for i in range(round(ymax / step) + 1)]
     grid = "".join(
         f'<line x1="{left}" x2="{w - right}" y1="{y(t):.1f}" y2="{y(t):.1f}" stroke="#d9d3c7"/>'
         f'<text x="{left - 8}" y="{y(t) + 4:.1f}" text-anchor="end">{t:.0%}</text>' for t in ticks_y)
@@ -276,15 +294,20 @@ async def main_async(args) -> int:
         RUNS.write_text(json.dumps({"chat_model": chat_model, "embedding_model": embedding_model,
                                     "date": datetime.now(timezone.utc).date().isoformat(),
                                     "runs": runs}, indent=2) + "\n")
+    overrides = json.loads(REVIEW.read_text())["overrides"] if REVIEW.is_file() and not args.limit else []
     try:
+        runs = apply_review(runs, overrides)
         result = calibrate(runs, args.alpha)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+    if overrides:
+        print(f"Applied {len(overrides)} review overrides from {REVIEW.relative_to(ROOT)}")
     report(result)
     CALIBRATION.write_text(json.dumps({
         "chat_model": chat_model, "embedding_model": embedding_model,
-        "date": datetime.now(timezone.utc).date().isoformat(), **result,
+        "date": datetime.now(timezone.utc).date().isoformat(),
+        "review_overrides": len(overrides), **result,
     }, indent=2) + "\n")
     FIGURE.write_text(svg_curve([r for r in runs if r["split"] == "test"], result["threshold"], args.alpha))
     print(f"Wrote {CALIBRATION.relative_to(ROOT)} and {FIGURE.relative_to(ROOT)}")

@@ -289,6 +289,17 @@ Run the evaluation with the real model (dev only; it costs model calls, about 4 
 .venv/bin/python scripts/eval_clone.py --from-runs --alpha 0.05   # recalibrate without model calls
 ```
 
+**Results (2026-11-14, `gpt-4o-mini`, `text-embedding-3-small`, alpha 10%).** The judge's verdicts were reviewed by hand before calibrating: 6 of 93 were overridden, each with its reason in `eval/clone_review.json` (3 answers the judge called wrong that are right, 2 it called right that leave out a key fact, and 1 label error, relabeled in the question set). The script applies the review before calibrating; `eval/clone_runs.json` keeps every answer, score and verdict.
+
+| Test split (46 questions) | Wrong answers delivered | Questions answered | Coverage (answerable questions answered correctly) |
+| --- | --- | --- | --- |
+| Without the gate | 21.7% | 67% | 65% |
+| With the gate (t* = 0.70) | 17.4% | 61% | 61% |
+
+![Risk-coverage curve of the test split](eval/clone_risk_coverage.svg)
+
+On the calibration split (47 questions) the threshold gives 6.4% wrong answers and a CRC bound of 8.3%, but **the test split shows 17.4%, above alpha.** The bound is an expectation over draws of exchangeable questions, and 46 questions are few, yet the gap is larger than chance alone suggests: the calibration split happened to hold 4 wrong answers, the test split 10. The bigger finding is why the gate helps so little. Most wrong answers are **omissions**: the clone cites the right advice and leaves out part of it ("call 911 if you faint", "no more than 3,000 mg a day"). The verifier sees only the cited text, judges every stated sentence supported, and scores 7 of 14 wrong answers at 0.9 or 1.0, as high as the right ones. So the score barely separates right from wrong, and conformal calibration can only be as useful as the score it calibrates. The next step is a verifier that also sees the evidence the clone retrieved but did not cite, so it can catch what was left out, and a clone prompt that carries every safety instruction of the advice it cites; both need a new run.
+
 The server reads `eval/clone_calibration.json` when its `chat_model` matches `LLM_MODEL`; `CLONE_MIN_CONFIDENCE` overrides it. With neither, there is no gate and the clone behaves as before.
 
 ## Tests
@@ -297,7 +308,7 @@ The server reads `eval/clone_calibration.json` when its `chat_model` matches `LL
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 717 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 719 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 
