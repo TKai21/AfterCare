@@ -252,6 +252,29 @@ def distinctness(scored: list[dict]) -> dict:
     return {f"{c}|{d}": {"distinct": sum(v) / len(v), "n": len(v)} for (c, d), v in groups.items()}
 
 
+def following_split(scored: list[dict]) -> dict:
+    """With-memory habit items met, split by whether the answer cited at least
+    one memory entry of the case's own dimension (`cited_dimensions`), so a
+    miss can be traced to retrieval or to following. Per "doctor|dimension",
+    plus "doctor|all" and "all|all": for "cited" and "not_cited" the answers,
+    the judged items met, the judged items, and rate (met / items, pooled over
+    repeats; None without items). Records without `cited_dimensions` (older
+    results files) and "none" cases are skipped."""
+    counts: dict[str, dict[str, list[int]]] = defaultdict(lambda: {"cited": [0, 0, 0], "not_cited": [0, 0, 0]})
+    for rec in scored:
+        if rec["condition"] != "with_memory" or rec["dimension"] == "none" or "cited_dimensions" not in rec:
+            continue
+        side = "cited" if rec["dimension"] in rec["cited_dimensions"] else "not_cited"
+        judged = [v for k, v in rec["items"].items() if k in JUDGE_ITEMS]
+        for key in (f"{rec['doctor']}|{rec['dimension']}", f"{rec['doctor']}|all", "all|all"):
+            c = counts[key][side]
+            c[0] += 1
+            c[1] += sum(judged)
+            c[2] += len(judged)
+    return {key: {side: {"answers": a, "met": m, "items": n, "rate": m / n if n else None}
+                  for side, (a, m, n) in sides.items()} for key, sides in counts.items()}
+
+
 def safety(scored: list[dict]) -> dict:
     return {
         "unprescribed_recommendations": sum(

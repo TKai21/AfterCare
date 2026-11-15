@@ -120,6 +120,7 @@ async def test_build_world_memory_reaches_every_patient(tmp_path):
             doctor = await session.get(User, w.doctors[username])
             assert (doctor.role, doctor.display_name, doctor.specialty) == ("doctor", name, specialty)
             assert len(w.guidance[username]) == len(MEMORY[username])
+            assert [w.dimensions[i] for i in w.guidance[username]] == [e["dimension"] for e in MEMORY[username]]
         rows = (await session.scalars(select(DoctorGuidance))).all()
         assert all(r.active and r.embedding and r.scope == "general" and r.condition_tags == ["gout"]
                    and r.drug_tags == [] for r in rows)
@@ -284,6 +285,33 @@ async def test_records_carry_doc_governs_from_the_case(tmp_path):
     assert {r["case"]: r["doc_governs"] for r in records} == {"t01": False, "t03": True}
 
 
+class CitingLLM(FakeLLM):
+    """A clone that cites the first prefetched entry of its earlier advice, if any."""
+
+    async def chat(self, messages, tools=None, json_mode=False):
+        self.calls.append((messages, tools, json_mode))
+        found = re.search(r"^\[(\d+)\] My earlier advice", messages[-1]["content"], re.M)
+        if found is None:
+            return reply()
+        n = int(found.group(1))
+        return {"content": json.dumps({"kind": "answer", "answer": f"I usually start colchicine first [{n}].",
+                                       "citations": [n], "care_team_question": None})}
+
+
+async def test_records_name_the_dimension_of_each_cited_entry(tmp_path):
+    settings, _, _ = sentinel_settings(tmp_path)
+    settings = replace(settings, guidance_min_similarity=0.0)
+    records = await eval_clone.run_eval(settings, CitingLLM(), FakeJudge(), repeats=1,
+                                        results_path=tmp_path / "r.jsonl", cases=[CASE_D1],
+                                        patients=PATIENTS, memory=MEMORY, judge_model="j")
+    by = {(r["doctor"], r["condition"]): r for r in records}
+    ting = by[("dr.ting", "with_memory")]
+    assert len(ting["guidance_ids"]) == 1 and ting["cited_dimensions"] in (["D1"], ["D2"])
+    assert by[("dr.patel", "with_memory")]["cited_dimensions"] == ["D1"]  # Dr. Patel has one D1 entry
+    assert all(r["cited_dimensions"] == [] and r["guidance_ids"] == []
+               for r in records if r["condition"] == "without_memory")
+
+
 async def test_run_never_opens_the_dev_database(tmp_path, monkeypatch):
     settings, dev, index = sentinel_settings(tmp_path)
     scratch = tmp_path / "scratch"
@@ -431,6 +459,38 @@ def test_report_lists_hit_rates_safety_flags_and_models(tmp_path):
     assert data["distinctness"]["t01|dr.ting"]["distinct"] == 1.0
 
 
+def test_report_separates_retrieval_from_following(tmp_path):
+    base = {**sheet_records()[0], "judge": {}}
+    records = [
+        {**base, "repeat": 0, "cited_dimensions": ["D1"], "items": {"first_choice": True}},
+        {**base, "repeat": 1, "cited_dimensions": ["D2"], "items": {"first_choice": False}},
+        {**base, "repeat": 2, "cited_dimensions": [], "items": {"first_choice": False}},
+        {**base, "condition": "without_memory", "cited_dimensions": [], "items": {"first_choice": False}},
+    ]
+    retrieval = {"floor": 0.45, "limit": 5, "rows": [
+        {"case": "t01", "dimension": "D1", "doctor": "dr.ting", "hits": [["D1", 0.5]], "own": True},
+        {"case": "t01", "dimension": "D1", "doctor": "dr.patel", "hits": [], "own": False},
+        {"case": "t04", "dimension": "D2", "doctor": "dr.ting", "hits": [["D1", 0.6]], "own": False},
+    ]}
+    md, js = tmp_path / "results.md", tmp_path / "results.json"
+    eval_clone.write_report(records, md, js, retrieval=retrieval)
+    text = md.read_text()
+    assert "## Retrieval against following (with memory)" in text
+    assert "| dr.ting | D1 | 1 | 1.00 | 2 | 0.00 |" in text
+    assert "| all | all | 1 | 1.00 | 2 | 0.00 |" in text
+    assert "### Own-dimension entry retrieved at prefetch" in text
+    assert "floor 0.45, top 5" in text
+    assert "| t01 | D1 | yes | no | - |" in text and "| t04 | D2 | no | - | - |" in text
+    assert "2 of 3 case-doctor pairs retrieve no entry of their own dimension" in text
+    assert chr(0x2014) not in text
+    data = json.loads(js.read_text())
+    assert data["following"]["dr.ting|D1"]["not_cited"]["answers"] == 2
+    assert data["retrieval"] == retrieval
+    # Without a retrieval file the section says how to make one.
+    eval_clone.write_report(records, md, js)
+    assert "--retrieval-check" in md.read_text() and json.loads(js.read_text())["retrieval"] is None
+
+
 def no_env(monkeypatch, **fields):
     settings = Settings(jwt_secret="x", **fields)
     monkeypatch.setattr(config, "get_settings", lambda: settings)
@@ -466,6 +526,12 @@ def test_main_human_sheet_and_agreement_from_results(monkeypatch, capsys, tmp_pa
     assert saved["rows"] == 3
     report = (tmp_path / "results.md").read_text()
     assert "Judge-human agreement" in report
+    assert "No retrieval check saved" in report
+    # A saved retrieval check goes into the report.
+    (tmp_path / "retrieval.json").write_text(json.dumps({"floor": 0.45, "limit": 5, "rows": [
+        {"case": "t01", "dimension": "D1", "doctor": "dr.ting", "hits": [], "own": False}]}))
+    assert eval_clone.main(["--agreement", "--out-dir", str(tmp_path)]) == 0
+    assert "| t01 | D1 | no | - | - |" in (tmp_path / "results.md").read_text()
 
 
 def test_read_results_drops_a_truncated_last_line(tmp_path):
@@ -659,10 +725,16 @@ def test_main_retrieval_check(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="key"))
     import llm
     monkeypatch.setattr(llm, "LLMClient", lambda s: FakeLLM())
-    code = eval_clone.main(["--retrieval-check"])  # the committed cases and memory, fake embeddings
+    out_dir = tmp_path / "out"
+    # The committed cases and memory, fake embeddings.
+    code = eval_clone.main(["--retrieval-check", "--out-dir", str(out_dir)])
     out = capsys.readouterr().out
     assert code in (0, 1) and "case-doctor pairs" in out
     assert ("MISS" in out) == (code == 1)
+    saved = json.loads((out_dir / "retrieval.json").read_text())
+    assert saved["floor"] == settings.guidance_min_similarity and saved["limit"] == eval_clone.RETRIEVAL_LIMIT
+    assert len(saved["rows"]) == sum(c["dimension"] != "none" for c in CASES) * 3
+    assert str(out_dir / "retrieval.json") in out
     monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="", embedding_api_key=""))
     assert eval_clone.main(["--retrieval-check"]) == 1
     assert "API key" in capsys.readouterr().err

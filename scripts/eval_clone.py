@@ -21,8 +21,9 @@ API; the configured DATABASE_URL is never opened.
 Outputs (in --out-dir, default eval/clone/): results.jsonl (a header line with
 the model names, then one record per answer, appended as it is made, so an
 interrupted run resumes), results.md and results.json (the report),
-human_review.csv and human_key.json (the human sheet and its hidden key), and
-agreement.json. --generate writes eval/clone/memory.json (whatever --out-dir
+human_review.csv and human_key.json (the human sheet and its hidden key),
+agreement.json, and retrieval.json (from --retrieval-check; the report reads it
+and agreement.json when they exist). --generate writes eval/clone/memory.json (whatever --out-dir
 says, because every run reads it from there) with the strong model, and never
 overwrites it without --force: the committed file is reviewed by hand. The API
 key is never printed.
@@ -62,6 +63,7 @@ from clone_eval_score import (  # noqa: E402
     checks_for,
     cohen_kappa,
     distinctness,
+    following_split,
     hit_rates,
     judge_messages,
     parse_judge,
@@ -98,6 +100,7 @@ class World:
     patients: dict[str, int]  # patient id -> user id
     documents: dict[str, int]  # patient id -> document id
     guidance: dict[str, list[int]]  # username -> memory entry ids, ascending
+    dimensions: dict[int, str]  # memory entry id -> its dimension (D1-D4)
     labels: list[dict]  # the approved label records, for the library copy
     tokens: dict[str, str] = field(default_factory=dict)  # patient id -> bearer token
 
@@ -160,8 +163,9 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
 
     await session.flush()
     guidance: dict[str, list[int]] = {}
+    dimensions: dict[int, str] = {}
     for username, _, _ in DOCTORS:
-        entries = []
+        entries, dims = [], []
         for raw in memory.get(username, []):
             if raw.get("scope", "general") != "general":
                 raise ValueError(f"memory entry of {username} is not general: {raw['question']!r}")
@@ -169,16 +173,18 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
                 doctor_id=doctors[username].id, question=raw["question"], answer=raw["answer"],
                 scope="general", drug_tags=list(raw.get("drug_tags", [])),
                 condition_tags=list(raw.get("condition_tags", [])), active=True))
+            dims.append(raw["dimension"])
         session.add_all(entries)
         await session.flush()
         for entry in entries:
             if not await embed_entry(llm, entry):
                 raise RuntimeError(f"Could not embed a memory entry of {username}: {entry.question!r}")
         guidance[username] = sorted(e.id for e in entries)
+        dimensions.update({e.id: d for e, d in zip(entries, dims)})
     await session.commit()
     return World(doctors={u: d.id for u, d in doctors.items()},
                  names={u: n for u, n, _ in DOCTORS}, patients=users, documents=documents,
-                 guidance=guidance, labels=labels)
+                 guidance=guidance, dimensions=dimensions, labels=labels)
 
 
 async def set_memory(session, world: World, username: str, active: bool) -> None:
@@ -389,6 +395,8 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
                       "doc_governs": bool(case.get("doc_governs")),
                       "doctor": username, "condition": condition, "repeat": repeat}
             record.update({k: v for k, v in turn.items() if k not in ("case", "doctor")})
+            # Which dimension each cited entry answers: retrieval against following.
+            record["cited_dimensions"] = [world.dimensions[i] for i in turn["guidance_ids"]]
             record.update(await judge_turn(judge_llm, case, patient, turn))
             _append(results_path, record)
             records.append(record)
@@ -448,10 +456,55 @@ def _overall(rates: dict, condition: str) -> float | None:
     return mean(values) if values else None
 
 
+def _share(entry: dict) -> str:
+    return f"{entry['rate']:.2f}" if entry["rate"] is not None else "-"
+
+
+def _following_section(following: dict, retrieval: dict | None) -> list[str]:
+    """The with-memory hit rate split by own-dimension entry cited, then the
+    prefetch retrieval table of a saved --retrieval-check."""
+    md = ["", "## Retrieval against following (with memory)", "",
+          "A clone can only follow a memory entry it has. Each with-memory answer is split by whether it "
+          "cited at least one memory entry of the case's own dimension; the share is the judged items met, "
+          "pooled over repeats. A low share where no own entry was cited points to retrieval; a low share "
+          "where one was cited points to following.", "",
+          "| Doctor | Dimension | Own entry cited: answers | Hit rate | Not cited: answers | Hit rate |",
+          "|---|---|---|---|---|---|"]
+    keys = [f"{u}|{d}" for u, _, _ in DOCTORS for d in (*DIMENSIONS, "all")] + ["all|all"]
+    for key in keys:
+        if key in following:
+            cited, not_cited = following[key]["cited"], following[key]["not_cited"]
+            md.append(f"| {' | '.join(key.split('|'))} | {cited['answers']} | {_share(cited)} | "
+                      f"{not_cited['answers']} | {_share(not_cited)} |")
+    md += ["", "### Own-dimension entry retrieved at prefetch", ""]
+    if retrieval is None:
+        md.append("No retrieval check saved; run `scripts/eval_clone.py --retrieval-check` with the same "
+                  "--out-dir to add it.")
+        return md
+    rows = retrieval["rows"]
+    own = {(r["case"], r["doctor"]): r["own"] for r in rows}
+    dims = {r["case"]: r["dimension"] for r in rows}
+    misses = sum(not r["own"] for r in rows)
+    md += [f"Whether `guidance.retrieve` on the case question itself (the prefetch before the first model "
+           f"call; floor {retrieval['floor']}, top {retrieval['limit']}) returns at least one entry of the "
+           "case's dimension. The clone may still find one with its own search_doctor_guidance queries.", "",
+           f"{misses} of {len(rows)} case-doctor pairs retrieve no entry of their own dimension.", "",
+           "| Case | Dimension | " + " | ".join(u for u, _, _ in DOCTORS) + " |",
+           "|---|---|" + "---|" * len(DOCTORS)]
+    for case in dict.fromkeys(r["case"] for r in rows):
+        cells = [own.get((case, u)) for u, _, _ in DOCTORS]
+        md.append(f"| {case} | {dims[case]} | "
+                  + " | ".join("-" if c is None else ("yes" if c else "no") for c in cells) + " |")
+    return md
+
+
 def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dict | None = None,
-                 agreement: dict | None = None) -> None:
+                 agreement: dict | None = None, retrieval: dict | None = None) -> None:
+    """results.md and results.json. `retrieval` is a saved --retrieval-check
+    (retrieval.json: floor, limit, rows), or None."""
     meta = meta or {}
     rates = hit_rates(records)
+    following = following_split(records)
     distinct = distinctness(records)
     safe = safety(records)
     flags = safety_flags(records)
@@ -485,6 +538,8 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
             md.append(f"| {username} | {dim} | {_rate(with_)} | {_rate(without)} | "
                       f"{with_['n'] if with_ else 0}/{without['n'] if without else 0} | "
                       f"{f'{sum(share) / len(share):.2f}' if share else '-'} |")
+
+    md += _following_section(following, retrieval)
 
     md += ["", "## Cross-doctor distinctness (with memory)", "",
            "Share of repeats where the clone met all its own items and none of another doctor's "
@@ -526,7 +581,8 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
     md.append("")
     out_md.write_text("\n".join(md), encoding="utf-8")
     out_json.write_text(json.dumps({
-        "meta": meta, "written": written, "note": SYNTHETIC_NOTE, "hit_rates": rates,
+        "meta": meta, "written": written, "note": SYNTHETIC_NOTE, "hit_rates": rates, "following": following,
+        "retrieval": retrieval,
         "distinctness": distinct, "safety": safe, "safety_flags": flags, "blocked": blocked,
         "agreement": agreement,
     }, indent=2) + "\n", encoding="utf-8")
@@ -828,7 +884,12 @@ def _summary(records: list[dict]) -> str:
             f"blocked: {safe['blocked']}.")
 
 
-def _retrieval_check() -> int:
+def load_saved(path: Path) -> dict | None:
+    """A saved JSON output (retrieval.json, agreement.json), or None when there is none."""
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def _retrieval_check(path: Path) -> int:
     settings = config.get_settings()
     if not settings.embedding_api_key:
         return _fail("No API key for embeddings: set LLM_API_KEY (or EMBEDDING_API_KEY) in the project .env.")
@@ -842,6 +903,11 @@ def _retrieval_check() -> int:
     except LLMError as exc:
         return _fail(str(exc))
     print(format_retrieval(rows, settings.guidance_min_similarity))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"floor": settings.guidance_min_similarity, "limit": RETRIEVAL_LIMIT,
+                                "embedding_model": settings.embedding_model, "rows": rows}, indent=2) + "\n",
+                    encoding="utf-8")
+    print(f"Saved {path}; the report reads it from there.")
     return 0 if all(r["own"] for r in rows) else 1
 
 
@@ -887,13 +953,14 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out_dir)
     results, md, js = out / "results.jsonl", out / "results.md", out / "results.json"
     sheet, key, agreed = out / "human_review.csv", out / "human_key.json", out / "agreement.json"
+    retrieved = out / "retrieval.json"
 
     if args.force and not args.generate:
         return _fail("--force only applies to --generate.")
     if args.generate:
         return _generate(args.strong_model, args.force)
     if args.retrieval_check:
-        return _retrieval_check()
+        return _retrieval_check(retrieved)
 
     if args.human_sheet:
         if sheet.exists():
@@ -913,7 +980,7 @@ def main(argv: list[str] | None = None) -> int:
         agreed.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         header, records = read_results(results)
         if records:
-            write_report(records, md, js, meta=header, agreement=result)
+            write_report(records, md, js, meta=header, agreement=result, retrieval=load_saved(retrieved))
         print(f"{result['rows']} rows: raw agreement {result['agreement']:.2f}, "
               f"Cohen's kappa {result['kappa']:.2f}")
         return 0
@@ -932,7 +999,8 @@ def main(argv: list[str] | None = None) -> int:
     records = asyncio.run(run_eval(settings, LLMClient(settings), judge, repeats=args.repeats,
                                    results_path=results, judge_model=args.strong_model))
     header, _ = read_results(results)
-    write_report(records, md, js, meta=header)
+    write_report(records, md, js, meta=header, retrieval=load_saved(retrieved),
+                 agreement=load_saved(agreed))
     print(_summary(records))
     print(f"Report: {md}")
     return 0

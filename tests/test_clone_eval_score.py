@@ -15,6 +15,7 @@ from clone_eval_score import (  # noqa: E402
     cohen_kappa,
     distinctness,
     drugs_mentioned,
+    following_split,
     hit_rates,
     judge_messages,
     parse_judge,
@@ -313,6 +314,34 @@ def test_distinctness_skips_cases_the_document_governs():
     governed["doc_governs"] = True
     plain = _scored("dr.patel", 0, {"plan_behavior": True}, case="c09", dim="D2")
     assert distinctness([governed, plain]) == {"c09|dr.patel": {"distinct": 1.0, "n": 1}}
+
+
+def test_following_split_by_own_dimension_entry_cited():
+    def cited(doctor, items, dims, dim="D1", cond="with_memory"):
+        rec = _scored(doctor, 0, items, dim=dim, cond=cond)
+        rec["cited_dimensions"] = dims
+        return rec
+
+    scored = [
+        cited("dr.ting", {"first_choice": True, "must_not_recommend": True}, ["D1", "D2"]),
+        cited("dr.ting", {"first_choice": False}, ["D2"]),  # cited only another dimension
+        cited("dr.ting", {"first_choice": False}, []),
+        cited("dr.ting", {"first_ask": True, "refer_to_clinic": True}, [], dim="D4"),
+        cited("dr.patel", {"first_choice": True}, ["D1"]),
+        cited("dr.patel", {"first_choice": True}, ["D1"], cond="without_memory"),  # with memory only
+        cited("dr.ting", {"no_memory_use": True}, [], dim="none"),  # no habit items
+        _scored("dr.ting", 0, {"first_choice": True}),  # an older record without the field
+    ]
+    out = following_split(scored)
+    assert out["dr.ting|D1"] == {"cited": {"answers": 1, "met": 1, "items": 1, "rate": 1.0},
+                                 "not_cited": {"answers": 2, "met": 0, "items": 2, "rate": 0.0}}
+    assert out["dr.ting|D4"] == {"cited": {"answers": 0, "met": 0, "items": 0, "rate": None},
+                                 "not_cited": {"answers": 1, "met": 2, "items": 2, "rate": 1.0}}
+    assert out["dr.ting|all"]["not_cited"] == {"answers": 3, "met": 2, "items": 4, "rate": 0.5}
+    assert out["dr.patel|all"]["cited"] == {"answers": 1, "met": 1, "items": 1, "rate": 1.0}
+    assert out["all|all"]["cited"]["answers"] == 2 and out["all|all"]["not_cited"]["answers"] == 3
+    assert not [k for k in out if "none" in k]
+    json.dumps(out)
 
 
 def test_safety_counts():
