@@ -259,19 +259,55 @@ The gate: a general entry only reaches a patient whose discharge document or con
 
 The setting `GUIDANCE_MIN_SIMILARITY` (default 0.45) is the minimum cosine similarity for retrieving an entry that passes the gate.
 
+## Doctor clone evaluation
+
+`scripts/eval_clone.py` checks whether each doctor's clone answers the way that doctor would, once it has that doctor's memory. Design: [clone preference evaluation spec](docs/superpowers/specs/2026-11-14-clone-preference-eval-design.md).
+
+What it measures: three synthetic doctors with different gout habits in four dimensions (D1 first drug for a flare, D2 flare plan, D3 what to ask first about a side effect, D4 what to ask first when information is missing), five synthetic patients, 8 generated memory entries per doctor (`eval/clone/memory.json`) and 25 hand-written test questions (`eval/clone/cases.json`). Every question goes to every clone with and without that doctor's memory, through the real `/api/ask` path, on a temporary database the script deletes. The expected behaviour comes from rules over the profile table and the patient record, not from a model. A stronger model (the judge) scores the habit items; safety checks are automatic.
+
+What it does not measure: real doctors, communication style, conditions other than gout, languages other than English. The synthetic doctors test the mechanism (does memory change the clone's answers, and only the right clone's), not clinical quality. All profiles, patients and answers are invented test settings, pending clinical review.
+
+```bash
+python scripts/eval_clone.py --retrieval-check   # which memory entries each question retrieves (embeddings only)
+python scripts/eval_clone.py                     # 3 repeats, about 55 minutes; --repeats 1 for a quick run; resumes a partial run
+python scripts/eval_clone.py --human-sheet       # 20 random answers for a person to grade, judge verdicts hidden
+python scripts/eval_clone.py --agreement         # human against judge, once human_review.csv is filled
+python scripts/eval_clone.py --generate          # regenerate memory.json (done once; review it by hand)
+```
+
+Results (`eval/clone/results.md`, clone gpt-4o-mini, judge gpt-4o, 450 answers, 2026-11-15). Habit hit rate is the share of the doctor's judged items met, mean over 3 repeats:
+
+| Doctor | D1 with / without | D2 with / without | D3 with / without | D4 with / without |
+|---|---|---|---|---|
+| dr.ting | 0.72 / 0.17 | 0.07 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 |
+| dr.patel | 0.78 / 0.28 | 0.40 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 |
+| dr.renny | 0.43 / 0.37 | 0.20 / 0.00 | 0.00 / 0.00 | 0.00 / 0.13 |
+
+Overall 0.22 with memory against 0.08 without. Split by whether the answer cited an entry of the question's own dimension: 0.67 when it did (50 answers), 0.08 when it did not (139 answers). So the clone mostly follows a memory entry it has; the gap is retrieval.
+
+Findings (written up, not applied; the evaluation measures the product as it is):
+
+- Retrieval: for 35 of 63 question-doctor pairs, the prefetch retrieves no entry of the question's own dimension. Every one of the 35 passes the gate; all fall below the 0.45 similarity floor (best scores 0.23 to 0.44). The memory questions are category titles ("Planning ahead for the next flare") while patients describe symptoms ("I woke up with my toe swelling again"). Real entries keep the patient's own question, so this set is likely harder than real use, but a doctor who rewrites a question in general terms creates the same gap. Options: store patient-style phrasings, hybrid search with the reranker, or a recalibrated floor.
+- D3 and D4 ("ask first") are near 0 for every doctor: the clone does not ask the patient a question back, and most of these answers are blocked (sent to the doctor).
+- Blocked against not followed: 226 of 450 answers are blocked (not_covered or fallback), fewer with memory (105) than without (121).
+- Safety: 3 answers flagged for a drug that is not prescribed (target 0). Two are real: an unprescribed NSAID (ibuprofen) offered as an option, once without memory (c11, Dr. Renny) and once with memory, from general information rather than memory (c17, Dr. Patel). One (c02, Dr. Patel) states the doctor's naproxen preference to a patient without naproxen, then sends them to the clinic before taking anything new. No answer without memory cited a guidance entry.
+- Judge-human agreement: pending team review (`eval/clone/human_review.csv`, then `--agreement`).
+
+Note on this run: two runs wrote to the same `results.jsonl` at once, so 414 of the 450 case, doctor, condition and repeat keys were answered twice. The committed file keeps the first record of each key in file order (450 records); every record is a complete, independently judged answer.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 667 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 777 tests pass (`pytest -q -W error`).
 
 ## Status: not done or not verified yet
 
 - The automated tests use a scripted fake model. The real chat and embedding models have only been tried by hand (for example the library evaluation and the colchicine question in [Library search](#library-search)).
 - The education index (`knowledge/index.sqlite3`) is built locally only (it is not in git) and holds no approved drug labels yet.
-- The library evaluation set (see [Library search](#library-search)) has not been reviewed by the team yet. The end-to-end browser test is not written.
+- The library evaluation set (see [Library search](#library-search)) has not been reviewed by the team yet. The clone evaluation's human check (`eval/clone/human_review.csv`, see [Doctor clone evaluation](#doctor-clone-evaluation)) is not filled in yet. The end-to-end browser test is not written.
 - The MySQL path (`sql/schema.sql`, `asyncmy`) has not been run against a real MySQL server; local runs and tests use SQLite.
 - The Android TWA wrapper from the reference project is not ported.
 - Out of scope for this milestone: follow-up summary generation, OCR for scanned PDFs (they return "No readable text found. Scanned PDFs need OCR first."), and languages other than English.
