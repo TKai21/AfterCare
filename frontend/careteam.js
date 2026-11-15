@@ -1,5 +1,6 @@
 // Care team tab: questions to bring to the care team, open first, resolved collapsed.
 import {api, escapeHtml, registerTab} from '/static/api.js';
+import {attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 import {
   CHECK_ICON, MAX_QUESTION, askDoctorDirectly, emergencyHtml, loadDoctors, pickDoctor,
   warningSignsOf,
@@ -12,6 +13,7 @@ const SOURCE_LABELS = {
   validation_fallback: 'From the assistant',
   rejected_item: 'From your instruction review',
   patient: 'Asked by you',
+  patient_voice: 'Voice question from you',
 };
 
 const view = {
@@ -24,6 +26,7 @@ const view = {
   // chosen: the patient picked a doctor in the select during this visit to the tab.
   form: {doctorId: null, chosen: false, text: '', sending: false, error: '', sent: null, emergency: false},
   signs: [],           // active warning signs, for the emergency banner
+  voiceActive: false,
 };
 
 // Each visit starts on the doctor last chosen in Ask, unless the patient picks
@@ -156,6 +159,7 @@ function openHtml(q) {
     <li class="item question" data-id="${q.id}">
       ${metaHtml(q)}
       <p class="question-text">${esc(q.question)}</p>
+      ${voicePlayerHtml(q.voice?.question, 'your question')}
       ${q.reason && q.source !== 'patient' ? `<p class="question-reason"><span class="question-reason-label">Why:</span> ${esc(q.reason)}</p>` : ''}
       ${error}
       <div class="question-actions">
@@ -178,9 +182,11 @@ function answeredHtml(q) {
     <li class="item question" data-id="${q.id}">
       ${metaHtml(q)}
       <p class="question-text">${esc(q.question)}</p>
+      ${voicePlayerHtml(q.voice?.question, 'your question')}
       <section class="doctor-answer" aria-labelledby="answer-head-${q.id}">
         <h2 class="doctor-answer-head" id="answer-head-${q.id}">${esc(who)}${date ? ` &middot; ${esc(date)}` : ''}</h2>
         <p class="doctor-answer-text">${esc(q.answer)}</p>
+        ${voicePlayerHtml(q.voice?.answer, 'doctor reply')}
       </section>
       ${error}
       <div class="question-actions">
@@ -194,8 +200,10 @@ function resolvedHtml(q) {
     <li class="item question is-resolved">
       ${metaHtml(q)}
       <p class="question-text">${esc(q.question)}</p>
+      ${voicePlayerHtml(q.voice?.question, 'your question')}
       ${q.reason && q.source !== 'patient' ? `<p class="question-reason"><span class="question-reason-label">Why:</span> ${esc(q.reason)}</p>` : ''}
       ${q.answer ? `<p class="question-reason"><span class="question-reason-label">${esc(q.answered_by_name || 'Your doctor')} replied:</span> ${esc(q.answer)}</p>` : ''}
+      ${voicePlayerHtml(q.voice?.answer, 'doctor reply')}
     </li>`;
 }
 
@@ -220,6 +228,7 @@ function formHtml() {
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-small" id="directSubmit" ${disabled ? 'disabled' : ''}>${form.sending ? 'Sending...' : 'Send'}</button>
       </div>
+      <div id="patientVoiceComposer"></div>
       ${form.sent ? `
         <div class="direct-done">
           ${form.emergency ? emergencyHtml(view.signs) : ''}
@@ -231,7 +240,7 @@ function formHtml() {
 async function sendDirect(panel) {
   const form = view.form;
   const question = form.text.trim();
-  if (!question || form.sending || form.doctorId === null) return;
+  if (!question || view.voiceActive || form.sending || form.doctorId === null) return;
   // Sending disables the form, which drops focus; it returns to the question
   // box afterwards unless the patient has moved on.
   const hadFocus = panel.contains(document.activeElement);
@@ -294,6 +303,7 @@ function render(panel) {
         </details>` : ''}`;
   }
 
+  clearVoice(panel);
   panel.innerHTML = `
     <div class="careteam split">
       <div class="split-aside">
@@ -321,7 +331,7 @@ function render(panel) {
     box.querySelector('#directQuestion').addEventListener('input', event => {
       view.form.text = event.target.value;
       view.form.sent = null;
-      box.querySelector('#directSubmit').disabled = view.form.sending || !view.form.text.trim();
+      box.querySelector('#directSubmit').disabled = view.voiceActive || view.form.sending || !view.form.text.trim();
     });
     box.addEventListener('submit', event => {
       event.preventDefault();
@@ -344,4 +354,30 @@ function render(panel) {
   });
   const details = panel.querySelector('.resolved');
   if (details) details.addEventListener('toggle', () => { view.resolvedOpen = details.open; });
+  mountVoicePlayers(panel);
+  const voiceBox = panel.querySelector('#patientVoiceComposer');
+  if (voiceBox && !view.form.sending) {
+    attachVoiceComposer(voiceBox, {
+      label: 'Or send your doctor a voice question',
+      context: () => view.form.doctorId,
+      onBusy: busy => {
+        view.voiceActive = busy;
+        const doctor = panel.querySelector('#directDoctor');
+        const send = panel.querySelector('#directSubmit');
+        if (doctor) doctor.disabled = busy;
+        if (send) send.disabled = busy || view.form.sending || !view.form.text.trim();
+      },
+      onSend: async (blob, filename, doctorId) => {
+        const form = new FormData();
+        form.append('doctor_id', String(doctorId));
+        form.append('file', blob, filename);
+        const out = await api('/api/voice/questions', {method: 'POST', form});
+        view.questions = [out.question, ...(view.questions || [])];
+        view.form.sent = out.question.doctor_name || 'your doctor';
+        view.form.emergency = false;
+        notify();
+        render(panel);
+      },
+    });
+  }
 }

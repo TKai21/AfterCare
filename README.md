@@ -21,6 +21,11 @@ This is EE542 final project, Team 2, milestone 1. The "Status" section below lis
 
 The app has four tabs: Instructions (upload, then review and confirm the extracted items), Today (daily checklist), Ask (the agent), Care team (questions the app could not answer).
 
+Patients can also send a voice question from Care team, and doctors can send voice
+replies from their question queue. Clips are private, limited to 60 seconds, and
+are not transcribed or used as AI guidance. Install FFmpeg on the backend host.
+See [Voice messages](docs/VOICE_MESSAGES.md) for setup, tests and verification limits.
+
 ## Run the website
 
 1. Install Python 3.10+. MySQL 8+ is only needed for the production setup; for a quick local run use SQLite (below).
@@ -313,7 +318,9 @@ The server reads `eval/clone_calibration.json` when its `chat_model` matches `LL
 pytest
 ```
 
-The unit suite uses SQLite and a scripted fake model, so it needs no network and no key. Currently 720 tests pass (`pytest -q -W error`).
+The unit suite uses SQLite and a scripted fake model, so it needs no network and no key.
+Run `pytest -q -W error` to verify the full suite. Voice tests additionally use local
+FFmpeg; the frontend lifecycle checks use Node.js 18+ when available.
 
 ## Status: not done or not verified yet
 

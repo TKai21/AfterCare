@@ -13,3 +13,6 @@ knowledge/*.staging.sqlite3
 .DS_Store
 *.sqlite3.bak*
 models/
+
+# Private voice recordings: never serve statically or commit patient audio.
+private/

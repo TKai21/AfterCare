@@ -10,14 +10,16 @@ from db import get_session
 from doctors import doctor_label, doctor_labels, doctor_specialty, list_doctors, require_doctor
 from models import CareTeamQuestion, User
 from safety import detect_emergency, warning_terms
+from voice import voice_views
 
 MAX_QUESTION_CHARS = 2000
 
 router = APIRouter()
 
 
-def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = None) -> dict:
-    return {
+def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = None,
+                  voices: dict | None = None) -> dict:
+    result = {
         "id": q.id,
         "question": q.question,
         "reason": q.reason,
@@ -31,6 +33,9 @@ def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = Non
         "created_at": q.created_at.isoformat() if q.created_at else None,
         "document_id": q.document_id,
     }
+    if voices and q.id in voices:
+        result["voice"] = voices[q.id]
+    return result
 
 
 async def add_question(
@@ -130,7 +135,8 @@ async def list_questions(
     names = await doctor_labels(
         session, {i for q in rows for i in (q.answered_by, q.doctor_id)}
     )
-    return {"questions": [question_view(q, names) for q in rows]}
+    voices = await voice_views(session, [q.id for q in rows])
+    return {"questions": [question_view(q, names, voices) for q in rows]}
 
 
 @router.post("/api/care-team/{question_id}/resolve")
@@ -149,4 +155,4 @@ async def resolve_question(
     row.status = "resolved"
     await session.commit()
     names = await doctor_labels(session, {row.answered_by, row.doctor_id})
-    return question_view(row, names)
+    return question_view(row, names, await voice_views(session, [row.id]))

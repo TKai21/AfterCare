@@ -38,6 +38,7 @@ class Settings:
     # in the calibration file, when it was calibrated for LLM_MODEL; else no gate.
     clone_min_confidence: Optional[float] = None
     clone_calibration_path: str = "eval/clone_calibration.json"
+    voice_storage_path: str = "private/voice"
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -81,4 +82,5 @@ def get_settings() -> Settings:
             float(env["CLONE_MIN_CONFIDENCE"]) if env.get("CLONE_MIN_CONFIDENCE") else None
         ),
         clone_calibration_path=env.get("CLONE_CALIBRATION_PATH", defaults.clone_calibration_path),
+        voice_storage_path=env.get("VOICE_STORAGE_PATH", defaults.voice_storage_path),
     )

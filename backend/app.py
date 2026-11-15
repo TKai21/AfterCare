@@ -14,6 +14,7 @@ import routes_checklist
 import routes_doctor
 import routes_labels
 import routes_documents
+import routes_voice
 from confidence import load_threshold
 from config import PROJECT_DIR, Settings, get_settings
 from druglabels import DEMO_LABELS, LabelClient, approved_rxcuis, fixture_transport, mark_interrupted
@@ -21,6 +22,7 @@ from db import init_db, make_engine, make_session_factory
 from foods import FoodTable
 from knowledge import open_store
 from llm import LLMClient
+from voice_storage import VoiceStorage
 
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
@@ -102,6 +104,11 @@ def create_app(
     app.state.foods = foods
     app.state.label_client = label_client
     app.state.clone_threshold = clone_threshold(settings)
+    voice_path = Path(settings.voice_storage_path)
+    voice_path = (voice_path if voice_path.is_absolute() else PROJECT_DIR / voice_path).resolve()
+    if voice_path.is_relative_to(FRONTEND_DIR.resolve()):
+        raise RuntimeError("VOICE_STORAGE_PATH must be outside the public frontend directory.")
+    app.state.voice_storage = VoiceStorage(voice_path)
 
     app.include_router(auth.router)
     app.include_router(routes_documents.router)
@@ -110,6 +117,7 @@ def create_app(
     app.include_router(routes_labels.router)
     app.include_router(routes_checklist.router)
     app.include_router(routes_agent.router)
+    app.include_router(routes_voice.router)
 
     def page(name: str):
         async def handler():
