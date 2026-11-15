@@ -57,7 +57,7 @@ Grading: escalate questions are wrong if answered. Answer questions are graded b
 
 ## 8. Script and server
 
-`scripts/eval_clone.py` (dev only, real model from `.env`, never in pytest): builds a temporary SQLite database with the demo seed and the eval guidance (rules read by the real model), runs each question through `/api/ask` in-process (the gate off), scores answered questions with the verifier, grades, computes `t*` on calibration for `--alpha` (default 0.1), reports test risk and coverage, writes `eval/clone_calibration.json` (`threshold`, `alpha`, `n`, model names, date, per-question results) and a risk-coverage figure.
+`scripts/calibrate_clone.py` (dev only, real model from `.env`, never in pytest): builds a temporary SQLite database with the demo seed and the eval guidance (rules read by the real model), runs each question through `/api/ask` in-process (the gate off), scores answered questions with the verifier, grades, computes `t*` on calibration for `--alpha` (default 0.1), reports test risk and coverage, writes `eval/clone_calibration.json` (`threshold`, `alpha`, `n`, model names, date, per-question results) and a risk-coverage figure.
 
 Server: `Settings.clone_min_confidence` from `CLONE_MIN_CONFIDENCE`, else the calibration file's threshold when its chat model matches `LLM_MODEL`, else none. With a threshold, `/api/ask` scores each `answer` result; below it, or on a verifier failure, the patient gets the fixed not-covered sentence and the question goes to the doctor's queue with reason "Low confidence".
 

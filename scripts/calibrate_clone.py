@@ -9,10 +9,10 @@ wrong if it is answered; an answer is graded by a judge call against the
 question's key facts. Then the conformal risk control threshold is computed on
 the calibration split and checked on the test split.
 
-    .venv/bin/python scripts/eval_clone.py                    # run the model, then calibrate
-    .venv/bin/python scripts/eval_clone.py --alpha 0.05
-    .venv/bin/python scripts/eval_clone.py --from-runs        # recalibrate saved runs, no model calls
-    .venv/bin/python scripts/eval_clone.py --limit 6          # a quick smoke run (no calibration file)
+    .venv/bin/python scripts/calibrate_clone.py                    # run the model, then calibrate
+    .venv/bin/python scripts/calibrate_clone.py --alpha 0.05
+    .venv/bin/python scripts/calibrate_clone.py --from-runs        # recalibrate saved runs, no model calls
+    .venv/bin/python scripts/calibrate_clone.py --limit 6          # a quick smoke run (no calibration file)
 
 Writes eval/clone_runs.json (every answer, score and verdict, for review),
 eval/clone_calibration.json (the threshold the server reads, for this

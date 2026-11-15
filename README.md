@@ -284,9 +284,9 @@ The threshold is chosen by **conformal risk control** (Angelopoulos et al., 2022
 Run the evaluation with the real model (dev only; it costs model calls, about 4 per question):
 
 ```bash
-.venv/bin/python scripts/eval_clone.py                 # alpha 0.1; writes eval/clone_runs.json,
+.venv/bin/python scripts/calibrate_clone.py                 # alpha 0.1; writes eval/clone_runs.json,
                                                        # eval/clone_calibration.json, eval/clone_risk_coverage.svg
-.venv/bin/python scripts/eval_clone.py --from-runs --alpha 0.05   # recalibrate without model calls
+.venv/bin/python scripts/calibrate_clone.py --from-runs --alpha 0.05   # recalibrate without model calls
 ```
 
 **Results (2026-11-14, `gpt-4o-mini`, `text-embedding-3-small`, alpha 10%).** The judge's verdicts are reviewed by hand before calibrating; every override and its reason is in the review file, and the script applies it. Two runs:
@@ -336,7 +336,7 @@ frontend/    index.html + login.js (login), app.html + app.css + api.js (shell),
 knowledge/   manifest.json, sources/*.json (index.sqlite3 is built locally)
 data/        foods.json, oxalate.json, build_foods.py
 demo/        generate_demo.py, cases/*.json, out/ (generated .txt and .pdf)
-scripts/     seed_demo.py, eval_library.py (library search evaluation), eval_clone.py (clone calibration)
+scripts/     seed_demo.py, eval_library.py (library search evaluation), calibrate_clone.py (clone calibration)
 eval/        library_questions.json, clone_questions.json, clone_guidance.json
 sql/         schema.sql (MySQL)
 tests/       unit tests and the fake LLM
