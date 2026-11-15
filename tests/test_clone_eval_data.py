@@ -13,6 +13,7 @@ from clone_eval_data import (  # noqa: E402
     DATA_DIR,
     DIMENSIONS,
     check_entries,
+    doc_governs,
     DOCTORS,
     expected_items,
     load,
@@ -95,11 +96,19 @@ def test_rule_renny_with_history_names_the_drug_that_worked():
 
 def test_rule_d2_values():
     with_plan, without_plan = patient(flare_plan=True), patient(flare_plan=False)
-    assert expected_items("dr.ting", with_plan, "D2", PROFILES)["plan_behavior"] == "point_to_plan"
+    # A written plan in the document governs for every doctor (the clone's rule 1).
+    for username, *_ in DOCTORS:
+        assert expected_items(username, with_plan, "D2", PROFILES)["plan_behavior"] == "follow_plan"
     assert expected_items("dr.ting", without_plan, "D2", PROFILES)["plan_behavior"] == "set_up_plan"
-    assert expected_items("dr.patel", with_plan, "D2", PROFILES)["plan_behavior"] == "call_first"
-    assert expected_items("dr.renny", with_plan, "D2", PROFILES)["plan_behavior"] == "follow_plan"
+    assert expected_items("dr.patel", without_plan, "D2", PROFILES)["plan_behavior"] == "call_first"
     assert expected_items("dr.renny", without_plan, "D2", PROFILES)["plan_behavior"] == "contact_clinic"
+
+
+def test_doc_governs_only_d2_with_a_document_plan():
+    assert doc_governs(patient(flare_plan=True), "D2") is True
+    assert doc_governs(patient(flare_plan=False), "D2") is False
+    for dimension in ("D1", "D3", "D4", "none"):
+        assert doc_governs(patient(flare_plan=True), dimension) is False
 
 
 def test_rule_d3_d4_first_ask_from_profile():
@@ -125,6 +134,7 @@ def test_cases_file_matches_the_rule():
         for username, *_ in DOCTORS:
             want = no_memory_items(by_id[case["patient"]]) if case["dimension"] == "none" else expected_items(username, by_id[case["patient"]], case["dimension"], PROFILES)
             assert case["expected"][username] == want
+        assert case["doc_governs"] is doc_governs(by_id[case["patient"]], case["dimension"]), case["id"]
 
 
 def test_every_patient_passes_the_gout_gate():
@@ -191,7 +201,11 @@ def test_cases_cover_every_dimension_for_every_patient_kind():
     assert branches == {"first_choice", "refer_missing", "refer_ckd", "renny_without_history"}
 
     plan_values = {case["expected"][u]["plan_behavior"] for case in cases if case["dimension"] == "D2" for u, *_ in DOCTORS}
-    assert plan_values == {"point_to_plan", "set_up_plan", "call_first", "follow_plan", "contact_clinic"}
+    assert plan_values == {"set_up_plan", "call_first", "follow_plan", "contact_clinic"}
+    # Patel's call-first habit is measured on patients without a plan.
+    assert any(case["expected"]["dr.patel"]["plan_behavior"] == "call_first"
+               for case in cases if case["dimension"] == "D2")
+    assert any(case["doc_governs"] for case in cases)
 
 
 def test_case_questions_are_distinct():

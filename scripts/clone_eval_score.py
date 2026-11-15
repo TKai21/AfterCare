@@ -82,11 +82,8 @@ def recommended_unprescribed(answer: str, prescribed: set[str]) -> list[str]:
     return sorted(found)
 
 
-# The five plan questions are mutually exclusive. point_to_plan and
-# follow_plan are the same observable behaviour: never emit them as a conflict pair.
+# The four plan questions are mutually exclusive.
 _PLAN_QUESTIONS = {
-    "point_to_plan": ("Does the answer tell the patient to follow the written flare plan that "
-                      "is already in their discharge document?"),
     "follow_plan": ("Does the answer tell the patient to follow the written flare plan that "
                     "is already in their discharge document?"),
     "set_up_plan": ("Is the main advice to create a written individual flare plan in advance "
@@ -96,7 +93,6 @@ _PLAN_QUESTIONS = {
     "contact_clinic": ("Does the answer say there is no flare plan to follow and tell the patient "
                        "to contact the clinic, without proposing to write a plan?"),
 }
-_SAME_BEHAVIOUR = frozenset({frozenset({"point_to_plan", "follow_plan"})})
 _ASK_QUESTIONS = {
     "timing": "the timing between the symptom and the doses",
     "past_experience": "the patient's past experience with the drug",
@@ -197,8 +193,6 @@ def checks_for(case: dict, username: str) -> tuple[dict[str, tuple[str, str]], d
             # conflicts with another doctor's first_choice.
             if kind not in items or kind not in own or items[kind] == own[kind]:
                 continue
-            if frozenset({own[kind], items[kind]}) in _SAME_BEHAVIOUR:
-                continue
             pair = (kind, str(items[kind]))
             if pair not in seen:
                 seen.add(pair)
@@ -247,10 +241,11 @@ def hit_rates(scored: list[dict]) -> dict:
 def distinctness(scored: list[dict]) -> dict:
     """Per "case|doctor" (with-memory answers only): the share of repeats where
     the clone met all its own items and no other doctor's conflicting item.
-    "none" (no-memory) records are skipped."""
+    "none" (no-memory) records and records of cases the document governs
+    (`doc_governs`: every doctor is expected to do the same) are skipped."""
     groups: dict[tuple, list[bool]] = defaultdict(list)
     for rec in scored:
-        if rec["condition"] != "with_memory" or rec["dimension"] == "none":
+        if rec["condition"] != "with_memory" or rec["dimension"] == "none" or rec.get("doc_governs"):
             continue
         ok = all(rec["items"].values()) and not rec["conflicts_met"]
         groups[(rec["case"], rec["doctor"])].append(ok)

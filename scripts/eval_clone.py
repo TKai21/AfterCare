@@ -10,6 +10,7 @@ answer with program checks and a judge model, and writes the report.
     .venv/bin/python scripts/eval_clone.py --human-sheet      # 20 judge checks for people to grade
     .venv/bin/python scripts/eval_clone.py --agreement        # human against judge, Cohen's kappa
     .venv/bin/python scripts/eval_clone.py --generate         # write eval/clone/memory.json once
+    .venv/bin/python scripts/eval_clone.py --retrieval-check  # which entries each case retrieves
 
 Everything synthetic stays out of the configured databases: each run uses a
 temporary SQLite database and a temporary copy of the library index (plus the
@@ -71,7 +72,7 @@ from clone_eval_score import (  # noqa: E402
 )
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport  # noqa: E402
 from eval_library import copy_index, demo_label_records, existing_index_path  # noqa: E402
-from guidance import eligible, embed_entry, patient_text  # noqa: E402
+from guidance import eligible, embed_entry, patient_text, retrieve  # noqa: E402
 from knowledge import open_store  # noqa: E402
 from llm import LLMError  # noqa: E402
 from models import (  # noqa: E402
@@ -322,6 +323,21 @@ async def open_world(settings, llm, store, patients: list[dict], memory: dict, l
         await app.state.engine.dispose()
 
 
+@asynccontextmanager
+async def temporary_world(settings, llm, patients: list[dict], memory: dict):
+    """open_world on a temporary database and a temporary copy of the library
+    index, both deleted afterwards. The configured index is only read; the
+    configured database is never opened."""
+    with tempfile.TemporaryDirectory(prefix="aftercare-clone-eval-") as scratch:
+        copy = Path(scratch) / "index.sqlite3"
+        copy_index(existing_index_path(settings.rag_db_path), copy)
+        run_settings = replace(settings, database_url=f"sqlite+aiosqlite:///{Path(scratch) / 'eval.sqlite3'}",
+                               rag_db_path=str(copy), jwt_secret=secrets.token_urlsafe(32))
+        store = open_store(run_settings, llm)
+        async with open_world(run_settings, llm, store, patients, memory) as opened:
+            yield opened
+
+
 async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path,
                    cases: list[dict] | None = None, patients: list[dict] | None = None,
                    memory: dict | None = None, judge_model: str | None = None) -> list[dict]:
@@ -357,33 +373,27 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
     if len(done) == len(plan):
         return records
 
-    with tempfile.TemporaryDirectory(prefix="aftercare-clone-eval-") as scratch:
-        # The configured index is only read; the run works on a copy that is deleted afterwards.
-        copy = Path(scratch) / "index.sqlite3"
-        copy_index(existing_index_path(settings.rag_db_path), copy)
-        run_settings = replace(settings, database_url=f"sqlite+aiosqlite:///{Path(scratch) / 'eval.sqlite3'}",
-                               rag_db_path=str(copy), jwt_secret=secrets.token_urlsafe(32))
-        store = open_store(run_settings, llm)
-        async with open_world(run_settings, llm, store, patients, memory) as (client, session, world):
-            memory_on: dict[str, bool] = {}
-            for number, (case, username, condition, repeat) in enumerate(plan, 1):
-                if (case["id"], username, condition, repeat) in done:
-                    continue
-                active = condition == "with_memory"
-                if memory_on.get(username) is not active:
-                    await set_memory(session, world, username, active)
-                    memory_on[username] = active
-                patient = by_patient[case["patient"]]
-                turn = await ask_turn(client, session, world, case, username)
-                record = {"case": case["id"], "patient": patient["id"], "question": case["question"],
-                          "prescribed": list(patient["prescribed"]), "dimension": case["dimension"],
-                          "doctor": username, "condition": condition, "repeat": repeat}
-                record.update({k: v for k, v in turn.items() if k not in ("case", "doctor")})
-                record.update(await judge_turn(judge_llm, case, patient, turn))
-                _append(results_path, record)
-                records.append(record)
-                print(f"[{number}/{len(plan)}] {case['id']} {username} {condition} {repeat}: {record['kind']}",
-                      flush=True)
+    async with temporary_world(settings, llm, patients, memory) as (client, session, world):
+        memory_on: dict[str, bool] = {}
+        for number, (case, username, condition, repeat) in enumerate(plan, 1):
+            if (case["id"], username, condition, repeat) in done:
+                continue
+            active = condition == "with_memory"
+            if memory_on.get(username) is not active:
+                await set_memory(session, world, username, active)
+                memory_on[username] = active
+            patient = by_patient[case["patient"]]
+            turn = await ask_turn(client, session, world, case, username)
+            record = {"case": case["id"], "patient": patient["id"], "question": case["question"],
+                      "prescribed": list(patient["prescribed"]), "dimension": case["dimension"],
+                      "doc_governs": bool(case.get("doc_governs")),
+                      "doctor": username, "condition": condition, "repeat": repeat}
+            record.update({k: v for k, v in turn.items() if k not in ("case", "doctor")})
+            record.update(await judge_turn(judge_llm, case, patient, turn))
+            _append(results_path, record)
+            records.append(record)
+            print(f"[{number}/{len(plan)}] {case['id']} {username} {condition} {repeat}: {record['kind']}",
+                  flush=True)
     return records
 
 
@@ -478,7 +488,8 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
 
     md += ["", "## Cross-doctor distinctness (with memory)", "",
            "Share of repeats where the clone met all its own items and none of another doctor's "
-           "conflicting items.", "", "| Case | Dimension | " + " | ".join(u for u, _, _ in DOCTORS) + " |",
+           "conflicting items. Cases the patient's document governs (a written flare plan: every "
+           "doctor follows it) check document precedence and are left out.", "", "| Case | Dimension | " + " | ".join(u for u, _, _ in DOCTORS) + " |",
            "|---|---|" + "---|" * len(DOCTORS)]
     dims = {r["case"]: r["dimension"] for r in records}
     for case in sorted({k.split("|")[0] for k in distinct}):
@@ -591,6 +602,53 @@ def agreement(sheet: Path, key: Path) -> dict:
             "kappa": cohen_kappa(human, judge), "human_yes": sum(human), "judge_yes": sum(judge)}
 
 
+# ---------------------------------------------------------------- retrieval check
+
+RETRIEVAL_LIMIT = 5
+
+
+async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, patients: list[dict] | None = None,
+                          memory: dict | None = None) -> list[dict]:
+    """For every D1-D4 case and every doctor, the entries `guidance.retrieve`
+    returns for the case question (the guidance gate, the configured
+    similarity floor, top RETRIEVAL_LIMIT) in a world built as a run builds it.
+    Each row: case, dimension, doctor, hits [(dimension, score)], and own
+    (whether an entry of the case's dimension was retrieved). Embeddings only:
+    no chat model."""
+    cases = load("cases") if cases is None else cases
+    patients = load("patients") if patients is None else patients
+    memory = load("memory") if memory is None else memory
+    rows = []
+    async with temporary_world(settings, llm, patients, memory) as (_, session, world):
+        dimension_of = {(username, e["question"], e["answer"]): e["dimension"]
+                        for username, _, _ in DOCTORS for e in memory.get(username, [])}
+        for case in cases:
+            if case["dimension"] not in DIMENSIONS:
+                continue
+            user = await session.get(User, world.patients[case["patient"]])
+            doc = await session.get(DischargeDocument, world.documents[case["patient"]])
+            items = list(await session.scalars(select(ExtractedItem).where(ExtractedItem.document_id == doc.id)))
+            for username, _, _ in DOCTORS:
+                found = await retrieve(session, llm, user, doc, items, case["question"],
+                                       settings.guidance_min_similarity, doctor_id=world.doctors[username],
+                                       limit=RETRIEVAL_LIMIT)
+                hits = [(dimension_of[(username, entry.question, entry.answer)], round(score, 3))
+                        for entry, score in found]
+                rows.append({"case": case["id"], "dimension": case["dimension"], "doctor": username,
+                             "hits": hits, "own": any(d == case["dimension"] for d, _ in hits)})
+    return rows
+
+
+def format_retrieval(rows: list[dict], floor: float) -> str:
+    lines = [f"Guidance retrieval per case and doctor (floor {floor}, top {RETRIEVAL_LIMIT}):"]
+    for r in rows:
+        hits = ", ".join(f"{d} {s:.3f}" for d, s in r["hits"]) or "nothing"
+        lines.append(f"{r['case']} {r['dimension']} {r['doctor']}: {hits}" + ("" if r["own"] else "  MISS"))
+    misses = sum(not r["own"] for r in rows)
+    lines.append(f"{misses} of {len(rows)} case-doctor pairs retrieve no entry of their own dimension.")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- memory generation
 
 GENERATION_RETRIES = 2
@@ -607,10 +665,11 @@ ENTRY_GUIDE = {
         "D2": "I prefer a written individual flare plan set up in advance. If your discharge document has "
               "a written flare plan, follow it; if it does not, contact the clinic to set one up with us "
               "before the next flare.",
-        "D3": "When you report a side effect, I first ask about timing: when did the symptom start "
+        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask about timing: when did it start "
               "compared with when you took your doses?",
-        "D4": "When information is missing, I first ask about your past experience with the medicine: "
-              "have you taken it before, and how did it go?",
+        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+              "I first ask about your past experience with that medicine: have you taken it before, and how "
+              "did it go? Contact the clinic before taking anything new.",
     },
     "dr.patel": {
         "D1": "When the case allows, I use an NSAID, naproxen, first for a gout flare. Referral: if "
@@ -618,11 +677,12 @@ ENTRY_GUIDE = {
               "not suit someone with kidney disease), contact the clinic before taking anything new.",
         "D2": "When a flare starts, I prefer that you call the clinic first, and then we confirm the plan "
               "together before you act on it.",
-        "D3": "When you report a side effect, I first review your full medication list and recent "
+        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask about your full medication list and recent "
               "changes: which medicines do you take now, and has anything been started, stopped or "
               "changed recently?",
-        "D4": "When information is missing, I first ask about your other health conditions and the other "
-              "medicines you take.",
+        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+              "I first ask about your other health conditions and the other medicines you take. Contact the "
+              "clinic before taking anything new.",
     },
     "dr.renny": {
         "D1": "For a gout flare, I use the regimen that worked and was tolerated before, as your discharge "
@@ -630,9 +690,11 @@ ENTRY_GUIDE = {
               "prescription and plan with you, and you contact the clinic before taking anything new.",
         "D2": "When your discharge document has an existing individual flare plan that fits this flare, I "
               "follow that plan. If there is no plan, or it does not fit, contact the clinic.",
-        "D3": "When you report a side effect, I first ask whether the same reaction happened before.",
-        "D4": "When information is missing, I first confirm your current prescription and existing plan: "
-              "which medicines are on your prescription now, and do you have a flare plan?",
+        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask whether the same reaction happened before.",
+        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+              "I first ask to confirm your current prescription and existing plan: which medicines are on "
+              "your prescription now, and do you have a flare plan? Contact the clinic before taking "
+              "anything new.",
     },
 }
 
@@ -763,6 +825,23 @@ def _summary(records: list[dict]) -> str:
             f"blocked: {safe['blocked']}.")
 
 
+def _retrieval_check() -> int:
+    settings = config.get_settings()
+    if not settings.embedding_api_key:
+        return _fail("No API key for embeddings: set LLM_API_KEY (or EMBEDDING_API_KEY) in the project .env.")
+    if not (DATA_DIR / "memory.json").is_file():
+        return _fail(f"{DATA_DIR / 'memory.json'} is missing; generate the memory entries first.")
+
+    from llm import LLMClient
+
+    try:
+        rows = asyncio.run(retrieval_check(settings, LLMClient(settings)))
+    except LLMError as exc:
+        return _fail(str(exc))
+    print(format_retrieval(rows, settings.guidance_min_similarity))
+    return 0 if all(r["own"] for r in rows) else 1
+
+
 def _generate(model: str, force: bool) -> int:
     path = DATA_DIR / "memory.json"
     if path.exists() and not force:
@@ -792,6 +871,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="write human_review.csv and human_key.json from results.jsonl")
     step.add_argument("--agreement", action="store_true",
                       help="human against judge on the filled human_review.csv")
+    step.add_argument("--retrieval-check", action="store_true",
+                      help="print the memory entries each D1-D4 case retrieves per doctor (embeddings only)")
     step.add_argument("--generate", action="store_true",
                       help="write eval/clone/memory.json with the strong model (once; review it by hand)")
     parser.add_argument("--force", action="store_true", help="with --generate, overwrite memory.json")
@@ -808,6 +889,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fail("--force only applies to --generate.")
     if args.generate:
         return _generate(args.strong_model, args.force)
+    if args.retrieval_check:
+        return _retrieval_check()
 
     if args.human_sheet:
         if sheet.exists():

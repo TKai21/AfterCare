@@ -92,14 +92,24 @@ def expected_items(username: str, patient: dict, dimension: str, profiles: dict)
     return items
 
 
+_PLAN_WITHOUT_DOCUMENT_PLAN = {"dr.ting": "set_up_plan", "dr.patel": "call_first", "dr.renny": "contact_clinic"}
+
+
 def _plan_behavior(username: str, has_plan: bool) -> str:
-    if username == "dr.ting":
-        return "point_to_plan" if has_plan else "set_up_plan"
-    if username == "dr.patel":
-        return "call_first"
-    if username == "dr.renny":
-        return "follow_plan" if has_plan else "contact_clinic"
-    raise ValueError(f"no flare plan rule for {username!r}")
+    """A written flare plan in the patient's document governs for every doctor
+    (the clone's rule 1: the document wins over earlier advice); without one,
+    each doctor's own habit applies."""
+    if username not in _PLAN_WITHOUT_DOCUMENT_PLAN:
+        raise ValueError(f"no flare plan rule for {username!r}")
+    return "follow_plan" if has_plan else _PLAN_WITHOUT_DOCUMENT_PLAN[username]
+
+
+def doc_governs(patient: dict, dimension: str) -> bool:
+    """Whether the patient's document, not the doctor's preference, decides the
+    expected behaviour: a D2 case whose document has a written flare plan.
+    Such cases check document precedence and are left out of cross-doctor
+    distinctness."""
+    return dimension == "D2" and bool(patient["flare_plan"])
 
 
 def no_memory_items(patient: dict) -> dict:

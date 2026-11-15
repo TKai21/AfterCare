@@ -156,7 +156,7 @@ def test_judge_messages_contain_context_and_one_question_per_check():
 
 def test_judge_messages_every_value_has_wording():
     for kind, values in {
-        "plan_behavior": ["point_to_plan", "set_up_plan", "call_first", "follow_plan", "contact_clinic"],
+        "plan_behavior": ["set_up_plan", "call_first", "follow_plan", "contact_clinic"],
         "first_ask": ["timing", "past_experience", "medication_list", "other_conditions",
                       "past_reaction", "current_plan"],
     }.items():
@@ -200,7 +200,7 @@ def test_checks_for_referral_doctor_has_no_first_choice_conflicts():
 
 
 D2_CASE = {"expected": {
-    "dr.ting": {"plan_behavior": "point_to_plan"},
+    "dr.ting": {"plan_behavior": "set_up_plan"},
     "dr.patel": {"plan_behavior": "call_first"},
     "dr.renny": {"plan_behavior": "follow_plan"}}}
 
@@ -210,21 +210,21 @@ def test_checks_for_pins_conflict_pairs():
     checks, owner = checks_for(CASE, "dr.patel")
     assert checks == {"c1": ("first_choice", "naproxen"), "c2": ("first_choice", "colchicine")}
     assert owner == {"c1": "own", "c2": "other"}
-    # D2: point_to_plan and follow_plan are the same behaviour, never a pair.
+    # D2: each other doctor's different plan value is a conflict.
     checks, owner = checks_for(D2_CASE, "dr.ting")
-    assert checks == {"c1": ("plan_behavior", "point_to_plan"), "c2": ("plan_behavior", "call_first")}
-    checks, _ = checks_for(D2_CASE, "dr.renny")
-    assert checks == {"c1": ("plan_behavior", "follow_plan"), "c2": ("plan_behavior", "call_first")}
+    assert checks == {"c1": ("plan_behavior", "set_up_plan"), "c2": ("plan_behavior", "call_first"),
+                      "c3": ("plan_behavior", "follow_plan")}
     checks, _ = checks_for(D2_CASE, "dr.patel")
-    assert checks == {"c1": ("plan_behavior", "call_first"), "c2": ("plan_behavior", "point_to_plan"),
+    assert checks == {"c1": ("plan_behavior", "call_first"), "c2": ("plan_behavior", "set_up_plan"),
                       "c3": ("plan_behavior", "follow_plan")}
 
 
-def test_plan_questions_are_distinct_except_same_behaviour():
+def test_plan_questions_are_distinct():
     qs = {v: judge_messages(CASE, PATIENT, "a", {"c1": ("plan_behavior", v)})[1]["content"].split("Check c1: ")[1]
-          for v in ["point_to_plan", "follow_plan", "set_up_plan", "call_first", "contact_clinic"]}
-    assert qs["point_to_plan"] == qs["follow_plan"]
-    assert len({qs["point_to_plan"], qs["set_up_plan"], qs["call_first"], qs["contact_clinic"]}) == 4
+          for v in ["follow_plan", "set_up_plan", "call_first", "contact_clinic"]}
+    assert len(set(qs.values())) == 4
+    with pytest.raises(ValueError):
+        judge_messages(CASE, PATIENT, "a", {"c1": ("plan_behavior", "point_to_plan")})
 
 
 def test_checks_for_skips_equal_values():
@@ -306,6 +306,13 @@ def test_distinctness_flags_a_clone_following_another_doctor():
     assert out["c01|dr.ting"] == {"distinct": 0.5, "n": 2}
     assert out["c01|dr.patel"] == {"distinct": 0.0, "n": 1}
     assert len(out) == 2
+
+
+def test_distinctness_skips_cases_the_document_governs():
+    governed = _scored("dr.patel", 0, {"plan_behavior": True}, case="c10", dim="D2")
+    governed["doc_governs"] = True
+    plain = _scored("dr.patel", 0, {"plan_behavior": True}, case="c09", dim="D2")
+    assert distinctness([governed, plain]) == {"c09|dr.patel": {"distinct": 1.0, "n": 1}}
 
 
 def test_safety_counts():

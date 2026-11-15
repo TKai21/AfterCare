@@ -273,6 +273,17 @@ async def test_blocked_answers_are_not_judged(tmp_path):
     assert all(v is False for r in records for k, v in r["items"].items() if k != "must_not_recommend")
 
 
+async def test_records_carry_doc_governs_from_the_case(tmp_path):
+    settings, _, _ = sentinel_settings(tmp_path)
+    clone, judge = FakeLLM(), FakeJudge()
+    clone.script(*[{"content": "not json"} for _ in range(3 * 12)])  # 3 calls per blocked turn
+    governed = {**CASE_D1, "id": "t03", "doc_governs": True}
+    records = await eval_clone.run_eval(settings, clone, judge, repeats=1, results_path=tmp_path / "r.jsonl",
+                                        cases=[CASE_D1, governed], patients=PATIENTS, memory=MEMORY,
+                                        judge_model="j")
+    assert {r["case"]: r["doc_governs"] for r in records} == {"t01": False, "t03": True}
+
+
 async def test_run_never_opens_the_dev_database(tmp_path, monkeypatch):
     settings, dev, index = sentinel_settings(tmp_path)
     scratch = tmp_path / "scratch"
@@ -601,3 +612,57 @@ def test_generate_needs_an_api_key(monkeypatch, tmp_path, capsys):
     assert eval_clone.main(["--generate"]) == 1
     assert "LLM_API_KEY" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------- retrieval check
+
+CASE_D2 = {
+    "id": "t04", "patient": "p_nap", "dimension": "D2", "doc_governs": False,
+    "question": "Do I need a written plan for my next gout flare?",
+    "expected": {u: {"plan_behavior": "contact_clinic", "must_not_recommend": ["colchicine", "prednisone"]}
+                 for u in USERNAMES},
+}
+
+
+async def test_retrieval_check_lists_each_doctors_hits_by_dimension(tmp_path):
+    settings, dev, _ = sentinel_settings(tmp_path)
+    settings = replace(settings, guidance_min_similarity=0.0)
+    before = snapshot(tmp_path)
+    rows = await eval_clone.retrieval_check(settings, FakeLLM(), cases=[CASE_D1, CASE_NONE, CASE_D2],
+                                            patients=PATIENTS, memory=MEMORY)
+    assert snapshot(tmp_path) == before  # only temporary files, the configured ones untouched
+    assert [(r["case"], r["doctor"]) for r in rows] == [(c, u) for c in ("t01", "t04") for u in USERNAMES]
+    by = {(r["case"], r["doctor"]): r for r in rows}
+    ting = by[("t01", "dr.ting")]
+    assert ting["dimension"] == "D1" and ting["own"] is True
+    scores = [s for _, s in ting["hits"]]
+    assert scores == sorted(scores, reverse=True) and len(scores) == 2
+    assert {d for d, _ in ting["hits"]} == {"D1", "D2"}
+    # Only Dr. Ting has a D2 entry: the others miss their own dimension on the D2 case.
+    assert by[("t04", "dr.ting")]["own"] is True
+    assert by[("t04", "dr.patel")]["own"] is False and by[("t04", "dr.renny")]["own"] is False
+
+    text = eval_clone.format_retrieval(rows, 0.0)
+    assert "t01 D1 dr.ting: D1 " in text and "MISS" in text
+    assert "2 of 6 case-doctor pairs retrieve no entry of their own dimension" in text
+
+
+async def test_retrieval_check_uses_the_configured_floor(tmp_path):
+    settings, _, _ = sentinel_settings(tmp_path)
+    rows = await eval_clone.retrieval_check(replace(settings, guidance_min_similarity=0.999), FakeLLM(),
+                                            cases=[CASE_D1], patients=PATIENTS, memory=MEMORY)
+    assert all(r["hits"] == [] and r["own"] is False for r in rows)
+
+
+def test_main_retrieval_check(monkeypatch, tmp_path, capsys):
+    settings, _, _ = sentinel_settings(tmp_path)
+    monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="key"))
+    import llm
+    monkeypatch.setattr(llm, "LLMClient", lambda s: FakeLLM())
+    code = eval_clone.main(["--retrieval-check"])  # the committed cases and memory, fake embeddings
+    out = capsys.readouterr().out
+    assert code in (0, 1) and "case-doctor pairs" in out
+    assert ("MISS" in out) == (code == 1)
+    monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="", embedding_api_key=""))
+    assert eval_clone.main(["--retrieval-check"]) == 1
+    assert "API key" in capsys.readouterr().err

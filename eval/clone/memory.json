@@ -1,12 +1,13 @@
 {
   "generated": {
     "model": "gpt-4o",
-    "date": "2026-11-14"
+    "date": "2026-11-14",
+    "hand_edited": true
   },
   "dr.ting": [
     {
       "dimension": "D1",
-      "question": "What should I do during a gout flare?",
+      "question": "Which of my medicines should I use first when a gout flare starts?",
       "answer": "When the case allows, I use colchicine first for a gout flare. If colchicine is not on your prescription, contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -17,7 +18,7 @@
     },
     {
       "dimension": "D1",
-      "question": "Is there a preferred medication for a gout attack?",
+      "question": "Is one of my gout medicines better than another for a flare?",
       "answer": "I prefer colchicine first for an acute gout flare when possible. If it is not on your prescription or does not suit you, contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -28,8 +29,8 @@
     },
     {
       "dimension": "D2",
-      "question": "How should I prepare for future gout flares?",
-      "answer": "I prefer a written individual flare plan set up in advance. If your discharge document does not have one, contact the clinic to set it up with us before the next flare.",
+      "question": "What should I do if I get another gout flare later on?",
+      "answer": "I prefer a written individual flare plan set up in advance. If your discharge document has one, follow it. If it does not, contact the clinic to set one up with us before the next flare.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -39,8 +40,8 @@
     },
     {
       "dimension": "D2",
-      "question": "What should I follow during a gout flare?",
-      "answer": "I prefer a written flare plan made in advance. If your discharge document has a written flare plan, follow it. If it does not, contact the clinic to set one up with us before the next flare.",
+      "question": "My joint is swelling again. What steps should I follow, and what plan do I need for next time?",
+      "answer": "I prefer a written flare plan made in advance for next time. If your discharge document has a written flare plan, follow its steps. If it does not, contact the clinic to set one up with us before the next flare.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -50,8 +51,8 @@
     },
     {
       "dimension": "D3",
-      "question": "What if I have a side effect from my medication?",
-      "answer": "When you report a side effect, I first ask about timing: when did the symptom start compared with when you took your doses?",
+      "question": "Could a new symptom or feeling be a side effect of my gout medicine?",
+      "answer": "When you notice something new after starting a gout medicine, such as stomach trouble, loose stools, weakness, tingling, trouble sleeping or feeling jittery, I first ask about timing: when did it start compared with when you took your doses?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -61,8 +62,8 @@
     },
     {
       "dimension": "D3",
-      "question": "How do I report a side effect?",
-      "answer": "I first ask: when did the symptom start compared with when you took your doses?",
+      "question": "Could my colchicine, naproxen or prednisone be causing how I feel?",
+      "answer": "Before deciding whether a medicine is the cause, I first ask: when did this feeling start, and how does it line up with your doses?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -72,8 +73,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What if I don't have all the information about my medication?",
-      "answer": "When information is missing, I first ask about your past experience with the medicine: have you taken it before, and how did it go?",
+      "question": "Can I take something more for the pain, or add or switch a medicine?",
+      "answer": "When you want to keep going with, add or swap a medicine, or take one that is not on your discharge list, I first ask about your past experience with it: have you taken this medicine before, and how did it go? Contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -83,8 +84,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What should I do if I don't know enough about my medication?",
-      "answer": "When something about your medicine is unclear, I first ask about your past experience with it: have you taken this medicine before, and how did it go?",
+      "question": "Is it okay to take pills someone else gave me, or old pills I have at home?",
+      "answer": "Before you take pills from a friend, a neighbor or an old prescription, I first ask about your past experience with that medicine: have you taken it before, and how did it go? Contact the clinic before taking anything that is not on your prescription.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -96,7 +97,7 @@
   "dr.patel": [
     {
       "dimension": "D1",
-      "question": "What should I do when I have a gout flare?",
+      "question": "Which of my medicines should I use first when a gout flare starts?",
       "answer": "When the case allows, I use an NSAID, naproxen, first for a gout flare. If naproxen is not on your prescription, or it does not suit you, contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -107,7 +108,7 @@
     },
     {
       "dimension": "D1",
-      "question": "Is there a preferred medication for my gout flare?",
+      "question": "Is one of my gout medicines better than another for a flare?",
       "answer": "When the case allows, I prefer naproxen for an acute gout flare. If naproxen is not on your prescription, or it does not suit you, for example because of kidney disease, please contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -118,7 +119,7 @@
     },
     {
       "dimension": "D2",
-      "question": "How should I handle a gout flare when it starts?",
+      "question": "What should I do if I get another gout flare later on?",
       "answer": "When a flare starts, I prefer that you call the clinic first, and then we confirm the plan together before you act on it.",
       "scope": "general",
       "condition_tags": [
@@ -129,8 +130,8 @@
     },
     {
       "dimension": "D2",
-      "question": "Should I follow my flare plan immediately?",
-      "answer": "I recommend calling the clinic first when a flare begins, so we can confirm the plan together before you proceed.",
+      "question": "My joint is swelling again. What steps should I follow, and what plan do I need for next time?",
+      "answer": "I recommend calling the clinic first when a flare begins, so we can confirm the plan together before you take any step.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -140,8 +141,8 @@
     },
     {
       "dimension": "D3",
-      "question": "What should I do if I experience a side effect from my medication?",
-      "answer": "When you report a side effect, I first ask: which medicines do you take now, and has anything been started, stopped or changed recently?",
+      "question": "Could a new symptom or feeling be a side effect of my gout medicine?",
+      "answer": "When you notice something new after starting a gout medicine, such as stomach trouble, loose stools, weakness, tingling, trouble sleeping or feeling jittery, I first ask about your full medication list: which medicines do you take now, and has anything been started, stopped or changed recently?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -151,8 +152,8 @@
     },
     {
       "dimension": "D3",
-      "question": "How do you handle side effects from medications?",
-      "answer": "I first ask: which medicines do you take now, and has anything been started, stopped or changed recently?",
+      "question": "Could my colchicine, naproxen or prednisone be causing how I feel?",
+      "answer": "Before deciding which medicine may cause it, I first ask to go through your whole medication list with you: what are you taking now, and what was recently started, stopped or changed?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -162,8 +163,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What if I forget to mention some details about my health?",
-      "answer": "When information is missing, I first ask about your other health conditions and the other medicines you take.",
+      "question": "Can I take something more for the pain, or add or switch a medicine?",
+      "answer": "When you want to keep going with, add or swap a medicine, or take one that is not on your discharge list, I first ask about your other health conditions, such as kidney, heart or stomach problems, and the other medicines you take. Contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -173,8 +174,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What do you need to know if I haven't provided all my health information?",
-      "answer": "I first ask: what are your other health conditions and what other medicines do you take?",
+      "question": "Is it okay to take pills someone else gave me, or old pills I have at home?",
+      "answer": "Before you take pills from a friend, a neighbor or an old prescription, I first ask: what other health conditions do you have, and what other medicines do you take? Contact the clinic before taking anything that is not on your prescription.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -186,7 +187,7 @@
   "dr.renny": [
     {
       "dimension": "D1",
-      "question": "What should I do during a gout flare?",
+      "question": "Which of my medicines should I use first when a gout flare starts?",
       "answer": "For a gout flare, I use the regimen that worked and was tolerated before, as your discharge document records it. If your document does not record one, or that medicine is not on your prescription, I first confirm your current prescription and plan with you, and you contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -197,7 +198,7 @@
     },
     {
       "dimension": "D1",
-      "question": "How do I manage my gout symptoms?",
+      "question": "Is one of my gout medicines better than another for a flare?",
       "answer": "I follow the regimen that was effective and well tolerated in the past, as noted in your discharge document. If your document does not note one, I first ask which medicines are on your current prescription and what your plan is, and you contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
@@ -208,7 +209,7 @@
     },
     {
       "dimension": "D2",
-      "question": "Do I follow my flare plan?",
+      "question": "What should I do if I get another gout flare later on?",
       "answer": "When your discharge document has an existing individual flare plan that fits this flare, I follow that plan. If there is no plan, or it does not fit, contact the clinic.",
       "scope": "general",
       "condition_tags": [
@@ -219,8 +220,8 @@
     },
     {
       "dimension": "D2",
-      "question": "Should I stick to my current gout plan?",
-      "answer": "I use your existing individual flare plan if it fits this flare. If it does not fit, or there is no plan, contact the clinic.",
+      "question": "My joint is swelling again. What steps should I follow, and what plan do I need for next time?",
+      "answer": "I use your existing individual flare plan if it fits this flare, and you follow its steps. If it does not fit, or there is no plan, contact the clinic.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -230,8 +231,8 @@
     },
     {
       "dimension": "D3",
-      "question": "What if I have a side effect from my gout medication?",
-      "answer": "When you report a side effect, I first ask: did the same reaction happen before?",
+      "question": "Could a new symptom or feeling be a side effect of my gout medicine?",
+      "answer": "When you notice something new after starting a gout medicine, such as stomach trouble, loose stools, weakness, tingling, trouble sleeping or feeling jittery, I first ask whether the same reaction happened before: have you had this before, with this medicine or another one?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -241,8 +242,8 @@
     },
     {
       "dimension": "D3",
-      "question": "How should I handle side effects from my treatment?",
-      "answer": "I first ask: have you experienced this reaction before?",
+      "question": "Could my colchicine, naproxen or prednisone be causing how I feel?",
+      "answer": "Before deciding whether a medicine is the cause, I first ask: has the same reaction happened to you before?",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -252,8 +253,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What if I don't have all the information about my treatment?",
-      "answer": "When information is missing, I first ask: what medicines are on your prescription now, and do you have a flare plan?",
+      "question": "Can I take something more for the pain, or add or switch a medicine?",
+      "answer": "When you want to keep going with, add or swap a medicine, or take one that is not on your discharge list, I first ask to confirm your current prescription and existing plan: which medicines are on your prescription now, and do you have a flare plan? Contact the clinic before taking anything new.",
       "scope": "general",
       "condition_tags": [
         "gout"
@@ -263,8 +264,8 @@
     },
     {
       "dimension": "D4",
-      "question": "What should I do if I'm unsure about my gout treatment details?",
-      "answer": "I first ask: which medicines are on your prescription now, and do you have a flare plan?",
+      "question": "Is it okay to take pills someone else gave me, or old pills I have at home?",
+      "answer": "Before you take pills from a friend, a neighbor or an old prescription, I first ask to confirm your current prescription and existing plan: which medicines are on your prescription now, and what does your plan say? Contact the clinic before taking anything that is not on your prescription.",
       "scope": "general",
       "condition_tags": [
         "gout"
