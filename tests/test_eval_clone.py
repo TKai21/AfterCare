@@ -666,3 +666,49 @@ def test_main_retrieval_check(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="", embedding_api_key=""))
     assert eval_clone.main(["--retrieval-check"]) == 1
     assert "API key" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- no case content in the memory inputs
+
+# Function words, plus the generic words any gout medication advice uses. A
+# word of a D1-D4 case question that is in neither this list nor a profile
+# text is case-specific (a body part, a symptom, a source of pills, a time).
+STOPWORDS = frozenset("""
+a about after again an and another any are be been being but by can could do does doing for from get gets
+had has have having how i if in is it its me my no not now of on or other our over should so some than that
+the them then these they this those to two up us was we were what when where which who will with would
+you your different usually says ve t s
+doctor gout flare flares flared medicine medicines pill pills take use start starts starting new next feel
+feeling follow plan clinic prescription colchicine naproxen prednisone
+""".split())
+
+
+def case_terms() -> set[str]:
+    profile_words = set(re.findall(r"[a-z]+", " ".join(
+        PROFILES[u][d]["text"] for u in PROFILES for d in PROFILES[u]).lower()))
+    return {w for case in CASES if case["dimension"] != "none"
+            for w in re.findall(r"[a-z]+", case["question"].lower())} - profile_words - STOPWORDS
+
+
+def leaked(text: str) -> set[str]:
+    return case_terms() & set(re.findall(r"[a-z]+", text.lower()))
+
+
+def test_case_terms_are_the_distinctive_words():
+    terms = case_terms()
+    assert {"toe", "knee", "stools", "jittery", "neighbor", "friend", "weekend", "extra", "switch"} <= terms
+    assert not terms & {"the", "medicine", "flare", "plan", "colchicine"}
+
+
+def test_generation_inputs_carry_no_case_content():
+    assert leaked(json.dumps(eval_clone.ENTRY_GUIDE)) == set()
+    for username, *_ in eval_clone.DOCTORS:
+        messages = eval_clone.generation_messages(username, PROFILES[username], EVAL_PATIENTS)
+        assert leaked("\n".join(m["content"] for m in messages)) == set(), username
+
+
+def test_committed_memory_carries_no_case_content():
+    memory = eval_clone.load("memory")
+    for username, *_ in eval_clone.DOCTORS:
+        for e in memory[username]:
+            assert leaked(e["question"] + " " + e["answer"]) == set(), (username, e["question"])

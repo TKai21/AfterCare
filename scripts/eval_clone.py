@@ -658,6 +658,8 @@ GENERATION_RETRIES = 2
 # prompt allows a medication action only when my earlier advice says so, so the
 # D1 and D2 entries carry the referral to the clinic themselves; the D3 and D4
 # entries state the first question so the clone can put it to the patient.
+# Categories only: no symptom, source of medicines or scenario from a test
+# question (a test checks this), so the evaluation does not measure lookup.
 ENTRY_GUIDE = {
     "dr.ting": {
         "D1": "When the case allows, I use colchicine first for a gout flare. Referral: if colchicine is "
@@ -665,9 +667,9 @@ ENTRY_GUIDE = {
         "D2": "I prefer a written individual flare plan set up in advance. If your discharge document has "
               "a written flare plan, follow it; if it does not, contact the clinic to set one up with us "
               "before the next flare.",
-        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask about timing: when did it start "
-              "compared with when you took your doses?",
-        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+        "D3": "When you notice any new symptom or change in how you feel after beginning a gout medicine, "
+              "I first ask about timing: when did it begin compared with when you took your doses?",
+        "D4": "When information is missing, before any change to your medicines or any medicine that is not on your current prescription, whatever its source, "
               "I first ask about your past experience with that medicine: have you taken it before, and how "
               "did it go? Contact the clinic before taking anything new.",
     },
@@ -677,10 +679,10 @@ ENTRY_GUIDE = {
               "not suit someone with kidney disease), contact the clinic before taking anything new.",
         "D2": "When a flare starts, I prefer that you call the clinic first, and then we confirm the plan "
               "together before you act on it.",
-        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask about your full medication list and recent "
-              "changes: which medicines do you take now, and has anything been started, stopped or "
-              "changed recently?",
-        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+        "D3": "When you notice any new symptom or change in how you feel after beginning a gout medicine, "
+              "I first ask about your full medication list and recent changes: which medicines do you take "
+              "now, and has anything been started, stopped or changed recently?",
+        "D4": "When information is missing, before any change to your medicines or any medicine that is not on your current prescription, whatever its source, "
               "I first ask about your other health conditions and the other medicines you take. Contact the "
               "clinic before taking anything new.",
     },
@@ -690,8 +692,9 @@ ENTRY_GUIDE = {
               "prescription and plan with you, and you contact the clinic before taking anything new.",
         "D2": "When your discharge document has an existing individual flare plan that fits this flare, I "
               "follow that plan. If there is no plan, or it does not fit, contact the clinic.",
-        "D3": "When you notice something new after starting a gout medicine (a new symptom or feeling), I first ask whether the same reaction happened before.",
-        "D4": "When you want to keep going with, add or swap a medicine, take something extra for pain, or take pills that are not on your discharge list (from a friend or an old prescription), "
+        "D3": "When you notice any new symptom or change in how you feel after beginning a gout medicine, "
+              "I first ask whether the same reaction happened before.",
+        "D4": "When information is missing, before any change to your medicines or any medicine that is not on your current prescription, whatever its source, "
               "I first ask to confirm your current prescription and existing plan: which medicines are on "
               "your prescription now, and do you have a flare plan? Contact the clinic before taking "
               "anything new.",
@@ -729,12 +732,12 @@ The entries must suit every one of these kinds of patient, without knowing which
 {kinds}
 
 Rules:
-1. Write exactly {total} entries, {ENTRIES_PER_DIMENSION} per dimension. The two entries of a dimension cover different situations and use different words.
-2. "question": a short, general question a gout patient might ask, in the patient's words, that the entry answers. Do not mention a specific joint, day or time.
+1. Write exactly {total} entries, {ENTRIES_PER_DIMENSION} per dimension. The two entries of a dimension use different words. Name categories (any new symptom, any change to the medicines), never lists of specific symptoms, sources of medicines or scenarios.
+2. "question": a short title for the note, in the doctor's own words, naming the situation it covers (for example "My first-line choice for a gout flare" or "Planning ahead for the next flare"). Not a patient's question, and no body part, symptom, day or time.
 3. "answer": the doctor's advice in the first person ("I"), speaking to the patient ("you"), 2 to 4 short sentences of plain English, saying what the doctor usually does or prefers.
-4. Keep every entry general: do not assume which medicines this patient was prescribed or what their document says. The patient's own discharge document always comes first.
-5. Write no numbers at all, as digits or words: no doses, days, times or counts. The patient's discharge document holds the numbers.
-6. Name no medicine other than {drugs}, and no brand names. Never tell the patient to take, start or switch to a medicine; a medicine is used only when it is on the patient's prescription.
+4. Make every entry general: do not assume which medicines this patient was prescribed or what their document says. The patient's own discharge document always comes first.
+5. Write no numbers at all, as digits or words: no doses, durations, times or counts. The patient's discharge document holds the numbers.
+6. Name no medicine other than {drugs}, and no brand names. Never tell the patient to take, begin or change to a medicine; a medicine is used only when it is on the patient's prescription.
 7. Every D1 answer includes the referral: if the medicine the doctor prefers is not on your prescription, or does not suit you, contact the clinic before taking anything new. Every D2 answer says when to contact the clinic, as in the D2 preference above.
 8. Every D3 and D4 answer says what this doctor asks first, as in the D3 and D4 preferences above, worded so it can be put to the patient as a question: "I first ask: ...?" Ask only this doctor's first question, never a different one.
 9. Stay on these four topics. Do not write about food, drinks, water, alcohol, exercise, walking or other activity.
