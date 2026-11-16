@@ -1547,14 +1547,14 @@ Pick the questions that fit what the patient reports, at most 3. Pick none ([]) 
 Reply with only one JSON object: {"ask": [question numbers]}"""
 
 
-# A queued or final handoff reason that marks a source conflict or a question the
-# model deliberately flagged: never turned into questions.
+# A queued handoff reason that marks a source conflict: never turned into
+# questions. A plain flag (FLAGGED_REASON, a care_team_question in the final
+# JSON) is the ordinary first-turn handoff shape and still gets ask-first.
 _CONFLICT_WORDS = ("disagree", "conflict")
 
 
 def _conflict_handoff(*reasons: Optional[str]) -> bool:
-    return any(r and (r == FLAGGED_REASON or any(w in r.casefold() for w in _CONFLICT_WORDS))
-               for r in reasons)
+    return any(r and any(w in r.casefold() for w in _CONFLICT_WORDS) for r in reasons)
 
 
 def _picker_blocked_by_error(exc: Optional[Exception]) -> bool:

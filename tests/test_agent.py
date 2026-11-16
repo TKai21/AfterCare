@@ -2652,8 +2652,7 @@ def bad_final():
     return final("Drink water.", [], kind="answer")  # an answer must cite evidence
 
 
-@pytest.mark.parametrize("reason", ["Sources disagree", "The two entries conflict",
-                                    agent.FLAGGED_REASON])
+@pytest.mark.parametrize("reason", ["Sources disagree", "The two entries conflict"])
 async def test_queued_conflict_handoff_is_kept_when_the_final_fails_validation(
         store, foods, document, items, reason):
     llm = FakeLLM()
@@ -2662,6 +2661,17 @@ async def test_queued_conflict_handoff_is_kept_when_the_final_fails_validation(
     result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
     assert result.kind == "not_covered" and result.care_team_source == "validation_fallback"
     assert len(llm.calls) == 3  # tool call, bad final, repaired final: no picker
+
+
+async def test_final_json_flag_alone_still_gets_ask_first(store, foods, document, items):
+    # care_team_question in the final JSON with no tool call is the ordinary
+    # handoff shape (FLAGGED_REASON), not a source conflict.
+    llm = FakeLLM()
+    llm.script(final("x", [], kind="not_covered", care_team_question="What should I do about my runny nose?"),
+               picker_reply([5]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify" and CONTACTS in result.answer
+    assert result.care_team_question is None
 
 
 @pytest.mark.parametrize("message", ["my incision is bleeding a bit", "Bleeding since last night."])

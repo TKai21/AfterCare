@@ -835,9 +835,10 @@ async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake
     other = await seed_guidance(client, fake_llm, doctor_id, scope="patient", patient_id=None,
                                 question="Q", answer="Take 500 mg twice a day.")
     await seed_habit(client, other, "Asks how the pain is", "How is the pain today?")
-    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"),
+                    {"content": '{"ask": []}'})  # the ask-first picker finds none fitting
     await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
-    text = first_user_message(fake_llm)
+    text = first_user_message(fake_llm, -2)  # the clone's call; the picker's is last
     assert "How I usually respond" in text and "How is the pain today?" in text
     assert "500 mg twice" not in text
 
