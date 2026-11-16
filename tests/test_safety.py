@@ -359,3 +359,23 @@ def test_a_negated_document_term_is_never_denied():
     message = "I cannot keep fluids down"
     assert detect_emergency_in_reply(message, terms)
     assert negated_terms(message, terms) == set()
+
+
+SELF_HARM_DENIALS = [("Not suicidal", "suicidal"), ("I don't want to die", "want to die"),
+                     ("No self harm", "self harm"), ("I did not overdose", "overdose"),
+                     ("I would never kill myself", "kill myself")]
+
+
+@pytest.mark.parametrize("message, label", SELF_HARM_DENIALS)
+def test_self_harm_labels_are_never_relaxed_on_a_reply(message, label):
+    from safety import NEVER_RELAXED, detect_emergency, detect_emergency_in_reply
+    assert label in NEVER_RELAXED
+    assert label in detect_emergency(message, [])
+    assert label in detect_emergency_in_reply(message, []), message
+
+
+def test_never_relaxed_lists_every_self_harm_label():
+    from safety import EMERGENCY_TERMS, NEVER_RELAXED
+    assert set(NEVER_RELAXED) == {"suicidal", "want to die", "kill myself", "self harm",
+                                  "overdose"}
+    assert set(NEVER_RELAXED) <= set(EMERGENCY_TERMS)

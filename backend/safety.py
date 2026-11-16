@@ -274,17 +274,24 @@ def detect_emergency(message: str, extra_terms: list[str]) -> list[str]:
     return hits
 
 
+# Self-harm and suicide labels: never relaxed on a reply, even in a plain
+# denial ("I don't want to die"), and never passed on as a denied term.
+NEVER_RELAXED: tuple[str, ...] = ("suicidal", "want to die", "kill myself", "self harm", "overdose")
+
+
 def detect_emergency_in_reply(message: str, extra_terms: list[str]) -> list[str]:
     """detect_emergency for a patient's reply to the clone's questions only:
     a matched term (static or document) that negated_terms finds plainly
     denied ("No fever and no chest pain.") is dropped. Any doubt keeps it,
-    since negated_terms errs toward not negated. Every other message uses
-    detect_emergency unchanged (team decision, spec 4.4)."""
+    since negated_terms errs toward not negated, and a NEVER_RELAXED label
+    always stays. Every other message uses detect_emergency unchanged (team
+    decision, spec 4.4)."""
     hits = detect_emergency(message, extra_terms)
     denied = negated_terms(message, hits)
     # negated_terms already never denies a term that is itself a negation
     # ("can't breathe"); checked again here because this is the emergency path.
-    return [label for label in hits if label not in denied or _self_negated(label)]
+    return [label for label in hits
+            if label not in denied or _self_negated(label) or label in NEVER_RELAXED]
 
 
 def match_terms(message: str, terms: list[str]) -> list[str]:

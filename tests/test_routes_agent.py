@@ -1588,3 +1588,16 @@ async def test_a_stale_pending_keeps_the_unchanged_backstop(client, fake_llm):
     fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
     body = (await post_ask(client, h, "No chest pain.", doctor_id=doctor_id)).json()
     assert body["kind"] == "emergency" and body["emergency"]["terms"] == ["chest pain"]
+
+
+
+async def test_a_reply_i_dont_want_to_die_is_an_emergency(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up", "want to die")))
+    body = (await post_ask(client, h, "I don't want to die", doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["emergency"]["terms"] == ["want to die"], body
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
