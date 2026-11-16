@@ -1345,3 +1345,224 @@ async def test_answer_citing_document_and_habit_passes(store, foods, document, i
     llm.script(final("Drink water [2]. Anything else I can help with? [5]", [2, 5]))
     result = await ask(llm, store, foods, document, items, habits=[habit])
     assert result.kind == "answer"
+
+
+# --- clarify and close (Task 10) ---
+
+def reply(kind, answer, citations, **extra):
+    body = {"kind": kind, "answer": answer, "citations": citations, "care_team_question": None}
+    body.update(extra)
+    return {"content": json.dumps(body)}
+
+
+def pending_reply(kind, answer, citations, replies=True, signs=()):
+    return reply(kind, answer, citations, replies_to_questions=replies,
+                 warning_signs=list(signs))
+
+
+ASK = ("Asks about fever", "Do you have a fever?")
+CLOSE = ("Closes with a follow-up reminder", "Keep your follow-up visit and call me if it changes.")
+
+
+def pending():
+    return agent.PendingClarify(question="My incision is red.",
+                                asked="Do you have a fever? Is it draining? [5]")
+
+
+async def test_clarify_cites_ask_habits_only(store, foods, document, items):
+    ask_habit = habit_rule(7, *ASK, habit_type="ask")
+    close_habit = habit_rule(8, *CLOSE, habit_type="close")
+    llm = FakeLLM()
+    llm.script(reply("clarify", "Thanks for telling me. Do you have a fever? Is it draining? [5]",
+                     [5]))
+    result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                       habits=[ask_habit, close_habit])
+    assert result.kind == "clarify"
+    assert result.habit_rule_ids == [7] and result.guidance_ids == []
+    assert [s.kind for s in result.sources] == ["habit"]
+    assert result.warning_signs == [] and result.replies_to_questions is None
+    # a clarify citing a document paragraph, or only a close habit, is repaired
+    for bad in (reply("clarify", "Do you have a fever? [5, 2]", [5, 2]),
+                reply("clarify", "Anything else? [6]", [6])):
+        llm = FakeLLM()
+        llm.script(bad, bad)
+        result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                           habits=[ask_habit, close_habit])
+        assert_fallback(result, "My incision is red.")
+
+
+def test_clarify_validation_rules():
+    ask_ev = Evidence(1, "habit", "t", None, "Do you have a fever?", "Do you have a fever?",
+                      habit_type="ask")
+    ev = {1: ask_ev}
+    assert validate(raw(kind="clarify", answer="Do you have a fever? Is it red? [1]",
+                        citations=[1]), ev)[0] == "clarify"
+    for answer in ("I see. That sounds hard. Do you have a fever? [1]",  # two lead-ins
+                   "Thanks for asking. [1]",  # no question at all
+                   "Do you have a fever? Do you take ibuprofen? [1]"):  # drug not allowed
+        with pytest.raises(ValueError):
+            validate(raw(kind="clarify", answer=answer, citations=[1]), ev, lexicon=get_lexicon())
+    with pytest.raises(ValueError, match="emergency"):
+        validate(raw(kind="clarify", answer="Do you have a fever? [1]", citations=[1]), ev,
+                 emergency=True)
+
+
+async def test_clarify_with_five_questions_is_repaired(store, foods, document, items):
+    habit = habit_rule(7, *ASK)
+    five = "Fever? Chills? Pain? Swelling? Drainage? [5]"
+    llm = FakeLLM()
+    llm.script(reply("clarify", five, [5]), reply("clarify", "Fever? Chills? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                       habits=[habit])
+    assert result.kind == "clarify"
+    assert "at most 4 questions" in llm.calls[1][0][-1]["content"]
+
+
+async def test_clarify_with_a_number_is_repaired(store, foods, document, items):
+    habit = habit_rule(7, *ASK)
+    llm = FakeLLM()
+    llm.script(reply("clarify", "Is your temperature over 100? [5]", [5]),
+               reply("clarify", "Call 911? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                       habits=[habit])
+    assert_fallback(result, "My incision is red.")  # not even 911 is allowed in a clarify
+    assert "A clarify must not contain numbers" in llm.calls[1][0][-1]["content"]
+
+
+async def test_emergency_turn_never_clarifies(store, foods, document, items):
+    habit = habit_rule(7, *ASK)
+    llm = FakeLLM()
+    llm.script(reply("clarify", "Do you have a fever? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, question="I have chest pain.",
+                       emergency_terms=["chest pain"], habits=[habit])
+    assert result.kind == "emergency" and result.answer == agent.EMERGENCY_ANSWER
+    assert len(llm.calls) == 1
+
+
+async def test_second_clarify_is_rejected_when_pending(store, foods, document, items):
+    habit = habit_rule(7, *ASK)
+    again = pending_reply("clarify", "Do you have a fever? [5]", [5])
+    llm = FakeLLM()
+    llm.script(again, again)
+    result = await ask(llm, store, foods, document, items, question="Not sure.",
+                       habits=[habit], pending=pending())
+    assert_fallback(result, "Not sure.")
+    assert "already asked" in llm.calls[1][0][-1]["content"]
+
+
+async def test_close_needs_pending_and_a_close_habit(store, foods, document, items):
+    ask_habit = habit_rule(7, *ASK, habit_type="ask")
+    close_habit = habit_rule(8, *CLOSE, habit_type="close")
+    habits = [ask_habit, close_habit]
+    # close without pending: rejected, repaired, then the fallback
+    close = reply("close", "Keep your follow-up visit and call me if it changes. [6]", [6])
+    llm = FakeLLM()
+    llm.script(close, close)
+    result = await ask(llm, store, foods, document, items, habits=habits)
+    assert_fallback(result)
+    assert "only when the patient is replying" in llm.calls[1][0][-1]["content"]
+    # close citing only an ask habit, while pending: rejected
+    wrong = pending_reply("close", "Do you have a fever? [5]", [5])
+    llm = FakeLLM()
+    llm.script(wrong, wrong)
+    result = await ask(llm, store, foods, document, items, question="No fever.",
+                       habits=habits, pending=pending())
+    assert_fallback(result, "No fever.")
+    # close citing a close habit only, while pending: delivered (no HABIT_ONLY_ERROR)
+    llm = FakeLLM()
+    llm.script(pending_reply("close", CLOSE[1] + " [6]", [6]))
+    result = await ask(llm, store, foods, document, items, question="No fever.",
+                       habits=habits, pending=pending())
+    assert result.kind == "close" and result.habit_rule_ids == [8]
+    assert result.replies_to_questions is True
+
+
+def test_close_gets_the_answer_checks():
+    close_ev = Evidence(1, "habit", "t", None, "Call me if it changes.", "Call me if it changes.",
+                        habit_type="close")
+    library = Evidence(2, "library", "t", None, "Rest helps.", "Rest helps.")
+    ev = {1: close_ev, 2: library}
+    extra = {"replies_to_questions": True, "warning_signs": []}
+    for answer, citations in (("Come back in 3 days [1].", [1]),          # ungrounded number
+                              ("Stop taking it [1, 2].", [1, 2]),         # medication change
+                              ("Take ibuprofen and call me [1].", [1])):  # drug not allowed
+        with pytest.raises(ValueError):
+            validate(raw(kind="close", answer=answer, citations=citations, **extra), ev,
+                     pending=True, lexicon=get_lexicon())
+    assert validate(raw(kind="close", answer="Rest, and call me if it changes [1, 2].",
+                        citations=[1, 2], **extra), ev, pending=True)[0] == "close"
+
+
+async def test_warning_signs_are_parsed(store, foods, document, items):
+    habit = habit_rule(8, *CLOSE, habit_type="close")
+    signs = [{"term": "fever", "status": "absent"}, {"term": "pus", "status": "unclear"}]
+    llm = FakeLLM()
+    llm.script(pending_reply("close", CLOSE[1] + " [5]", [5], signs=signs))
+    result = await ask(llm, store, foods, document, items, question="No fever.",
+                       habits=[habit], pending=pending(), warning_terms=["fever", "pus"])
+    assert result.warning_signs == signs
+    # without pending the fields are ignored
+    llm = FakeLLM()
+    llm.script(reply("answer", "Drink water [2].", [2], warning_signs=signs,
+                     replies_to_questions=False))
+    result = await ask(llm, store, foods, document, items)
+    assert result.warning_signs == [] and result.replies_to_questions is None
+    # a bad status, or a term that is not a string, fails validation when pending
+    ev = {1: Evidence(1, "document", "t", None, "Drink water.", "Drink water.")}
+    for bad in ([{"term": "fever", "status": "maybe"}], [{"term": 3, "status": "absent"}],
+                "fever", [{"term": "fever"}]):
+        with pytest.raises(ValueError, match="warning_signs"):
+            validate(raw(answer="Drink water [1].", citations=[1], replies_to_questions=True,
+                         warning_signs=bad), ev, pending=True)
+
+
+async def test_replies_to_questions_required_when_pending(store, foods, document, items):
+    ev = {1: Evidence(1, "document", "t", None, "Drink water.", "Drink water.")}
+    for value in (None, "yes", 1):
+        fields = {"warning_signs": []}
+        if value is not None:
+            fields["replies_to_questions"] = value
+        with pytest.raises(ValueError, match="replies_to_questions"):
+            validate(raw(answer="Drink water [1].", citations=[1], **fields), ev, pending=True)
+    with pytest.raises(ValueError, match="warning_signs"):
+        validate(raw(answer="Drink water [1].", citations=[1], replies_to_questions=True), ev,
+                 pending=True)
+    llm = FakeLLM()
+    llm.script(pending_reply("answer", "Drink water [2].", [2], replies=False))
+    result = await ask(llm, store, foods, document, items, question="Can I drink tea?",
+                       pending=pending())
+    assert result.kind == "answer" and result.replies_to_questions is False
+
+
+def test_new_symptom_is_in_scope():
+    prompt = agent.SYSTEM_PROMPT
+    rule9 = prompt.split("\n9. ")[1].split("\n10. ")[0]
+    assert "own health" in rule9 and "new symptom" in rule9 and "is in scope" in rule9
+    assert "unrelated to the patient's health" in rule9
+    assert "not about the patient's recovery" not in prompt
+    for phrase in ('kind "clarify"', 'kind "close"', '"warning_signs"',
+                   '"replies_to_questions"', "Never use kind \"clarify\" when a possible "
+                   "emergency was detected"):
+        assert phrase in prompt, phrase
+    assert '"clarify" | "close"' in prompt
+
+
+async def test_pending_context_lists_original_question_and_asked(store, foods, document, items):
+    habit = habit_rule(8, *CLOSE, habit_type="close")
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    result = await ask(llm, store, foods, document, items, question="No fever, a little pus.",
+                       habits=[habit], pending=pending(), warning_terms=["fever", "pus"])
+    assert result.kind == "not_covered"
+    text = first_user(llm)
+    assert "My incision is red." in text
+    assert "Do you have a fever? Is it draining?" in text
+    assert "[5]?" not in text and "draining? [5]" not in text  # old markers dropped
+    assert "is the patient's reply" in text and "clearly a different question" in text
+    assert "fever, pus" in text
+    assert text.index("My incision is red.") < text.rindex("No fever, a little pus.")
+    # without pending there is no such block
+    llm = FakeLLM()
+    llm.script(final("x", [], kind="not_covered"))
+    await ask(llm, store, foods, document, items)
+    assert "is the patient's reply" not in first_user(llm)
