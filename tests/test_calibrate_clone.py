@@ -119,3 +119,29 @@ def test_review_files_match_their_saved_runs():
         if runs_path.is_file() and review_path.is_file():
             runs = json.loads(runs_path.read_text())["runs"]
             calibrate_clone.apply_review(runs, json.loads(review_path.read_text())["overrides"])
+
+
+def test_out_dir_writes_there_only(tmp_path):
+    eval_dir = ROOT / "eval"
+    names = ("clone_runs.json", "clone_calibration.json", "clone_risk_coverage.svg")
+    before = {n: (eval_dir / n).read_bytes() for n in names}
+    out = tmp_path / "nested" / "out"
+    code = calibrate_clone.main(["--from-runs", "--runs", str(eval_dir / "clone_runs.json"),
+                                 "--out-dir", str(out)])
+    assert code == 0
+    assert {p.name for p in out.glob("clone_calibration.json")} == {"clone_calibration.json"}
+    assert (out / "clone_risk_coverage.svg").read_text().startswith("<svg")
+    assert json.loads((out / "clone_calibration.json").read_text())["threshold"] is not None
+    assert {n: (eval_dir / n).read_bytes() for n in names} == before
+
+
+def test_refuses_an_empty_library_index(tmp_path, capsys, monkeypatch):
+    from dataclasses import replace
+    index = tmp_path / "index.sqlite3"
+    real = calibrate_clone.get_settings
+    monkeypatch.setattr(calibrate_clone, "get_settings", lambda: replace(real(), rag_db_path=str(index)))
+    out = tmp_path / "out"
+    assert calibrate_clone.main(["--out-dir", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert str(index) in err and "0 documents" in err
+    assert not out.exists()

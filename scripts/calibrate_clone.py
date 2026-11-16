@@ -13,10 +13,12 @@ the calibration split and checked on the test split.
     .venv/bin/python scripts/calibrate_clone.py --alpha 0.05
     .venv/bin/python scripts/calibrate_clone.py --from-runs        # recalibrate saved runs, no model calls
     .venv/bin/python scripts/calibrate_clone.py --limit 6          # a quick smoke run (no calibration file)
+    .venv/bin/python scripts/calibrate_clone.py --out-dir eval/calibration/x   # write there, not eval/
 
-Writes eval/clone_runs.json (every answer, score and verdict, for review),
-eval/clone_calibration.json (the threshold the server reads, for this
-LLM_MODEL) and eval/clone_risk_coverage.svg. Everything runs on a temporary
+Writes clone_runs.json (every answer, score and verdict, for review),
+clone_calibration.json (the threshold the server reads, for this LLM_MODEL)
+and clone_risk_coverage.svg into --out-dir (default eval/). A run with the
+model refuses to start when the library index has no documents. Everything runs on a temporary
 SQLite database and a temporary copy of the library index; the real ones are
 never written. The API key is never printed.
 """
@@ -38,12 +40,13 @@ sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from confidence import ANSWER_NOTHING, crc_threshold, risk  # noqa: E402
+from config import get_settings  # noqa: E402
+from knowledge import KnowledgeStore  # noqa: E402
 
 QUESTIONS = ROOT / "eval" / "clone_questions.json"
 GUIDANCE = ROOT / "eval" / "clone_guidance.json"
-RUNS = ROOT / "eval" / "clone_runs.json"
-CALIBRATION = ROOT / "eval" / "clone_calibration.json"
-FIGURE = ROOT / "eval" / "clone_risk_coverage.svg"
+OUT_DIR = ROOT / "eval"
+RUNS = OUT_DIR / "clone_runs.json"
 REVIEW = ROOT / "eval" / "clone_review.json"
 PASSWORDS = {"demo": "demo-password-1", "demo2": "demo-password-2"}
 
@@ -279,8 +282,9 @@ def report(result: dict) -> None:
 
 
 async def main_async(args) -> int:
+    out_dir = Path(args.out_dir)
     if args.from_runs:
-        saved = json.loads(Path(args.runs).read_text())
+        saved = json.loads(Path(args.runs or out_dir / "clone_runs.json").read_text())
         runs, chat_model, embedding_model = saved["runs"], saved["chat_model"], saved["embedding_model"]
     else:
         questions = json.loads(QUESTIONS.read_text())["questions"][: args.limit or None]
@@ -289,7 +293,8 @@ async def main_async(args) -> int:
         if args.limit:
             print("Smoke run: nothing written.")
             return 0
-        RUNS.write_text(json.dumps({"chat_model": chat_model, "embedding_model": embedding_model,
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "clone_runs.json").write_text(json.dumps({"chat_model": chat_model, "embedding_model": embedding_model,
                                     "date": datetime.now(timezone.utc).date().isoformat(),
                                     "runs": runs}, indent=2) + "\n")
     review = Path(args.review)
@@ -303,14 +308,27 @@ async def main_async(args) -> int:
     if overrides:
         print(f"Applied {len(overrides)} review overrides from {review}")
     report(result)
-    CALIBRATION.write_text(json.dumps({
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "clone_calibration.json").write_text(json.dumps({
         "chat_model": chat_model, "embedding_model": embedding_model,
         "date": datetime.now(timezone.utc).date().isoformat(),
         "review_overrides": len(overrides), **result,
     }, indent=2) + "\n")
-    FIGURE.write_text(svg_curve([r for r in runs if r["split"] == "test"], result["threshold"], args.alpha))
-    print(f"Wrote {CALIBRATION.relative_to(ROOT)} and {FIGURE.relative_to(ROOT)}")
+    (out_dir / "clone_risk_coverage.svg").write_text(
+        svg_curve([r for r in runs if r["split"] == "test"], result["threshold"], args.alpha))
+    print(f"Wrote clone_runs.json (unless --from-runs), clone_calibration.json and clone_risk_coverage.svg in {out_dir}")
     return 0
+
+
+def library_index_problem() -> Optional[str]:
+    """Why the real library index cannot be used for a run, or None when it can."""
+    from llm import LLMClient
+    settings = get_settings()
+    store = KnowledgeStore(settings.rag_db_path, LLMClient(settings))
+    if not store.status()["documents"]:
+        return (f"The library index {store.path} has 0 documents: the clone would answer with no "
+                "library to retrieve from. Build it first (backend/manage_knowledge.py).")
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -320,9 +338,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from-runs", action="store_true",
                         help="recalibrate eval/clone_runs.json without calling the model")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N questions")
-    parser.add_argument("--runs", default=str(RUNS), help="saved runs for --from-runs")
+    parser.add_argument("--out-dir", default=str(OUT_DIR),
+                        help="where to write the runs, calibration and figure (default eval/)")
+    parser.add_argument("--runs", default=None, help="saved runs for --from-runs (default OUT_DIR/clone_runs.json)")
     parser.add_argument("--review", default=str(REVIEW), help="human review overrides")
-    return asyncio.run(main_async(parser.parse_args(argv)))
+    args = parser.parse_args(argv)
+    if not args.from_runs:
+        problem = library_index_problem()
+        if problem:
+            print(f"Error: {problem}", file=sys.stderr)
+            return 1
+    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":
