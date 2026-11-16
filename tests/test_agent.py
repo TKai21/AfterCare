@@ -1254,7 +1254,8 @@ async def test_habits_are_listed_with_quote_only(store, foods, document, items):
     habit = habit_rule(1, "Asks whether the patient has eaten today",
                        "Have you eaten today?")
     llm = FakeLLM()
-    llm.script(final("I do not know.", [], kind="not_covered", care_team_question="q"))
+    llm.script(final("I do not know.", [], kind="not_covered", care_team_question="q"),
+               picker_reply([]))
     await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai", habits=[habit])
     text = first_user(llm)
     assert "How I usually respond" in text
@@ -1285,7 +1286,7 @@ async def test_habits_grouped_by_type(store, foods, document, items):
               habit_rule(2, "a", "How is the pain?", "ask"),
               habit_rule(3, "c", "Any questions?", "close")]
     llm = FakeLLM()
-    llm.script(final("x", [], kind="not_covered", care_team_question="q"))
+    llm.script(final("x", [], kind="not_covered", care_team_question="q"), picker_reply([]))
     await ask(llm, store, foods, document, items, habits=habits)
     text = first_user(llm)
     assert text.index("How is the pain?") < text.index("Any questions?") < text.index("Call me if it bleeds")
@@ -2488,3 +2489,142 @@ def test_round3_bypasses_block(paragraphs, answer):
     ev = evidence(*paragraphs)
     with pytest.raises(ValueError):
         check(answer, cited_by_markers(answer), ev)
+
+
+# --- ask first, guaranteed by code (the handoff-instead-of-asking bug) ---
+
+RUNNY = "I just started getting a really runny nose and I've been sneezing nonstop."
+CONTACTS = "Have you had any recent sick contacts?"
+ALLERGIES = "Do you have a history of seasonal or environmental allergies?"
+
+
+def picker_reply(numbers):
+    return {"content": json.dumps({"ask": numbers})}
+
+
+def call_msg(name, **args):
+    return {"content": None, "tool_calls": [
+        {"id": "c1", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+
+def bug_shape(llm, picks):
+    """The model queues a handoff question and answers not_covered; then the picker."""
+    llm.script(call_msg("add_care_team_question", question="What should I do about my runny nose?",
+                         reason="The discharge document does not cover this."),
+               final("x", [], kind="not_covered"))
+    if picks is not None:
+        llm.script(picks)
+
+
+def ask_habits():
+    return [habit_rule(41, "Asks about sick contacts", CONTACTS),
+            habit_rule(42, "Asks about allergies", ALLERGIES),
+            habit_rule(43, "Closes", "Anything else I can help with?", habit_type="close")]
+
+
+async def test_not_covered_on_a_first_turn_becomes_the_doctors_questions(store, foods, document, items):
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5, 6]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify"
+    assert CONTACTS in result.answer and ALLERGIES in result.answer
+    assert agent.strip_markers(result.answer).startswith(agent.CLARIFY_OPENERS[0])
+    assert result.care_team_question is None and result.flagged is False
+    assert sorted(result.habit_rule_ids) == [41, 42]
+    assert all(s.habit_type == "ask" for s in result.sources)
+    picker_messages = llm.calls[-1][0]
+    assert llm.calls[-1][1] is None and llm.calls[-1][2] is True
+    text = json.dumps(picker_messages)
+    assert RUNNY in text and CONTACTS in text and "Closes" not in text
+
+
+async def test_picker_with_nothing_fitting_keeps_not_covered(store, foods, document, items):
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.answer == FALLBACK
+    assert result.care_team_question == "What should I do about my runny nose?"
+
+
+async def test_picker_numbers_that_are_not_ask_habits_are_ignored(store, foods, document, items):
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([7, 99, True, "5"]))  # close habit, unknown, junk
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_question is not None
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([99, 6, 6, 7]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify" and result.habit_rule_ids == [42]
+    assert CONTACTS not in result.answer
+
+
+async def test_picker_takes_at_most_three_habits(store, foods, document, items):
+    quotes = ["Do you have a cough?", "Do you have chills?", "Do you have an earache?",
+              "Do you have a sore throat?", "Do you have itchy eyes?"]
+    habits = [habit_rule(41 + i, f"Asks {i}", q) for i, q in enumerate(quotes)]
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5, 6, 7, 8, 9]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
+    assert result.kind == "clarify" and len(result.habit_rule_ids) == 3
+
+
+async def test_picker_error_keeps_not_covered(store, foods, document, items):
+    for bad in ({"content": "not json"}, {"content": json.dumps({"ask": "5"})},
+                {"content": json.dumps([5])}):
+        llm = FakeLLM()
+        bug_shape(llm, bad)
+        result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+        assert result.kind == "not_covered" and result.care_team_question is not None
+
+    class Boom(FakeLLM):
+        async def chat(self, messages, tools=None, json_mode=False):
+            if tools is None and len(self.calls) == 2:
+                self.calls.append((messages, tools, json_mode))
+                raise LLMError("down")
+            return await super().chat(messages, tools, json_mode)
+
+    llm = Boom()
+    bug_shape(llm, None)
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_question is not None
+
+
+async def test_picker_is_not_called_on_a_reply_turn(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    result = await ask(llm, store, foods, document, items, question="No fever.",
+                       habits=ask_habits(), pending=pending())
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+
+
+async def test_picker_is_not_called_for_an_emergency(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("x", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question="Chest pain and a runny nose",
+                       habits=ask_habits(), emergency_terms=["chest pain"])
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+
+
+@pytest.mark.parametrize("reason", ["Sources disagree", "sources disagree on this"])
+async def test_picker_is_not_called_for_a_source_conflict(store, foods, document, items, reason):
+    llm = FakeLLM()
+    llm.script(call_msg("add_care_team_question", question="Which advice is right?", reason=reason),
+               final("x", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and len(llm.calls) == 2
+    assert result.care_team_reason == reason
+
+
+async def test_picker_needs_ask_habits(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("x", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question=RUNNY,
+                       habits=[habit_rule(43, "Closes", "Anything else?", habit_type="close")])
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+
+
+def test_prompt_puts_ask_first_before_the_handoff_rules():
+    prompt = agent.SYSTEM_PROMPT
+    head = prompt.split("Authority rules:")[0]
+    assert 'kind "clarify"' in head and "add_care_team_question" in head
+    assert "do not call add_care_team_question" in prompt

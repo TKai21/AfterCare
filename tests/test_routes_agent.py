@@ -835,9 +835,10 @@ async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake
     other = await seed_guidance(client, fake_llm, doctor_id, scope="patient", patient_id=None,
                                 question="Q", answer="Take 500 mg twice a day.")
     await seed_habit(client, other, "Asks how the pain is", "How is the pain today?")
-    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"),
+                    {"content": json.dumps({"ask": []})})
     await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
-    text = first_user_message(fake_llm)
+    text = first_user_message(fake_llm, -2)
     assert "How I usually respond" in text and "How is the pain today?" in text
     assert "500 mg twice" not in text
 
@@ -978,6 +979,21 @@ async def test_clarify_with_a_flag_adds_no_second_question(client, fake_llm):
     )
     body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
     assert body["kind"] == "clarify" and body["flagged"] is False
+    assert [q.status for q in await all_questions(client)] == ["waiting_on_patient"]
+
+
+async def test_not_covered_first_turn_with_fitting_ask_habit_asks_instead_of_handing_off(
+        client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    fake_llm.script(
+        tool("add_care_team_question", {"question": "What should I do?", "reason": "Not covered"}),
+        final("not_covered", "x", []),
+        {"content": json.dumps({"ask": [4]})},
+    )
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify" and body["pending"] is True and body["flagged"] is False
+    assert ASK_QUESTIONS in body["answer"]
     assert [q.status for q in await all_questions(client)] == ["waiting_on_patient"]
 
 
