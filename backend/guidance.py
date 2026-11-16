@@ -96,12 +96,17 @@ def _cosine(vector, query_vec: np.ndarray, query_norm: float) -> float | None:
 
 
 def rules_usable(entry: DoctorGuidance, rules: list[GuidanceRule], model: str) -> bool:
-    """True when the entry is scored by its rules: they were read and every one
-    has an embedding of the current model. Otherwise the entry is scored whole."""
+    """True when the entry is scored by its rules: they were read and every live
+    advice rule has an embedding of the current model. Habits and suppressed rows
+    are never scored, so their embeddings never decide this; an entry left with
+    no live advice rule adds nothing. Otherwise the entry is scored whole."""
     return (
         entry.rules_status == "ready"
         and bool(rules)
-        and all(r.embedding is not None and r.embedding_model == model for r in rules)
+        and all(
+            r.embedding is not None and r.embedding_model == model
+            for r in rules if r.kind == "advice" and not r.suppressed
+        )
     )
 
 

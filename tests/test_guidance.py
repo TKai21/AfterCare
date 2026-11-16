@@ -315,3 +315,37 @@ async def test_entry_not_ready_still_scores_whole(session):
     doc, a, d1 = await _entry_with_rules(session, [{"kind": "habit"}], rules_status="failed")
     got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
     assert len(got) == 1
+
+
+async def _ready_entry(session, rows):
+    from models import GuidanceRule
+    (doc, a, _), (d1, _) = await seed(session)
+    e = entry(doctor_id=doc.id, drug_tags=["colchicine"], embedding=[0.1, 0.99], embedding_model="vec",
+              rules_status="ready")
+    session.add(e)
+    await session.flush()
+    for i, extra in enumerate(rows):
+        session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=i, statement=f"r{i}",
+                                 quote=f"r{i}", embedding=[1.0, 0.0], **extra))
+    await session.flush()
+    return doc, a, d1
+
+
+async def test_stale_suppressed_habit_does_not_send_the_entry_to_whole_scoring(session):
+    doc, a, d1 = await _ready_entry(session, [
+        {"embedding_model": "vec"},
+        {"embedding_model": "old", "kind": "habit", "habit_type": "ask", "suppressed": True},
+    ])
+    got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
+    assert [u.rule.statement for u, _ in got] == ["r0"]
+
+
+async def test_ready_entry_with_only_a_stale_suppressed_advice_row_adds_nothing(session):
+    doc, a, d1 = await _ready_entry(session, [{"embedding_model": "old", "suppressed": True}])
+    assert await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id) == []
+
+
+async def test_stale_live_advice_still_falls_back_to_whole_entry(session):
+    doc, a, d1 = await _ready_entry(session, [{"embedding_model": "old"}])
+    got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
+    assert len(got) == 1 and got[0][0].id is not None and not hasattr(got[0][0], "rule")
