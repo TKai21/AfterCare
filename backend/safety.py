@@ -282,7 +282,9 @@ def detect_emergency_in_reply(message: str, extra_terms: list[str]) -> list[str]
     detect_emergency unchanged (team decision, spec 4.4)."""
     hits = detect_emergency(message, extra_terms)
     denied = negated_terms(message, hits)
-    return [label for label in hits if label not in denied]
+    # negated_terms already never denies a term that is itself a negation
+    # ("can't breathe"); checked again here because this is the emergency path.
+    return [label for label in hits if label not in denied or _self_negated(label)]
 
 
 def match_terms(message: str, terms: list[str]) -> list[str]:
@@ -340,6 +342,12 @@ def _negated_in_clause(words: list[str], content: frozenset[str],
     return False
 
 
+def _self_negated(term: str) -> bool:
+    """The term's own words hold a negator (n't, no, never, cannot, unable,
+    without, deny ... all fold to a _NEGATOR_STEMS word)."""
+    return any(w in _NEGATOR_STEMS for w in _words(term))
+
+
 def negated_terms(message: str, terms: list[str]) -> set[str]:
     """The matched terms (labels from match_terms) the patient plainly denies.
 
@@ -348,13 +356,16 @@ def negated_terms(message: str, terms: list[str]) -> set[str]:
     see _negated_in_clause: a negator, at most 2 filler words, the term, nothing
     else. Hedges, double negatives and qualifiers ("until", "just", "more") fail.
     It errs toward not negated: a missed negation only sends a case to the
-    doctor, a false one could let a warning sign through."""
+    doctor, a false one could let a warning sign through. A term whose own
+    words hold a negation ("can't breathe", "bleeding that won't stop", "you
+    cannot keep fluids down") is never negated: its own "not" would read as
+    the patient's denial."""
     matched = set(match_terms(message, terms))
     clauses = [_words(c) for c in _CLAUSE_SPLIT.split(message)]
     out: set[str] = set()
     for term in terms:
         label = _canon(term)
-        if label not in matched or label in out:
+        if label not in matched or label in out or _self_negated(term):
             continue
         content = _content(term) - {"not"}
         term_words = frozenset(_words(term)) - {"not"}

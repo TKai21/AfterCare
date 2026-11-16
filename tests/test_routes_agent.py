@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select, text, update
 
@@ -1486,8 +1487,9 @@ async def test_a_reply_denying_chest_pain_is_not_an_emergency(client, fake_llm):
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
     reply = "No fever and no chest pain."
+    # The denied emergency term is a warning term the model must call absent.
     fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
-                                signs=absent("fever", "threw up")))
+                                signs=absent("fever", "threw up", "chest pain")))
     body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
     assert body["kind"] == "close", body
     assert body["emergency"] == {"terms": [], "banner": False}
@@ -1521,9 +1523,68 @@ async def test_a_denied_warning_term_still_needs_the_model_to_say_absent(client,
     await start_clarify(client, fake_llm, h, doctor_id)
     fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
                                 signs=[{"term": "fever", "status": "unclear"},
-                                       {"term": "threw up", "status": "absent"}]))
+                                       {"term": "threw up", "status": "absent"},
+                                       {"term": "chest pain", "status": "absent"}]))
     body = (await post_ask(client, h, "No fever, never threw up, no chest pain.",
                            doctor_id=doctor_id)).json()
     assert body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+
+@pytest.mark.parametrize("reply", ["No fever. I can't breathe.", "I can't stop bleeding",
+                                   "No fever, I can't keep fluids down"])
+async def test_a_reply_with_a_negative_emergency_phrase_is_an_emergency(client, fake_llm, reply):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY, body
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+
+
+async def test_a_reply_cant_breathe_without_a_model_is_the_emergency_answer(app_and_client,
+                                                                          fake_llm):
+    app, client = app_and_client
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    app.state.llm = None
+    resp = await post_ask(client, h, "I can't breathe", doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["kind"] == "emergency"
+
+
+async def test_a_denied_emergency_term_must_still_be_absent_for_a_close(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No chest pain.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["emergency"]["terms"] == []
+    assert "chest pain" in first_user_message(fake_llm).split("warning-terms")[1]
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: chest pain")
+    # With chest pain listed as absent the same reply closes.
+    h2 = await confirmed(client, fake_llm, headers=await auth_headers(client, "p.cp"))
+    other = await ask_first_doctor(client, fake_llm, "dr.cp", "Dr. Cp")
+    await start_clarify(client, fake_llm, h2, other)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up", "chest pain")))
+    body = (await post_ask(client, h2, "No chest pain.", doctor_id=other)).json()
+    assert body["kind"] == "close", body
+
+
+async def test_a_stale_pending_keeps_the_unchanged_backstop(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await set_waiting(client, status="answered", answer="Please send a photo.")
+    fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
+    body = (await post_ask(client, h, "No chest pain.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["emergency"]["terms"] == ["chest pain"]

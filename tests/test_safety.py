@@ -338,3 +338,24 @@ def test_reply_backstop_drops_plainly_denied_terms():
     assert detect_emergency_in_reply("No redness around the incision.", terms) == []
     assert detect_emergency_in_reply("Some redness around the incision.", terms) == [
         "redness around the incision"]
+
+
+NEGATIVE_EMERGENCIES = ["I can't breathe", "I cannot breathe", "no, I can't breathe",
+                        "No fever. I can't breathe today", "I can't keep fluids down",
+                        "I can't urinate", "I can't stop bleeding", "I can't stop vomiting"]
+
+
+@pytest.mark.parametrize("message", NEGATIVE_EMERGENCIES)
+def test_a_term_that_is_itself_a_negation_is_never_denied(message):
+    from safety import detect_emergency, detect_emergency_in_reply, negated_terms
+    hits = detect_emergency(message, [])
+    assert hits and detect_emergency_in_reply(message, []) == hits, message
+    assert negated_terms(message, hits) == set()
+
+
+def test_a_negated_document_term_is_never_denied():
+    from safety import detect_emergency_in_reply, negated_terms
+    terms = ["you cannot keep fluids down"]
+    message = "I cannot keep fluids down"
+    assert detect_emergency_in_reply(message, terms)
+    assert negated_terms(message, terms) == set()
