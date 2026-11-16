@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
@@ -64,9 +64,10 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
                  gate_passed: bool, doctor_name: str) -> tuple[AgentResult, Settle]:
     """The delivered result and the waiting question's fate on a reply turn.
     `result` is the agent's (before the gate's low-confidence swap); `blocker`
-    is close_blocker's reason for a close; `gate_passed` is False only when the
-    confidence gate ran and failed. A reported symptom always reaches the
-    doctor unless the clone closed it (or answered it, the reply included)."""
+    is close_blocker's reason for a close or an answer; `gate_passed` is False
+    only when the confidence gate ran and failed. A reported symptom always
+    reaches the doctor unless an unblocked close or answer settled it: a
+    blocked answer is still delivered, but the question goes to the doctor."""
     if terms or result.kind == "emergency":
         stop = EMERGENCY_REASON if terms else EMERGENCY_ANSWER_STOP
         return (replace(result, care_team_question=None, flagged=False),
@@ -84,6 +85,9 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
     if result.kind == "answer":
         if not gate_passed:
             return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, LOW_CONFIDENCE_STOP)
+        if blocker is not None:
+            return (replace(result, care_team_question=None),
+                    Settle("open", NEEDS_DOCTOR, blocker))
         if result.care_team_question:  # the clone flagged it: the doctor sees the reply
             stop = (result.care_team_reason or COULD_NOT_ANSWER)[:STOPPED_BY_CHARS]
             return (replace(result, care_team_question=None),
@@ -91,6 +95,35 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
         return result, Settle("resolved", answer=strip_markers(result.answer))
     # not_covered (rule 6 or 7), out_of_scope or the validation fallback.
     return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER)
+
+
+async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
+                         pending: PendingClarify, reply: str, user_id: int,
+                         document_id: int, doctor_id: int) -> None:
+    """Settle the waiting question, only while it is still waiting: a
+    conditional UPDATE, so of two concurrent replies only the first owns it.
+    When it is no longer waiting (the doctor answered it, or another reply
+    settled it), a handoff becomes a new open question so a reply is never
+    lost; a resolving outcome then only delivers its answer."""
+    values = {"status": settle.status, "patient_reply": reply, "stopped_by": settle.stopped_by}
+    if settle.reason is not None:
+        values["reason"] = settle.reason
+    if settle.answer is not None:
+        values["answer"] = settle.answer
+    done = await session.execute(
+        update(CareTeamQuestion)
+        .where(CareTeamQuestion.id == waiting_id, CareTeamQuestion.status == WAITING)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if done.rowcount == 1 or settle.status != "open":
+        return
+    row = await add_question(
+        session, user_id, document_id, question=pending.question,
+        reason=settle.reason or NEEDS_DOCTOR, source="agent", doctor_id=doctor_id,
+        asked=strip_markers(pending.asked))
+    row.patient_reply = reply
+    row.stopped_by = settle.stopped_by
 
 
 class AskBody(BaseModel):
@@ -188,7 +221,17 @@ async def ask(
         raise HTTPException(status_code=503, detail="The language model is not configured.")
     # A cheap read, also on an emergency turn: the waiting question must reach
     # the doctor. The pending clarify is this conversation's only (Focus 4).
-    found = await pending_clarify(session, doc_id, doctor_id)
+    try:
+        # A savepoint: a failed lookup rolls back only itself, so the user,
+        # document and items read above stay loaded.
+        async with session.begin_nested():
+            found = await pending_clarify(session, doc_id, doctor_id)
+    except Exception:
+        if not terms:
+            raise
+        # The emergency answer never fails on the waiting question's lookup.
+        log.exception("Looking up the pending clarify failed")
+        found = None
     pending: Optional[PendingClarify] = None
     clarify_id = waiting_id = None
     if found is not None:
@@ -290,8 +333,10 @@ async def ask(
                 ) from exc
             result = emergency_result()
 
-        if pending is not None and result.kind == "close" and not terms:
-            # The server, not the model, decides whether a close is delivered (4.4).
+        if (pending is not None and result.kind in ("answer", "close") and not terms
+                and result.replies_to_questions is not False):
+            # The server, not the model, decides whether a close is delivered
+            # (4.4); the same checks decide whether an answer settles the case.
             lexicon = get_lexicon()
             blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
                 pending.question, body.question, terms, doctor_terms, document_terms,
@@ -303,9 +348,14 @@ async def ask(
         # answer must not wait on another model call. A clarify delivers no
         # medical fact and is not scored; a close is scored like an answer.
         if (threshold is not None and result.kind in ("answer", "close") and not terms
-                and blocker is None):
+                and not (result.kind == "close" and blocker is not None)):
+            scored = body.question
+            if pending is not None:  # a reply is read with the question it answers
+                scored = (f"Original question: {pending.question}\n"
+                          f"The clone asked: {strip_markers(pending.asked)}\n"
+                          f"The patient replied: {body.question}")
             try:
-                confidence = await score_answer(llm, body.question, result.answer, result.sources,
+                confidence = await score_answer(llm, scored, result.answer, result.sources,
                                                 result.seen)
             except (LLMError, ValueError) as exc:
                 log.warning("Answer verifier failed, escalating: %s", exc)
@@ -333,20 +383,13 @@ async def ask(
         payload["waiting_question_id"] = waiting_row.id
     if clarify_id is not None:
         # Any reply turn ends the clarify; a new dict so the JSON change is saved.
+        # Every writer sets the same value, so a concurrent reply cannot undo it.
         message = await session.get(ChatMessage, clarify_id)
         if message is not None:
             message.payload = {**(message.payload or {}), "pending": False}
-    if waiting_id is not None and settle is not None:
-        row = await session.get(CareTeamQuestion, waiting_id)
-        # A question the doctor already picked up is left alone.
-        if row is not None and row.status == WAITING:
-            row.status = settle.status
-            row.patient_reply = body.question
-            if settle.reason is not None:
-                row.reason = settle.reason
-            row.stopped_by = settle.stopped_by
-            if settle.answer is not None:
-                row.answer = settle.answer
+    if waiting_id is not None and settle is not None and pending is not None:
+        await settle_waiting(session, waiting_id, settle, pending, body.question,
+                             user_id, doc_id, doctor_id)
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",

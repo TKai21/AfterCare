@@ -2,7 +2,7 @@ import json
 
 import httpx
 import pytest_asyncio
-from sqlalchemy import select, text, update
+from sqlalchemy import delete, select, text, update
 
 from agent import fallback_answer
 from app import create_app
@@ -1171,3 +1171,105 @@ async def test_close_is_blocked_when_warning_terms_cannot_be_read(client, fake_l
     assert body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "The doctor's warning signs could not be loaded")
+
+
+async def test_answer_reply_with_a_warning_sign_reaches_the_doctor(client, fake_llm):
+    # An answer is delivered, but the close checks still decide the symptom's fate.
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    text = "Take amoxicillin 500 mg three times daily [2]."
+    reply = "Yes I have a fever and I threw up three times."
+    fake_llm.script(reply_final("answer", text, [2],
+                                signs=[{"term": "fever", "status": "present"},
+                                       {"term": "threw up", "status": "present"}]))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply, q.answer) == (
+        "open", NEEDS_DOCTOR, "Warning sign: threw up", reply, None)
+
+
+async def set_waiting(client, **values):
+    from models import CareTeamQuestion
+    async with client.app.state.session_factory() as session:
+        await session.execute(update(CareTeamQuestion).values(**values))
+        await session.commit()
+
+
+async def test_reply_after_the_doctor_answered_is_never_lost(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await set_waiting(client, status="answered", answer="Please send a photo.")
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    reply = "I threw up all night."
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    old, new = await all_questions(client)
+    assert (old.status, old.answer, old.patient_reply) == ("answered", "Please send a photo.", None)
+    assert (new.status, new.doctor_id, new.question, new.asked, new.patient_reply,
+            new.reason, new.stopped_by) == (
+        "open", doctor_id, ORIGINAL, ASK_QUESTIONS, reply, NEEDS_DOCTOR, "Warning sign: threw up")
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_patient_cannot_resolve_a_waiting_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)
+    resp = await client.post(f"/api/care-team/{body['waiting_question_id']}/resolve", headers=h)
+    assert resp.status_code == 409
+    (q,) = await all_questions(client)
+    assert q.status == "waiting_on_patient"
+
+
+async def test_a_late_close_never_overwrites_a_handoff(client, fake_llm):
+    # Two replies that both read the pending clarify: only the first settles it.
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    await post_ask(client, h, "no fever, but I threw up twice", doctor_id=doctor_id)
+    message = await clarify_message(client, doctor_id)
+    async with client.app.state.session_factory() as session:  # the second turn's stale read
+        await session.execute(update(ChatMessage).where(ChatMessage.id == message.id)
+                              .values(payload={**message.payload, "pending": True}))
+        await session.execute(delete(ChatMessage).where(ChatMessage.id > message.id))
+        await session.commit()
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close"
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by, q.answer) == ("open", "Warning sign: threw up", None)
+
+
+async def test_reply_gate_scores_the_original_question_and_the_reply(client, fake_llm):
+    import confidence
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)
+    (verify,) = [c for c in fake_llm.routed_calls if c[0][0]["content"] == confidence.VERIFY_PROMPT]
+    scored = verify[0][1]["content"]
+    assert ORIGINAL in scored and "No fever, never threw up." in scored
+
+
+async def test_pending_lookup_failure_keeps_the_emergency_answer(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("routes_agent.pending_clarify", broken)
+    fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
+    resp = await post_ask(client, h, "I have chest pain", doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["kind"] == "emergency"

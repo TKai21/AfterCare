@@ -162,6 +162,11 @@ async def resolve_question(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Question not found")
+    if row.status == "waiting_on_patient":
+        # The clone is waiting for the patient's reply; resolving it here would
+        # lose the reply on its way to the doctor.
+        raise HTTPException(status_code=409,
+                            detail="The clone is still waiting for your reply on Ask.")
     row.status = "resolved"
     await session.commit()
     names = await doctor_labels(session, {row.answered_by, row.doctor_id})

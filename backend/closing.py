@@ -38,7 +38,12 @@ PATIENT_MEDICATION_CHANGE = re.compile(
     rf"\b(?:{_CHANGE_VERBS})\s+(?:\S+\s+){{0,3}}?(?:{_MEDICATION_WORDS})\b"
     r"|\b(?:took|taken|taking|take)\s+(?:an?\s+|one\s+|two\s+)?"
     r"(?:extra|more|less|fewer|another|additional|double|half|a second|twice)\b"
-    r"|\bnew\s+(?:medications?|medicines?|meds?|pills?|prescriptions?)\b",
+    r"|\bnew\s+(?:medications?|medicines?|meds?|pills?|prescriptions?)\b"
+    # Timing: a dose taken late, early or at another time, missed or doubled.
+    r"|\b(?:took|taken|taking|take|had)\s+(?:\S+\s+){0,3}?"
+    r"(?:late|later|early|earlier|at the wrong time)\b"
+    r"|\bat the wrong time\b|\b(?:at night|in the morning|in the evening) instead\b"
+    r"|\bmissed\b|\bdoubled up\b",
     re.IGNORECASE,
 )
 
@@ -70,8 +75,8 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     the original question (always blocks: the case was reported with it) or
     in the reply, unless negated_terms finds a plain denial AND the model's
     warning_signs lists that term as "absent" (a term the model left out is
-    present); medication-change wording in the reply; a lexicon drug name in
-    the reply that is not in `prescribed`."""
+    present); medication-change wording in the original question or the
+    reply; a lexicon drug name in either that is not in `prescribed`."""
     if emergency_terms:
         return EMERGENCY_REASON
     terms = list(dict.fromkeys([*doctor_warning_terms, *document_warning_terms]))
@@ -86,10 +91,10 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     for term in match_terms(reply, terms):
         if not (term in denied and _key(term) in model_absent):
             return WARNING_REASON.format(term=term)
-    if _reports_medication_change(reply, prescribed):
+    if any(_reports_medication_change(text, prescribed) for text in (original, reply)):
         return MEDICATION_REASON
     allowed = {name.lower() for name in prescribed}
-    unprescribed = sorted(lexicon.find(reply) - allowed)
+    unprescribed = sorted((lexicon.find(original) | lexicon.find(reply)) - allowed)
     if unprescribed:
         return DRUG_REASON.format(name=unprescribed[0])
     return None

@@ -103,3 +103,20 @@ def test_checks_run_in_order():
     assert blocker(reply, emergency=["chest pain"]) == "Emergency terms"
     assert blocker(reply) == "Warning sign: fever"
     assert blocker("I started taking ibuprofen") == "Medication change reported"
+
+
+def test_original_question_gets_the_medication_and_drug_checks():
+    signs = absent("fever", "threw up")
+    assert blocker("No fever, never threw up.",
+                   original="I stopped my antibiotic and the incision is pink.",
+                   signs=signs) == "Medication change reported"
+    assert blocker("No fever, never threw up.", original="I took ibuprofen, incision is pink.",
+                   signs=signs) == "Drug not on the prescription: ibuprofen"
+
+
+def test_timing_changes_are_medication_changes():
+    signs = absent("fever", "threw up")
+    for reply in ("No fever, never threw up. I took my amoxicillin late yesterday.",
+                  "I took it early this morning", "I took the pill at the wrong time",
+                  "I take it at night instead", "I missed one", "I doubled up yesterday"):
+        assert blocker(reply, signs=signs) == "Medication change reported", reply
