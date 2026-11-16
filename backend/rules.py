@@ -288,9 +288,12 @@ async def reader_names(session: AsyncSession, entry: DoctorGuidance) -> list[str
     users = (await session.scalars(select(User).where(User.id.in_(ids)))).all() if ids else []
     names: list[str] = []
     for user in users:
-        for name in ((user.username if user.id != entry.doctor_id else None), user.display_name):
-            if name and name.strip() and name not in names:
-                names.append(name.strip())
+        full = user.display_name or ""
+        # "Michael Jones" is also quoted as "Michael"; titles ("Dr.") are not names.
+        parts = [w for w in re.findall(r"[^\W\d_]{3,}", full) if w.lower() not in ("doctor", "mister", "miss")]
+        for name in ((user.username if user.id != entry.doctor_id else None), full.strip(), *parts):
+            if name and name not in names:
+                names.append(name)
     return names
 
 

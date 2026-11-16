@@ -667,7 +667,7 @@ async def test_index_entry_passes_the_source_patient_and_doctor_names(session):
     await session.flush()
     answer = "Michael, have you had any fever? Dr. Lee asks about chills. Have you had any chills?"
     e = await general(session, llm, doc, answer, source_question_id=q.id)
-    assert set(await rules.reader_names(session, e)) == {"a", "Michael Jones", "Dr. Lee"}
+    assert set(await rules.reader_names(session, e)) == {"a", "Michael Jones", "Michael", "Jones", "Dr. Lee", "Lee"}
     route_rules(llm, habit("Asks about fever.", "Michael, have you had any fever?", "ask"),
                 habit("Asks about chills.", "Dr. Lee asks about chills.", "ask"),
                 habit("Asks about chills.", "Have you had any chills?", "ask"))
