@@ -80,7 +80,14 @@ FLAGGED_REASON = "The assistant flagged this question for the care team."
 
 # "911" is the emergency number the app itself shows; it never needs a citation.
 ALWAYS_ALLOWED_NUMBERS = frozenset({("number", Decimal("911"))})
-MARKER = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]")
+# A citation marker: "[2]", "[2, 5]", or a range "[41-49]" (hyphen or en dash),
+# alone or in a list ("[2, 41-45]"). A range stands for every number in it.
+_MARKER_ITEM = r"\d+(?:\s*[-\u2013]\s*\d+)?"
+MARKER = re.compile(rf"\[\s*({_MARKER_ITEM}(?:\s*,\s*{_MARKER_ITEM})*)\s*\]")
+_MARKER_RANGE = re.compile(r"(\d+)\s*[-\u2013]\s*(\d+)")
+# The most numbers one range marker may stand for, so a stray "[1-500]" is an
+# error rather than a citation of everything.
+MAX_MARKER_RANGE = 20
 URL = re.compile(r"https?://\S+")
 # Number grounding tokens (see number_tokens). ASCII digits only: \d would also
 # match other scripts' digits.
@@ -153,8 +160,9 @@ FORMAT_NUDGE = (
 
 REPAIR_NUDGE = (
     "Your last reply was rejected: {error} Reply again with only the final JSON object, "
-    "following the output contract. Cite only evidence numbers you were given, put a marker "
-    "such as [2] after each statement, and use only numbers that appear in the cited evidence."
+    "following the output contract. Cite only evidence numbers you were given, put the evidence "
+    "numbers of each statement in square brackets right after it, and use only numbers that "
+    "appear in the cited evidence."
 )
 
 OXALATE_KEY = "oxalate_mg"
@@ -199,7 +207,7 @@ Food data:
 
 Output contract: when you are done with tools, reply with only one JSON object and no other text:
 {"kind": "answer" | "not_covered" | "emergency" | "out_of_scope" | "clarify" | "close", "answer": "...", "citations": [evidence numbers], "care_team_question": string or null}
-- Put a marker such as [2] or [2, 5] right after each statement it supports. "citations" must list exactly the numbers used in the markers.
+- Put a marker such as [2] or [2, 5] right after each statement it supports. "citations" must list exactly the numbers used in the markers. A document paragraph that ends with ":" introduces the paragraphs after it; cite each of those paragraphs you use by its own number, not only the one that introduces them.
 - kind "answer" must cite at least one evidence number.
 - kind "clarify" cites only "How I usually respond" entries, at least one of them from "Questions I usually ask". Its questions are my own questions from the cited "Questions I usually ask" entries, copied word for word, each a whole question ending with "?", at most 4 of them. Do not write new questions or change mine. It may open with exactly one of these sentences, and with nothing else: {OPENERS} No numbers (not even 911), no drug names, no links.
 - kind "close" cites at least one entry from "How I usually close" and may also cite document paragraphs. Every sentence of a close is a whole sentence copied word for word from a cited "How I usually close" entry or a cited document paragraph; write nothing else, not even an opening sentence. Every rule for an answer applies to it.
@@ -208,7 +216,7 @@ Output contract: when you are done with tools, reply with only one JSON object a
 - Write every quantity, dose, time and count with Arabic numerals (for example 2, not "two"). Never write numbers as words.
 - Write each number exactly as the evidence writes it, with a space before its unit (500 mg, not 500mg). Avoid words such as one, once, twice, half, single or double unless the cited evidence uses the same word.
 - "care_team_question" is the question you added for the care team, or null.
-- Write plain, short English the patient can follow.""".replace(
+- Write plain, short English the patient can follow. For a list, start each item with "-", never with a number.""".replace(
     "{GENERAL_INFO}", GENERAL_INFO).replace("{NOT_COVERED}", NOT_COVERED_ANSWER).replace(
     "{OPENERS}", " ".join(f'"{o}"' for o in CLARIFY_OPENERS))
 
@@ -358,7 +366,21 @@ def _append_markers(answer: str, cited: list[int]) -> str:
 
 
 def _marker_numbers(group: str) -> list[int]:
-    return [int(n) for n in group.split(",")]
+    """The evidence numbers of one marker's contents ("2, 41-45"). Raises
+    ValueError for a backward range or one longer than MAX_MARKER_RANGE."""
+    numbers: list[int] = []
+    for item in group.split(","):
+        span = _MARKER_RANGE.fullmatch(item.strip())
+        if span is None:
+            numbers.append(int(item))
+            continue
+        low, high = int(span.group(1)), int(span.group(2))
+        if not low <= high < low + MAX_MARKER_RANGE:
+            raise ValueError(
+                f"The citation range [{low}-{high}] is not valid: a range goes from low to high "
+                f"and spans at most {MAX_MARKER_RANGE} numbers. Cite each evidence number instead.")
+        numbers.extend(range(low, high + 1))
+    return numbers
 
 
 def _markers(answer: str) -> set[int]:
@@ -366,7 +388,8 @@ def _markers(answer: str) -> set[int]:
 
 
 def _normalize_markers(answer: str) -> str:
-    """"[ 2 ]" and "[2 ,3]" become "[2]" and "[2, 3]", the forms the page renders."""
+    """"[ 2 ]", "[2 ,3]" and "[2-4]" become "[2]", "[2, 3]" and "[2, 3, 4]", the
+    forms the page renders."""
     return MARKER.sub(
         lambda m: "[" + ", ".join(str(n) for n in _marker_numbers(m.group(1))) + "]", answer
     )
@@ -600,16 +623,47 @@ def validate(
                 "say the document does not cover this; a drug may be named only if the patient "
                 "is prescribed it, a cited document paragraph names it, or the patient asked "
                 "about it.")
-    allowed = set(ALWAYS_ALLOWED_NUMBERS).union(
-        *(number_tokens(clean_text(evidence[n].check_text)) | erased_numerals(evidence[n].check_text)
-          for n in cited)
-    )
+    allowed = set(ALWAYS_ALLOWED_NUMBERS).union(*(_evidence_tokens(evidence[n]) for n in cited))
     stated = number_tokens(MARKER.sub(" ", answer)) | erased_numerals(MARKER.sub(" ", raw_answer))
     unsupported = stated - allowed
     if unsupported:
-        shown = sorted(str(value) for _, value in unsupported)
-        raise ValueError(f"Numbers not in the cited evidence: {shown}.")
+        raise ValueError(_unsupported_numbers_error(unsupported, evidence))
     return kind, answer, sorted(cited), question
+
+
+def _evidence_tokens(e: Evidence) -> set[tuple]:
+    """The number tokens `e` grounds: what an answer citing it may state."""
+    return number_tokens(clean_text(e.check_text)) | erased_numerals(e.check_text)
+
+
+def _and(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evidence]) -> str:
+    """The error for numbers no cited evidence states. For each one it names
+    the evidence that does state it (a model often cites a list's heading
+    instead of the item that holds the number), so the repair can fix the
+    citation. It never makes a number acceptable: the repair is validated
+    again in full."""
+    tokens = sorted(unsupported, key=lambda t: (str(t[1]), t[0]))
+    shown = [str(value) for _, value in tokens]
+    parts = [f"Numbers not in the cited evidence: {sorted(shown)}."]
+    groups: dict[tuple[int, ...], list[str]] = {}
+    for token, text in zip(tokens, shown):
+        where = tuple(n for n in sorted(evidence) if token in _evidence_tokens(evidence[n]))
+        groups.setdefault(where, []).append(text)
+    for where, numbers in groups.items():
+        one = len(numbers) == 1
+        verb, pronoun = ("appears", "it") if one else ("appear", "them")
+        if where:
+            parts.append(
+                f"{_and(numbers)} {verb} in evidence [{', '.join(map(str, where))}]: if your "
+                "statement comes from there, put that evidence number in the statement's marker "
+                f"and in \"citations\"; otherwise remove {pronoun}.")
+        else:
+            parts.append(f"{_and(numbers)} {verb} in no evidence; remove {pronoun}.")
+    return " ".join(parts)
 
 
 # Sentence boundaries in cleaned text (clean_text: NFKC has already turned
@@ -1158,7 +1212,7 @@ async def run_agent(
     (FORMAT_NUDGE), and a final message that fails any other check gets one
     repair call that names the error; both are calls without tools and never
     happen for an emergency. So a turn makes at most max_rounds + 3 model calls
-    before the fallback.
+    before the fallback. Every call requests JSON output (json_mode).
 
     The model is `doctor_name`'s AI clone. `prefetch` is that doctor's guidance
     found for the question before the first model call (None when the search
@@ -1207,7 +1261,10 @@ async def run_agent(
         tools_allowed = round_number < max_rounds and not retried
         if round_number == max_rounds and not retried:
             messages.append({"role": "user", "content": FINAL_NUDGE})
-        reply = await llm.chat(list(messages), tools=TOOLS if tools_allowed else None)
+        # JSON output on every call, tools or not: any reply without tool calls is
+        # the final message, and without it the model often answers in prose.
+        reply = await llm.chat(list(messages), tools=TOOLS if tools_allowed else None,
+                               json_mode=True)
         calls = reply.get("tool_calls") or []
         if not calls:
             raw = reply.get("content") or ""

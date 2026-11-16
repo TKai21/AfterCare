@@ -1951,3 +1951,126 @@ def test_close_of_the_doctors_own_sentences_passes(answer, citations):
 def test_close_may_only_use_the_doctors_closing_words(answer, citations):
     with pytest.raises(ValueError, match="only use the doctor's own closing words"):
         close_check(answer, citations)
+
+
+# Basic document answers (warning signs, water) failed on real model replies:
+# range markers, a list heading cited instead of the item holding the number,
+# and prose final messages because JSON output was never requested.
+WARNING_EV = (
+    "Call 911 or return to the ER if:",
+    "- a fever of 101 F (38.3 C) or higher with chills",
+    "- you cannot keep fluids down",
+    "Call the clinic at 555-0142 if:",
+    "- you cannot urinate",
+)
+
+
+@pytest.mark.parametrize("marker", ["[1-3]", "[1–3]", "[ 1 - 3 ]", "[1, 2-3]"])
+def test_validate_reads_a_range_marker_as_every_number_in_it(marker):
+    ev = evidence(*WARNING_EV)
+    answer = f"Call 911 for a fever of 101 F (38.3 C) or if you cannot keep fluids down {marker}."
+    kind, text, cited, _ = validate(raw(answer=answer, citations=[1, 2, 3]), ev)
+    assert cited == [1, 2, 3]
+    assert text.endswith("fluids down [1, 2, 3].")  # the comma form the page renders
+
+
+def test_validate_range_marker_must_match_the_citations():
+    ev = evidence(*WARNING_EV)
+    with pytest.raises(ValueError, match="markers do not match"):
+        validate(raw(answer="Call 911 if you cannot keep fluids down [1-3].", citations=[1, 3]), ev)
+
+
+@pytest.mark.parametrize("marker", ["[3-1]", "[1-21]"])
+def test_validate_rejects_backward_and_overlong_range_markers(marker):
+    ev = evidence(*[f"Line {n}." for n in range(1, 30)])
+    with pytest.raises(ValueError, match="range"):
+        validate(raw(answer=f"Rest {marker}.", citations=[1, 2, 3]), ev)
+
+
+def test_validate_accepts_a_range_of_twenty():
+    ev = evidence(*["Rest at home." for _ in range(25)])
+    assert validate(raw(answer="Rest at home [1-20].", citations=list(range(1, 21))), ev)[2] \
+        == list(range(1, 21))
+
+
+def test_strip_markers_removes_range_markers():
+    assert agent.strip_markers("Call 911 [41-49]. Rest [2, 4–5].") == "Call 911. Rest."
+
+
+def test_number_tokens_of_a_temperature_with_its_conversion():
+    assert {("number", Decimal("101")), ("number", Decimal("38.3"))} <= number_tokens(
+        "- a fever of 101 F (38.3 C) or higher with chills")
+
+
+def test_number_error_names_the_evidence_that_holds_the_number():
+    ev = evidence(*WARNING_EV)
+    answer = "Call 911 or return to the ER if you have a fever of 101 F (38.3 C) [1]."
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer=answer, citations=[1]), ev)
+    message = str(exc.value)
+    assert message.startswith("Numbers not in the cited evidence: ['101', '38.3'].")
+    assert "101 and 38.3 appear in evidence [2]" in message
+    # Citing the item that holds the numbers passes: the check itself is unchanged.
+    assert validate(raw(answer=answer.replace("[1]", "[1, 2]"), citations=[1, 2]), ev)[2] == [1, 2]
+
+
+def test_number_error_says_when_no_evidence_holds_the_number():
+    ev = evidence(*WARNING_EV)
+    answer = "1. Call 911 if you cannot keep fluids down [1, 3].\n2. Call the clinic [4]."
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer=answer, citations=[1, 3, 4]), ev)
+    assert "1 and 2 appear in no evidence; remove them." in str(exc.value)
+
+
+def test_number_error_names_evidence_per_number():
+    ev = evidence("Drink 2 liters of water.", "Walk 10 minutes.", "Rest 10 minutes after 2 walks.")
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer="Drink 2 liters and walk 10 minutes, 7 days [1].", citations=[1]), ev)
+    message = str(exc.value)
+    assert ("10 appears in evidence [2, 3]: if your statement comes from there, put that "
+            "evidence number in the statement's marker and in \"citations\"; otherwise remove it."
+            ) in message
+    assert "7 appears in no evidence; remove it." in message
+
+
+def test_repair_nudge_shows_no_example_evidence_number():
+    # A real reply copied the nudge's example "[2]" as its marker.
+    nudge = agent.REPAIR_NUDGE.format(error="x")
+    assert not re.search(r"\[\d", nudge)
+    assert "square brackets" in nudge
+
+
+async def test_repair_nudge_names_the_evidence_that_holds_the_number(store, foods, items):
+    document = DischargeDocument(id=1, user_id=1, status="confirmed", text="\n\n".join(WARNING_EV))
+    llm = FakeLLM()
+    bad = "Call 911 or return to the ER if you have a fever of 101 F (38.3 C) [1]."
+    llm.script(final(bad, [1]), final(bad.replace("[1]", "[1, 2]"), [1, 2]))
+    result = await ask(llm, store, foods, document, items, question="What warning signs?")
+    assert result.kind == "answer" and [e.number for e in result.sources] == [1, 2]
+    assert "101 and 38.3 appear in evidence [2]" in llm.calls[1][0][-1]["content"]
+
+
+async def test_every_model_call_requests_json_output(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(
+        tool_call("lookup_food", {"name": "almonds"}, call_id="c0"),
+        tool_call("lookup_food", {"name": "almonds"}, call_id="c1"),
+        {"content": "No JSON here."},  # the forced final call
+        final("Almonds have 200 mg of oxalate per serving [2].", [2]),  # after the format retry
+        final("Limit high-oxalate foods [2].", [2]),  # after the repair
+    )
+    result = await ask(llm, store, foods, document, items, max_rounds=2)
+    assert result.answer == "Limit high-oxalate foods [2]."
+    assert len(llm.calls) == 5
+    assert [json_mode for _, _, json_mode in llm.calls] == [True] * 5
+    assert [tools is not None for _, tools, _ in llm.calls] == [True, True, False, False, False]
+
+
+def test_prompt_asks_for_dash_lists_not_numbered_lists():
+    assert 'start each item with "-", never with a number' in agent.SYSTEM_PROMPT
+
+
+def test_prompt_says_list_items_are_cited_by_their_own_numbers():
+    assert ("A document paragraph that ends with \":\" introduces the paragraphs after it; cite "
+            "each of those paragraphs you use by its own number, not only the one that introduces "
+            "them.") in agent.SYSTEM_PROMPT
