@@ -12,13 +12,15 @@ from agent import (
     fallback_answer, run_agent, strip_markers,
 )
 from auth import current_patient
-from closing import EMERGENCY_REASON, WAITING, close_blocker, pending_clarify
+from closing import (
+    EMERGENCY_REASON, WAITING, close_blocker, doctor_warning_terms, pending_clarify,
+)
 from confidence import LOW_CONFIDENCE_REASON, score_answer
 from db import get_session
 from doctors import doctor_label, require_doctor
 from druglabels import patient_rxcuis
 from drugnames import allowed_drug_names, get_lexicon, prescribed_drug_names
-from guidance import HABITS_IN_CONTEXT, Unit, doctor_habits, retrieve
+from guidance import Unit, doctor_habits, retrieve
 from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
@@ -208,26 +210,33 @@ async def ask(
         for loaded in (user, doc, *items):
             session.expunge(loaded)
         habits = []
-        live_habits = []  # every live habit: a reply turn needs all warning terms
-        habits_failed = False
+        doctor_terms: list[str] = []  # every live warning habit's terms (reply turns)
+        terms_failed = False
         if not terms:  # an emergency answer does not wait on memory
             try:
-                live_habits = await doctor_habits(
-                    session, doctor_id, limit=None if pending is not None else HABITS_IN_CONTEXT)
-                for habit in live_habits:
+                habits = await doctor_habits(session, doctor_id)
+                for habit in habits:
                     session.expunge(habit)  # stays loaded after any later rollback
-                habits = live_habits[:HABITS_IN_CONTEXT]
                 await session.commit()
             except Exception:
                 log.exception("Loading the doctor's habits failed")
-                habits, live_habits, habits_failed = [], [], True
+                habits = []
                 try:
                     await session.rollback()
                 except Exception:
                     log.exception("Rollback after failing to load habits failed")
-        doctor_terms = list(dict.fromkeys(
-            t for h in live_habits if h.habit_type == "warning"
-            for t in (h.warning_terms or []) if isinstance(t, str) and t.strip()))
+            if pending is not None:
+                try:
+                    doctor_terms = await doctor_warning_terms(session, doctor_id)
+                    await session.commit()
+                except Exception:
+                    # Fail closed: without the doctor's warning signs no close.
+                    log.exception("Loading the doctor's warning terms failed")
+                    doctor_terms, terms_failed = [], True
+                    try:
+                        await session.rollback()
+                    except Exception:
+                        log.exception("Rollback after failing to load warning terms failed")
         document_terms = warning_terms(items)
         settings = request.app.state.settings
         memory_failed = False
@@ -284,7 +293,7 @@ async def ask(
         if pending is not None and result.kind == "close" and not terms:
             # The server, not the model, decides whether a close is delivered (4.4).
             lexicon = get_lexicon()
-            blocker = HABITS_UNAVAILABLE if habits_failed else close_blocker(
+            blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
                 pending.question, body.question, terms, doctor_terms, document_terms,
                 result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
                 lexicon)

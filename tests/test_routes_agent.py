@@ -1131,3 +1131,43 @@ async def test_new_question_keeps_its_own_gate(client, fake_llm):
     waiting, new = await all_questions(client)
     assert (waiting.status, waiting.stopped_by) == ("open", NOT_ANSWERED)
     assert (new.question, new.status) == ("How often do I take it?", "open")
+
+
+async def test_close_checks_every_warning_habit_not_the_deduplicated_list(client, fake_llm):
+    # Two live warning habits with the same statement: doctor_habits keeps one,
+    # but the close check must see both entries' terms.
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    async with client.app.state.session_factory() as session:
+        entry = await session.scalar(
+            select(DoctorGuidance).where(DoctorGuidance.doctor_id == doctor_id))
+    # After the ask [4] and close [5] habits, so the evidence numbers hold.
+    await seed_habit(client, entry, "Wants to hear about a fever", "Tell me about a fever.",
+                     "warning", warning_terms=["fever"])
+    await seed_habit(client, entry, "Wants to hear about a fever", "Tell me about chills.",
+                     "warning", warning_terms=["chills"])
+    await start_clarify(client, fake_llm, h, doctor_id)
+    reply = "I have had some chills today"
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up", "chills")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: chills")
+
+
+async def test_close_is_blocked_when_warning_terms_cannot_be_read(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("routes_agent.doctor_warning_terms", broken)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "The doctor's warning signs could not be loaded")

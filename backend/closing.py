@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import MEDICATION_CHANGE
 from drugnames import DrugLexicon
-from models import CareTeamQuestion, ChatMessage
+from models import CareTeamQuestion, ChatMessage, DoctorGuidance, GuidanceRule
 from safety import _canon, match_terms, negated_terms
 
 EMERGENCY_REASON = "Emergency terms"
@@ -125,3 +125,29 @@ async def pending_clarify(session: AsyncSession, document_id: int,
     if question is None:
         return None
     return message, question
+
+
+async def doctor_warning_terms(session: AsyncSession, doctor_id: int) -> list[str]:
+    """The union of warning_terms over every live warning habit of this doctor
+    (not suppressed, entry active), read directly: doctor_habits keeps one
+    habit per statement, and a dropped duplicate's terms must still block a
+    close. In order of first appearance."""
+    rows = await session.scalars(
+        select(GuidanceRule.warning_terms)
+        .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)
+        .where(
+            DoctorGuidance.doctor_id == doctor_id,
+            DoctorGuidance.active.is_(True),
+            GuidanceRule.doctor_id == doctor_id,
+            GuidanceRule.kind == "habit",
+            GuidanceRule.habit_type == "warning",
+            GuidanceRule.suppressed.is_(False),
+        )
+        .order_by(GuidanceRule.id)
+    )
+    terms: dict[str, None] = {}
+    for found in rows:
+        for term in found or []:
+            if isinstance(term, str) and term.strip():
+                terms.setdefault(term, None)
+    return list(terms)
