@@ -39,7 +39,7 @@ import secrets
 import sys
 import tempfile
 from collections import Counter, defaultdict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -331,20 +331,16 @@ def _append(path: Path, value: dict) -> None:
 
 
 @asynccontextmanager
-async def open_world(settings, llm, store, patients: list[dict], memory: dict, labels: list[dict] | None = None):
-    """The app on `settings` (its own database) with the world built and the
-    approved labels in `store`; yields (client, session, world)."""
+async def open_app(settings, llm, store):
+    """The app on `settings` (its own database), started; yields (client,
+    session): an in-process client and a session on the app's database."""
     label_client = LabelClient(fixture_transport(DEMO_LABELS))
     app = create_app(settings, llm=llm, store=store, label_client=label_client)
     try:
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://eval") as client:
                 async with app.state.session_factory() as session:
-                    world = await build_world(session, llm, patients, memory, labels)
-                    # After the lifespan pruned labels that are not approved (none were yet).
-                    for record in world.labels:
-                        await store.add(record)
-                    yield client, session, world
+                    yield client, session
     finally:
         # The app's lifespan closes these only when its body ends without an
         # error; both calls are safe to repeat.
@@ -353,16 +349,34 @@ async def open_world(settings, llm, store, patients: list[dict], memory: dict, l
 
 
 @asynccontextmanager
-async def temporary_world(settings, llm, patients: list[dict], memory: dict):
-    """open_world on a temporary database and a temporary copy of the library
-    index, both deleted afterwards. The configured index is only read; the
-    configured database is never opened."""
-    with tempfile.TemporaryDirectory(prefix="aftercare-clone-eval-") as scratch:
+async def open_world(settings, llm, store, patients: list[dict], memory: dict, labels: list[dict] | None = None):
+    """The app on `settings` (its own database) with the world built and the
+    approved labels in `store`; yields (client, session, world)."""
+    async with open_app(settings, llm, store) as (client, session):
+        world = await build_world(session, llm, patients, memory, labels)
+        # After the lifespan pruned labels that are not approved (none were yet).
+        for record in world.labels:
+            await store.add(record)
+        yield client, session, world
+
+
+@contextmanager
+def temporary_settings(settings, llm, prefix: str = "aftercare-clone-eval-"):
+    """`settings` on a temporary database and a temporary copy of the library
+    index, both deleted afterwards; yields (run settings, library store). The
+    configured index is only read; the configured database is never opened."""
+    with tempfile.TemporaryDirectory(prefix=prefix) as scratch:
         copy = Path(scratch) / "index.sqlite3"
         copy_index(existing_index_path(settings.rag_db_path), copy)
         run_settings = replace(settings, database_url=f"sqlite+aiosqlite:///{Path(scratch) / 'eval.sqlite3'}",
                                rag_db_path=str(copy), jwt_secret=secrets.token_urlsafe(32))
-        store = open_store(run_settings, llm)
+        yield run_settings, open_store(run_settings, llm)
+
+
+@asynccontextmanager
+async def temporary_world(settings, llm, patients: list[dict], memory: dict):
+    """open_world in temporary_settings."""
+    with temporary_settings(settings, llm) as (run_settings, store):
         async with open_world(run_settings, llm, store, patients, memory) as opened:
             yield opened
 

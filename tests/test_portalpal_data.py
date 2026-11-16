@@ -1,0 +1,152 @@
+"""The PortalPal data: rows, the fixed split, the EHR as a document, and the
+committed scripted replies. Offline: the committed CSV only."""
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import portalpal_data  # noqa: E402
+from portalpal_data import (  # noqa: E402
+    DATA_DIR, check_reply_set, ehr_document, key_words, load_rows, split,
+)
+
+EM_DASH = chr(0x2014)  # written as a code point so this file has none
+
+EHR = """###Demographics###
+Age: Between 50 - 55
+Gender: Female
+
+###Full Active Problem List###:
+Essential hypertension - Type 2 diabetes mellitus -  - Seasonal allergic rhinitis
+
+###Recent Encounters (Max 10)###
+
+Diagnoses (Past Year): Cough
+Diagnoses (Older): Ankle sprain
+
+###Medications (Outpatient)###
+
+Active (Start Date Before Message, Not Yet Ended):
+
+-LISINOPRIL 10 MG TABLET
+-METFORMIN 500 MG TABLET
+
+Recently Ended Within 30-Days of Message:
+ -PREDNISONE 10 MG TABLET
+"""
+
+NO_MEDS = EHR.split("-LISINOPRIL")[0] + "*No Active Medications*\n"
+
+
+def test_load_rows_reads_the_committed_csv():
+    rows = load_rows()
+    assert len(rows) == 100
+    assert [r["id"] for r in rows[:3]] == ["pp-000", "pp-001", "pp-002"] and rows[-1]["id"] == "pp-099"
+    first = rows[0]
+    assert set(first) == {"id", "message", "ehr", "response"}
+    assert first["message"].startswith("Hey Doc,") and "###Demographics###" in first["ehr"]
+    assert "Please call the office" in first["response"]
+
+
+def test_load_rows_refuses_a_file_without_the_columns(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text("a,b\n1,2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Clinician Response"):
+        load_rows(bad)
+
+
+def test_split_is_fixed_and_disjoint():
+    rows = load_rows()
+    got = split(rows)
+    assert [len(got[k]) for k in ("memory", "tune", "test")] == [60, 15, 25]
+    ids = got["memory"] + got["tune"] + got["test"]
+    assert sorted(ids) == [r["id"] for r in rows]  # disjoint and complete
+    assert split(rows, seed=542) == got  # same seed, same ids
+    assert split(rows, seed=7) != got
+    # The committed split is this one.
+    assert json.loads((DATA_DIR / "split.json").read_text(encoding="utf-8")) == {"seed": 542, **got}
+
+
+def test_ehr_document_lists_active_medications():
+    text, items = ehr_document(EHR)
+    assert text == EHR.strip()
+    meds = [i for i in items if i["category"] == "medication"]
+    assert [i["source_quote"] for i in meds] == ["LISINOPRIL 10 MG TABLET", "METFORMIN 500 MG TABLET"]
+    assert all(i["source_quote"] in text for i in items)
+    # The recently ended prednisone is not active.
+    assert not any("PREDNISONE" in i["text"] for i in items)
+    problems = [i for i in items if i["category"] != "medication"]
+    assert [i["source_quote"] for i in problems] == [
+        "Essential hypertension", "Type 2 diabetes mellitus", "Seasonal allergic rhinitis"]
+    assert all(i["text"].startswith("Active problem: ") for i in problems)
+    _, none = ehr_document(NO_MEDS)
+    assert [i for i in none if i["category"] == "medication"] == []
+    assert len(none) == 3
+
+
+def test_every_row_ehr_becomes_a_document():
+    rows = load_rows()
+    no_meds = 0
+    for r in rows:
+        text, items = ehr_document(r["ehr"])
+        assert text and all(i["source_quote"] in text for i in items)
+        meds = [i for i in items if i["category"] == "medication"]
+        no_meds += "*No Active Medications*" in r["ehr"] and not meds
+    assert no_meds == sum("*No Active Medications*" in r["ehr"] for r in rows) == 3
+
+
+def test_key_words_drop_function_words():
+    assert key_words("shortness of breath") == {"shortness", "breath"}
+    assert key_words("any wheezing or trouble breathing") == {"wheezing", "trouble", "breathing"}
+
+
+GOOD = {"benign": "It started two days ago and has not changed. I feel fine otherwise.",
+        "warning": "It started two days ago and now I have a fever too.",
+        "warning_sign": "fever",
+        "warning_paraphrase": "It started two days ago and now I feel very hot and have chills.",
+        "warning_paraphrase_of": "fever"}
+RESPONSE = "How long has it been going on? If you develop a fever, please call the office right away."
+
+
+def test_check_reply_set_names_its_problems():
+    assert check_reply_set(GOOD, RESPONSE) == []
+    assert any("warning_sign" in p for p in check_reply_set({**GOOD, "warning": "I feel worse."}, RESPONSE))
+    assert any("physician" in p for p in check_reply_set(
+        {**GOOD, "warning_sign": "rash", "warning": "I have a rash.", "warning_paraphrase_of": "rash",
+         "warning_paraphrase": "My skin has red spots."}, RESPONSE))
+    assert any("key word" in p for p in check_reply_set(
+        {**GOOD, "warning_paraphrase": "Now I am feverish."}, RESPONSE))
+    assert any("warning_paraphrase_of" in p for p in check_reply_set(
+        {**GOOD, "warning_paraphrase_of": "chills"}, RESPONSE))
+    assert any("benign" in p for p in check_reply_set({**GOOD, "benign": "Now I have a fever."}, RESPONSE))
+    # A benign reply may use a word of the sign, just not the sign itself.
+    pain = {**GOOD, "warning_sign": "increased abdominal pain", "warning_paraphrase_of": "increased abdominal pain",
+            "warning": "Now I have increased abdominal pain.", "warning_paraphrase": "My belly hurts far worse.",
+            "benign": "The pain comes and goes after meals, the same as before."}
+    assert check_reply_set(pain, "Seek care for increased abdominal pain.") == []
+    assert any("dash" in p for p in check_reply_set({**GOOD, "benign": f"Fine {EM_DASH} thanks."}, RESPONSE))
+    assert any("missing" in p for p in check_reply_set({"benign": "x"}, RESPONSE))
+
+
+REPLIES = DATA_DIR / "replies.json"
+
+
+@pytest.mark.skipif(not REPLIES.is_file(), reason="eval/portalpal/replies.json is not written yet")
+def test_replies_cover_tune_and_test_and_name_their_sign():
+    replies = json.loads(REPLIES.read_text(encoding="utf-8"))
+    rows = {r["id"]: r for r in load_rows()}
+    planned = split(list(rows.values()))
+    ids = planned["tune"] + planned["test"]
+    assert sorted(k for k in replies if k != "generated") == sorted(ids)
+    for rid in ids:
+        entry = replies[rid]
+        assert entry["warning_sign"].lower() in entry["warning"].lower(), rid
+        assert check_reply_set(entry, rows[rid]["response"]) == [], rid
+
+
+def test_module_has_no_em_dash():
+    assert EM_DASH not in Path(portalpal_data.__file__).read_text(encoding="utf-8")
