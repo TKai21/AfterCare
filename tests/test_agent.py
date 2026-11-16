@@ -1788,6 +1788,56 @@ def test_cleaning_strips_format_characters_for_every_kind():
                     ev)[1] == "Drink 2 liters of water [1]."
 
 
+# Default_Ignorable_Code_Point characters that are not category Cf, plus the
+# Braille blank and the Hangul fillers (Lo), which also render as nothing.
+INVISIBLE_NOT_CF = [
+    "͏", "ᅟ", "ᅠ", "឴", "឵", "᠋", "᠌", "᠍", "᠏",
+    "⠀", "ㅤ", "︀", "️", "ﾠ", "\U000e0100", "\U000e01ef",
+]
+
+
+@pytest.mark.parametrize("ch", INVISIBLE_NOT_CF, ids=lambda c: f"U+{ord(c):04X}")
+def test_cleaning_strips_invisible_characters_that_are_not_format(ch):
+    ev = {1: Evidence(1, "document", "t", None, "Drink 2 liters of water.",
+                      "Drink 2 liters of water.")}
+    with pytest.raises(ValueError, match="naproxen"):
+        validate(raw(answer=f"Take napro{ch}xen [1].", citations=[1]), ev, lexicon=get_lexicon())
+    library = {1: Evidence(1, "library", "t", None, "Rest helps.", "Rest helps.")}
+    with pytest.raises(ValueError, match="medication change"):
+        validate(raw(answer=f"St{ch}op taking it [1].", citations=[1]), library)
+    assert agent.clean_text(f"Drink{ch} water.") == "Drink water."
+
+
+def test_cleaning_keeps_paragraphs_and_lists():
+    text = "Intro:\n\n- rest\n- drink water\n\nEnd [1]."
+    assert agent.clean_text(text) == text
+    ev = {1: Evidence(1, "document", "t", None, "Rest helps.", "Rest helps.")}
+    assert validate(raw(answer=text, citations=[1]), ev)[1] == text
+    assert agent.clean_text("a\n\n\n\nb") == "a\n\nb"
+    assert agent.clean_text("a\n \n\t\nb") == "a\n\nb"
+    assert agent.clean_text("a \t b\r\n  c d") == "a b\nc\nd"
+    assert agent.clean_text("\n\n a \n\n") == "a"
+
+
+def test_roman_numeral_characters_must_be_grounded():
+    rest = {12: Evidence(12, "document", "d", None, "Rest helps.", "Rest helps.")}
+    for answer in ("Take Ⅻ tablets [12].", "Take ⅲ tablets [12].",
+                   "Wait Ⅿ days [12]."):
+        with pytest.raises(ValueError, match="Numbers"):
+            validate(raw(answer=answer, citations=[12]), rest)
+    roman = {12: Evidence(12, "document", "d", None, "Take Ⅻ tablets.",
+                          "Take Ⅻ tablets.")}
+    assert validate(raw(answer="Take Ⅻ tablets [12].", citations=[12]), roman)[0] == "answer"
+
+
+async def test_ungrounded_roman_numeral_is_repaired(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Take Ⅻ tablets [3].", [3]), final("Drink water every day [3].", [3]))
+    result = await ask(llm, store, foods, document, items)
+    assert "Numbers not in the cited evidence" in llm.calls[1][0][-1]["content"]
+    assert result.kind == "answer" and result.answer == "Drink water every day [3]."
+
+
 async def test_answer_with_a_hidden_drug_name_is_repaired(store, foods, document, items):
     hidden = final("You can take napro\u200bxen [2].", [2])
     llm = FakeLLM()

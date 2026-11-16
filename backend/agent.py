@@ -442,22 +442,61 @@ def number_tokens(text: str) -> set[tuple]:
 
 
 LINE_BREAKS = "\n\r\u2028\u2029\u0085\v\f"
-_LINE_BREAK_RUN = re.compile(f"[{LINE_BREAKS}]+")
+_LINE_BREAK = re.compile(f"\r\n|[{LINE_BREAKS}]")
+_BLANK_LINES = re.compile(r"\n{3,}")
+
+# Default_Ignorable_Code_Point, from DerivedCoreProperties.txt of Unicode 15.1.0
+# (the unicodedata version of this Python): characters that render as nothing.
+# Many are not category Cf (U+034F and the variation selectors are Mn, the
+# Hangul fillers Lo), so a category check alone would let them hide a word.
+DEFAULT_IGNORABLE = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+# Also invisible, though not Default_Ignorable: the Braille blank (So).
+OTHER_INVISIBLE = frozenset({0x2800})
+_INVISIBLE = re.compile(
+    "[" + "".join(f"\\U{lo:08x}-\\U{hi:08x}" for lo, hi in DEFAULT_IGNORABLE)
+    + "".join(f"\\U{cp:08x}" for cp in sorted(OTHER_INVISIBLE)) + "]")
+
+
+def remove_invisible(text: str) -> str:
+    """`text` without characters that render as nothing: category Cf (format
+    characters such as zero-width spaces), DEFAULT_IGNORABLE, OTHER_INVISIBLE,
+    and control characters (Cc) other than whitespace."""
+    text = _INVISIBLE.sub("", text)
+    return "".join(
+        ch for ch in text
+        if not (unicodedata.category(ch) == "Cf"
+                or (unicodedata.category(ch) == "Cc" and not ch.isspace())))
 
 
 def clean_text(text: str) -> str:
-    """Model text as every check reads it and the patient sees it: NFKC, no
-    format characters (category Cf, such as zero-width spaces and soft hyphens)
-    or other non-space control characters, each run of spaces or tabs one
-    space, and each run of line breaks one "\n". Without it "napro\u200bxen"
-    would hide a drug name from the lexicon and still read as "naproxen"."""
-    text = "".join(
-        ch for ch in unicodedata.normalize("NFKC", text)
-        if not (unicodedata.category(ch) == "Cf"
-                or (unicodedata.category(ch) == "Cc" and not ch.isspace()))
-    )
-    lines = (" ".join(line.split()) for line in _LINE_BREAK_RUN.split(text))
-    return "\n".join(line for line in lines if line)
+    """Model text as every check reads it and the patient sees it: invisible
+    characters removed (remove_invisible, before and after NFKC, since NFKC can
+    produce one), NFKC, each run of spaces or tabs within a line one space,
+    each line break "\n", and at most one blank line in a row, so paragraphs
+    and lists survive. Without it "napro\u200bxen" would hide a drug name from
+    the lexicon and still read as "naproxen"."""
+    text = remove_invisible(unicodedata.normalize("NFKC", remove_invisible(text)))
+    lines = (" ".join(line.split()) for line in _LINE_BREAK.split(text))
+    return _BLANK_LINES.sub("\n\n", "\n".join(lines)).strip("\n")
+
+
+def erased_numerals(text: str) -> set[tuple]:
+    """The number_tokens of `text` (before cleaning) that clean_text would erase:
+    numeral characters NFKC turns into letters with no digit, such as the Roman
+    numerals U+2160-2188 ("\u216b" becomes "XII"). Grounding counts them on top
+    of number_tokens(clean_text(text)). Numerals NFKC turns into digits
+    (fullwidth, superscripts, fractions) are left to the cleaned text, so a
+    fullwidth "\uff12" is grounded by an ASCII "2"."""
+    return {
+        token for token in number_tokens(remove_invisible(text))
+        if token[0] == "unicode" and not DIGIT.search(unicodedata.normalize("NFKC", token[1]))
+    }
 
 
 def validate(
@@ -494,6 +533,7 @@ def validate(
     answer = data.get("answer")
     if not isinstance(answer, str) or not answer.strip():
         raise ValueError("The answer is empty.")
+    raw_answer = answer
     answer = _normalize_markers(clean_text(answer))
     if not answer:
         raise ValueError("The answer is empty.")
@@ -554,9 +594,11 @@ def validate(
                 "is prescribed it, a cited document paragraph names it, or the patient asked "
                 "about it.")
     allowed = set(ALWAYS_ALLOWED_NUMBERS).union(
-        *(number_tokens(clean_text(evidence[n].check_text)) for n in cited)
+        *(number_tokens(clean_text(evidence[n].check_text)) | erased_numerals(evidence[n].check_text)
+          for n in cited)
     )
-    unsupported = number_tokens(MARKER.sub(" ", answer)) - allowed
+    stated = number_tokens(MARKER.sub(" ", answer)) | erased_numerals(MARKER.sub(" ", raw_answer))
+    unsupported = stated - allowed
     if unsupported:
         shown = sorted(str(value) for _, value in unsupported)
         raise ValueError(f"Numbers not in the cited evidence: {shown}.")
