@@ -17,7 +17,9 @@ import numpy as np
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent import ALWAYS_ALLOWED_NUMBERS, MEDICATION_CHANGE, number_tokens
+from agent import (
+    ALWAYS_ALLOWED_NUMBERS, MEDICATION_CHANGE, MEDICATION_CHANGE_QUESTION, number_tokens,
+)
 from drugnames import DrugLexicon, get_lexicon
 from extraction import normalize
 from guidance import embed_entry, tag_names
@@ -60,18 +62,6 @@ Reply {"conflicts": []} when there are none."""
 
 HABIT_TYPES = ("ask", "close", "warning")
 PLAIN_NUMBERS = frozenset(ALWAYS_ALLOWED_NUMBERS)
-# The one medication-change wording an "ask" habit may carry: a question about
-# whether the patient's medications changed. Narrow on purpose: it must start
-# with the question words and end with "?", so commands never match.
-MEDICATION_CHANGE_QUESTION = re.compile(
-    r"(?:have you (?:\w+ )?(?:had|made|noticed) (?:any )?(?:recent |new )?changes? (?:in|to) your "
-    r"|have you (?:recently )?changed (?:any of )?your "
-    r"|(?:are there|were there|any) (?:any )?(?:new |recent )?(?:\w+ )?(?:medications?|medicines?)"
-    r" or (?:recent )?changes? (?:in|to) your "
-    r"|any (?:recent )?changes? (?:in|to) your "
-    r")(?:medications?|medicines?|meds)\?",
-    re.IGNORECASE,
-)
 _GREETING_NAME = re.compile(
     r"\b(?i:hi|hello|hey|dear|good (?:morning|afternoon|evening))[,\s]+([A-Z][a-z]+)\b")
 # A command about the patient's medicines that MEDICATION_CHANGE does not catch.

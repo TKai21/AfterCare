@@ -114,6 +114,19 @@ MEDICATION_CHANGE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+# The one medication-change wording an "ask" habit (rules.py) and a clarify may
+# carry: a question about whether the patient's medications changed. Narrow on
+# purpose: it must start with the question words and end with "?", so commands
+# never match.
+MEDICATION_CHANGE_QUESTION = re.compile(
+    r"(?:have you (?:\w+ )?(?:had|made|noticed) (?:any )?(?:recent |new )?changes? (?:in|to) your "
+    r"|have you (?:recently )?changed (?:any of )?your "
+    r"|(?:are there|were there|any) (?:any )?(?:new |recent )?(?:\w+ )?(?:medications?|medicines?)"
+    r" or (?:recent )?changes? (?:in|to) your "
+    r"|any (?:recent )?changes? (?:in|to) your "
+    r")(?:medications?|medicines?|meds)\?",
+    re.IGNORECASE,
+)
 CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 FINAL_NUDGE = (
@@ -525,16 +538,22 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 def _check_clarify(answer: str, cited: list[Evidence]) -> None:
     """A clarify asks the doctor's own questions and states nothing: it cites
     only habits, at least one "ask" habit, is questions plus at most one
-    lead-in sentence, at most CLARIFY_MAX_QUESTIONS questions, and no numbers
-    (not even 911)."""
+    lead-in sentence, at most CLARIFY_MAX_QUESTIONS questions, no numbers (not
+    even 911) and no medication-change wording other than the question
+    MEDICATION_CHANGE_QUESTION allows."""
     if not cited or any(e.kind != "habit" for e in cited):
         raise ValueError("A clarify must cite only my \"How I usually respond\" habits.")
     if not any(e.habit_type == "ask" for e in cited):
         raise ValueError("A clarify must cite at least one of my \"Questions I usually ask\".")
     text = strip_markers(answer)
+    sentences = [s.rstrip("\"'\u201d\u2019)") for s in _SENTENCE_END.split(text) if s.strip()]
+    # Before the number check: "double your dose" is also a number word.
+    rest = " ".join(s for s in sentences if not MEDICATION_CHANGE_QUESTION.fullmatch(s.strip()))
+    if MEDICATION_CHANGE.search(rest):
+        raise ValueError("A clarify must not contain medication change wording; only my question "
+                         "about recent changes in the patient's medications may be asked.")
     if number_tokens(text):
         raise ValueError("A clarify must not contain numbers, not even 911.")
-    sentences = [s.rstrip("\"'\u201d\u2019)") for s in _SENTENCE_END.split(text) if s.strip()]
     questions = sum(s.endswith("?") for s in sentences)
     if questions == 0 or len(sentences) - questions > 1:
         raise ValueError("A clarify must be questions, each ending with \"?\", with at most one "

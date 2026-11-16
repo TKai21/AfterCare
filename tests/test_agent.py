@@ -1566,3 +1566,29 @@ async def test_pending_context_lists_original_question_and_asked(store, foods, d
     llm.script(final("x", [], kind="not_covered"))
     await ask(llm, store, foods, document, items)
     assert "is the patient's reply" not in first_user(llm)
+
+
+@pytest.mark.parametrize("question, ok", [
+    ("Did you stop taking any medicine?", False),
+    ("Should you double your dose?", False),
+    ("Have you had any recent changes in your medications?", True),
+    ("Have you changed your medications?", True),
+])
+async def test_clarify_medication_change_wording(store, foods, document, items, question, ok):
+    habit = habit_rule(7, "Asks about medication changes",
+                       "Have you had any recent changes in your medications?")
+    bad = reply("clarify", f"Do you have a fever? {question} [5]", [5])
+    llm = FakeLLM()
+    llm.script(bad, bad)
+    result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                       habits=[habit])
+    if ok:
+        assert result.kind == "clarify" and len(llm.calls) == 1
+    else:
+        assert_fallback(result, "My incision is red.")
+        assert "medication change" in llm.calls[1][0][-1]["content"]
+
+
+def test_rules_reuses_the_medication_change_question_pattern():
+    import rules
+    assert rules.MEDICATION_CHANGE_QUESTION is agent.MEDICATION_CHANGE_QUESTION
