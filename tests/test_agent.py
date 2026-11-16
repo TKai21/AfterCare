@@ -2019,7 +2019,8 @@ def test_number_error_says_when_no_evidence_holds_the_number():
     answer = "1. Call 911 if you cannot keep fluids down [1, 3].\n2. Call the clinic [4]."
     with pytest.raises(ValueError) as exc:
         validate(raw(answer=answer, citations=[1, 3, 4]), ev)
-    assert "1 and 2 appear in no evidence; remove them." in str(exc.value)
+    assert ("1 and 2 appear in no document paragraph or earlier advice of mine; remove them."
+            in str(exc.value))
 
 
 def test_number_error_names_evidence_per_number():
@@ -2030,7 +2031,7 @@ def test_number_error_names_evidence_per_number():
     assert ("10 appears in evidence [2, 3]: if your statement comes from there, put that "
             "evidence number in the statement's marker and in \"citations\"; otherwise remove it."
             ) in message
-    assert "7 appears in no evidence; remove it." in message
+    assert "7 appears in no document paragraph or earlier advice of mine; remove it." in message
 
 
 def test_repair_nudge_shows_no_example_evidence_number():
@@ -2152,3 +2153,20 @@ async def test_a_heading_and_its_list_items_are_one_evidence_paragraph(store, fo
             "    - a fever of 101 F (38.3 C) or higher with chills\n"
             "    - you cannot keep fluids down\n"
             "[2] Call the clinic if you:\n    - cannot urinate\n") in context
+
+
+def test_number_error_names_only_document_and_doctor_evidence():
+    kinds = ["document", "habit", "food", "library", "doctor"]
+    texts = ["Take your naproxen with food.", "Call me if pain lasts 3 days.",
+             "Almonds: 3 mg sodium.", "Most adults need 3 cups.", "Rest for 3 days."]
+    ev = {n: Evidence(n, kind, "t", None, text, check_text=text)
+          for n, (kind, text) in enumerate(zip(kinds, texts), start=1)}
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer="Take 3 naproxen tablets with food [1].", citations=[1]), ev)
+    assert "3 appears in evidence [5]:" in str(exc.value)
+    only_habit = {n: e for n, e in ev.items() if n in (1, 2)}
+    with pytest.raises(ValueError) as exc:
+        validate(raw(answer="Take 3 naproxen tablets with food [1].", citations=[1]), only_habit)
+    message = str(exc.value)
+    assert "[2]" not in message
+    assert "3 appears in no document paragraph or earlier advice of mine; remove it." in message

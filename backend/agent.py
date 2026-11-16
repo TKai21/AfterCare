@@ -643,18 +643,25 @@ def _and(words: list[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
+# The evidence a number-grounding error may point the repair at.
+HINT_KINDS = ("document", "doctor")
+
+
 def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evidence]) -> str:
     """The error for numbers no cited evidence states. For each one it names
-    the evidence that does state it (a model often cites a list's heading
-    instead of the item that holds the number), so the repair can fix the
-    citation. It never makes a number acceptable: the repair is validated
+    the document paragraphs and doctor's advice that do state it (a model often
+    cites a list's heading instead of the item that holds the number), so the
+    repair can fix the citation. Habit, food and library evidence is never
+    named: citing an unrelated habit or the closest food entry would ground a
+    made-up dose. It never makes a number acceptable: the repair is validated
     again in full."""
     tokens = sorted(unsupported, key=lambda t: (str(t[1]), t[0]))
     shown = [str(value) for _, value in tokens]
     parts = [f"Numbers not in the cited evidence: {sorted(shown)}."]
     groups: dict[tuple[int, ...], list[str]] = {}
     for token, text in zip(tokens, shown):
-        where = tuple(n for n in sorted(evidence) if token in _evidence_tokens(evidence[n]))
+        where = tuple(n for n in sorted(evidence) if evidence[n].kind in HINT_KINDS
+                      and token in _evidence_tokens(evidence[n]))
         groups.setdefault(where, []).append(text)
     for where, numbers in groups.items():
         one = len(numbers) == 1
@@ -665,7 +672,8 @@ def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evid
                 "statement comes from there, put that evidence number in the statement's marker "
                 f"and in \"citations\"; otherwise remove {pronoun}.")
         else:
-            parts.append(f"{_and(numbers)} {verb} in no evidence; remove {pronoun}.")
+            parts.append(f"{_and(numbers)} {verb} in no document paragraph or earlier advice "
+                         f"of mine; remove {pronoun}.")
     return " ".join(parts)
 
 
