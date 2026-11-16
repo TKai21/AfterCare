@@ -120,3 +120,28 @@ def test_timing_changes_are_medication_changes():
                   "I took it early this morning", "I took the pill at the wrong time",
                   "I take it at night instead", "I missed one", "I doubled up yesterday"):
         assert blocker(reply, signs=signs) == "Medication change reported", reply
+
+
+def test_model_present_blocks_a_term_the_program_did_not_match():
+    reply = "No fever but I vomited twice"
+    doctor = ["fever", "threw up"]
+    assert blocker(reply, doctor=doctor,
+                   signs=[{"term": "fever", "status": "absent"},
+                          {"term": "threw up", "status": "present"}]) == "Warning sign: threw up"
+    assert blocker(reply, doctor=doctor,
+                   signs=[{"term": "fever", "status": "absent"},
+                          {"term": "threw up", "status": "unclear"}]) == "Warning sign: threw up"
+
+
+def test_model_status_counts_for_document_terms_too():
+    assert blocker("It looks fine", doctor=[], document=["redness"],
+                   signs=[{"term": "Redness", "status": "unclear"}]) == "Warning sign: redness"
+
+
+def test_model_status_for_a_term_it_was_not_given_is_ignored():
+    assert blocker("It looks fine", signs=absent("fever", "threw up") + [
+        {"term": "made up", "status": "present"}]) is None
+
+
+def test_benign_reply_with_every_term_absent_and_none_matched_closes():
+    assert blocker("It looks fine and I feel well", signs=absent("fever", "threw up")) is None

@@ -75,7 +75,8 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     the original question (always blocks: the case was reported with it) or
     in the reply, unless negated_terms finds a plain denial AND the model's
     warning_signs lists that term as "absent" (a term the model left out is
-    present); medication-change wording in the original question or the
+    present); any given term the model calls "present" or "unclear", whether
+    or not the program matched it; medication-change wording in the original question or the
     reply; a lexicon drug name in either that is not in `prescribed`."""
     if emergency_terms:
         return EMERGENCY_REASON
@@ -91,6 +92,15 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     for term in match_terms(reply, terms):
         if not (term in denied and _key(term) in model_absent):
             return WARNING_REASON.format(term=term)
+    # The model reads meaning the phrase matcher misses ("vomited" for "threw
+    # up"): a given term it calls present or unclear blocks, matched or not.
+    given = {_key(t): _canon(t) for t in terms}
+    for sign in warning_signs:
+        if not isinstance(sign, dict) or not isinstance(sign.get("term"), str):
+            continue
+        label = given.get(_key(sign["term"]))
+        if label is not None and sign.get("status") in ("present", "unclear"):
+            return WARNING_REASON.format(term=label)
     if any(_reports_medication_change(text, prescribed) for text in (original, reply)):
         return MEDICATION_REASON
     allowed = {name.lower() for name in prescribed}
