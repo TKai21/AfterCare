@@ -118,9 +118,7 @@ The server, not the model, decides whether a `close` is delivered. It is deliver
 
 A **handoff** adds a care-team question for this doctor with reason "Needs doctor after questions" and a structured body: the original question, the clone's questions, the patient's reply, and which condition stopped the close. The patient sees the fixed handoff sentence. The doctor's inbox shows the three parts separately, and "Draft with my clone" gets them as context.
 
-Emergency terms in the reply still produce the fixed emergency answer first, as today.
-
-**Negation on reply turns (team decision, review item M4).** Only on a reply turn (a pending clarify exists in this patient-doctor conversation), the backstop drops a matched term, static pattern or document warning term, that `safety.negated_terms` finds plainly denied (every clause naming the term's words names all of them once as a negator, at most 2 allowed fillers, the term and an optional allowed tail; and with those clauses removed, the unchanged backstop no longer matches the term, so a synonym such as "soaking through the bandage" or the term said again keeps it; and the reply holds no retraction word such as "yes", "actually", "wait", "I did" or "I lied"), so "No fever and no chest pain." to "Do you have a fever?" is not an emergency. A term that is not negated, or any doubt, still gives the emergency answer; every other message uses the backstop unchanged, and so does a reply whose waiting question is no longer `waiting_on_patient`. A term whose own words hold a negation ("can't breathe", "bleeding that won't stop", a document's "cannot keep fluids down") is never treated as denied, and neither is a self-harm or suicide label (`safety.NEVER_RELAXED`: suicidal, want to die, kill myself, self harm, overdose), so "I don't want to die" is still an emergency. A denied term still counts for condition 2: it joins the warning terms the model is given, and the model must list it as "absent" in every entry.
+Emergency terms in the reply still produce the fixed emergency answer first, as today: the backstop is unchanged on reply turns and reads no negation (see section 8, M4).
 
 ### 4.5 Strict drug names
 
@@ -192,7 +190,8 @@ Source: `PortalPal-AI/Patient-Message-Response-Drafting` (Seegmiller et al., 202
 - After the clone's questions: close when every safety condition holds, otherwise hand off with a summary (c).
 - Drug names: prescribed, cited document paragraphs, and drugs the patient named in this turn.
 - Negated warning terms: a term counts as absent only when the negation check and the model both say absent.
-- The emergency backstop reads negation on reply turns only: a plainly denied term in a reply to the clone's questions is not an emergency; everywhere else the backstop is unchanged (4.4).
+
+**Reply-turn negation in the backstop (M4), decided and then reverted.** The team decided to let the emergency backstop ignore plainly denied terms on reply turns ("No fever and no chest pain." to "Do you have a fever?"). It was implemented and reviewed three times, and each review found a missed emergency: labels that are themselves negations ("can't breathe"), synonyms in another clause ("No heavy bleeding, but it is soaking through the bandage"), and retractions or qualifiers in another clause ("No chest pain, until an hour ago when it started"). So it was reverted, and the backstop is unchanged on every message. The cost: a benign denial in a reply shows the emergency answer and the case goes to the doctor. Any future attempt needs its own design and review.
 
 ## 9. Calls made by Claude (not explicitly decided by the team)
 

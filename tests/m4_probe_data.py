@@ -1,4 +1,6 @@
-"""Probe data from the M4 re-review (scratchpad/rereview2), kept as project tests."""
+"""Probe strings from the three reviews of M4 (the reverted reply-turn negation
+relaxation), kept as regression tests: on a reply turn each must still give
+the emergency answer through the unchanged backstop."""
 AFF = {
     "chest pain": "I have chest pain",
     "chest pressure": "my chest feels tight",
@@ -79,5 +81,136 @@ RETRACTIONS = [
     "No chest pain - chest pain", "no chest pain chest pain",
 ]
 
+# Plain denials: since M4 was reverted, these are emergencies on a reply too.
 PLAIN_DENIALS = ["No chest pain.", "No fever and no chest pain.", "No chest pain at all",
-                 "no seizures"]
+                 "no seizures", "No chest pain"]
+
+# Round 1 and the self-harm ruling: self-negating labels and suicide or self-harm terms.
+ROUND1 = [
+    "No fever. I can't breathe.",
+    "I can't stop bleeding",
+    "No fever, I can't keep fluids down",
+    'No fever but I have chest pain now',
+    'Not sure if I have chest pain',
+    "I can't breathe",
+    'I cannot breathe',
+    "no, I can't breathe",
+    "No fever. I can't breathe today",
+    "I can't keep fluids down",
+    "I can't urinate",
+    "I can't stop vomiting",
+    'Not suicidal',
+    "I don't want to die",
+    'No self harm',
+    'I did not overdose',
+    'I would never kill myself',
+]
+
+# Round 3: the document warning terms its probes used.
+ROUND3_DOC = [
+    'you cannot keep fluids down',
+    'pain that is not controlled by your medicine',
+    'fever over 101 with chills',
+    'pus or foul-smelling drainage from the incision',
+    'redness spreading from the wound',
+    'calf swelling or tenderness',
+]
+
+# Round 3: retractions, qualifiers, pronouns, synonyms, punctuation and Unicode.
+# Left out: three strings the backstop never matched even as a fresh message
+# (two document-term paraphrases and "pain that is not controlled? no").
+ROUND3 = [
+    'No chest pain. Never mind, it hurts in my chest',
+    'No. Correct that: chest pain',
+    'No chest pain. Never mind.',
+    "No chest pain. That's not true, it does.",
+    'No chest pain, I was lying',
+    "No chest pain. I'm lying.",
+    'No chest pain. I take that back.',
+    'No chest pain. On second thought, there is some.',
+    "No chest pain. Hold on, it's back.",
+    "No chest pain. Oops, I misread. It's there.",
+    'No chest pain. Sorry, I meant to say I have it.',
+    "No chest pain. I've got it now",
+    "No chest pain. I'm having it right now",
+    'No chest pain. I had it this morning',
+    'No chest pain. It started an hour ago.',
+    'No chest pain. Uh huh, it hurts',
+    'No chest pain. Yup',
+    'No chest pain. Ya',
+    'No chest pain. jk',
+    'No chest pain. Sure do.',
+    'No chest pain. Changed my mind, it hurts.',
+    'No chest pain. Not true.',
+    'No chest pain. Wrong, it is there.',
+    'No chest pain, until an hour ago when it started',
+    'No chest pain, except when I walk',
+    'No chest pain, except right now',
+    'No chest pain, only when I climb stairs',
+    'No chest pain, it comes and goes',
+    'No chest pain, other than this morning',
+    'Never had chest pain, until today',
+    'No chest pain, but it started again',
+    'No chest pain. It is getting worse though.',
+    "No chest pain before. Now it's terrible.",
+    'No chest pain, well not until now',
+    'No heavy bleeding, until the bandage got soaked',
+    'No seizure, but it happened again',
+    'I did not faint, but it happened twice today',
+    'I have not had chest pain until now',
+    'I did not have chest pain but I do now',
+    'I did not have chest pain, now I do',
+    "I didn't faint. I did later though.",
+    'I have no chest pain. I have it now.',
+    "I haven't fainted. Well, once.",
+    'I have never fainted - until this morning',
+    'No heavy bleeding, it is hemorrhaging',
+    'No heavy bleeding, blood in my urine',
+    'No heart attack, cardiac arrest',
+    'No chest pain, my chest hurts',
+    'No chest pain, pain in my chest',
+    'No trouble breathing, hard to breathe',
+    'No trouble breathing, he stopped breathing',
+    'No vomiting blood, throwing up blood',
+    'No unconscious, not responding',
+    'No passed out, blacked out',
+    'No sudden vision loss, lost my sight',
+    'No fainted. passed out.',
+    'No chest pain, it feels like an elephant on me',
+    'No fever. No chest pain. Chest is aching badly.',
+    'No chest pain.\nchest pain',
+    'No chest pain! CHEST PAIN!',
+    'No chest pain (chest pain)',
+    'No chest pain/chest pain',
+    'No chest pain-chest pain',
+    'No chest pain \u2013 chest pain',
+    'No chest pain\u2026chest pain',
+    'No chest pain; chest pain',
+    'n\u200bo chest pain',
+    'No chest pain. I\u200b do',
+    'No chest pain. Act\u200bually it hurts',
+    'No chest pain. Y\u200bes',
+    'No chest pain. \uff39es',
+    'No chest pain. Yes\u0301',
+    'No chest pain. \u028fes',
+    'No chest pain. \u0406 do',
+    'No chest pain. I\xa0do',
+    'No chest pain. I\tdo',
+    'No chest pain but my chest\xa0hurts',
+    'No chest pain, ch\xadest hurts',
+    'I can keep fluids down. No wait, I cannot keep fluids down',
+    'No fever with chills. Fever 103 now with chills',
+    "No redness spreading from the wound, it's spreading",
+    'No calf swelling or tenderness',
+    'No pain that is not controlled by your medicine',
+]
+
+
+def reply_strings(with_document_terms: bool = False) -> list[str]:
+    """Every probe string the backstop matches, deduplicated: with the round 3
+    document terms, or with static patterns only (for a route test, whose
+    document has no such terms)."""
+    from safety import detect_emergency
+    terms = ROUND3_DOC if with_document_terms else []
+    found = [*SYNONYMS, *RETRACTIONS, *PLAIN_DENIALS, *ROUND1, *ROUND3]
+    return [m for m in dict.fromkeys(found) if detect_emergency(m, terms)]

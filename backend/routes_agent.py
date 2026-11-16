@@ -25,7 +25,7 @@ from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
-from safety import detect_emergency, detect_emergency_in_reply, warning_terms
+from safety import detect_emergency, warning_terms
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -234,9 +234,10 @@ async def ask(
         return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
-    # A cheap read (no model call), also on an emergency turn: the waiting
-    # question must reach the doctor, and on a reply the backstop reads negation.
-    # The pending clarify is this conversation's only (Focus 4).
+    if llm is None and not terms:
+        raise HTTPException(status_code=503, detail="The language model is not configured.")
+    # A cheap read, also on an emergency turn: the waiting question must reach
+    # the doctor. The pending clarify is this conversation's only (Focus 4).
     try:
         # A savepoint: a failed lookup rolls back only itself, so the user,
         # document and items read above stay loaded.
@@ -248,20 +249,6 @@ async def ask(
         # The emergency answer never fails on the waiting question's lookup.
         log.exception("Looking up the pending clarify failed")
         found = None
-    # Emergency terms the patient plainly denied in a reply ("no chest pain"):
-    # not an emergency, but still warning terms the model must call absent
-    # before the clone may close (close_blocker).
-    denied_terms: list[str] = []
-    if found is not None and found[1].status == WAITING:
-        # A reply to the clone's questions that are still waiting: a plainly
-        # denied term is not an emergency. Any doubt keeps it. A failed lookup,
-        # or a waiting question already answered, resolved or timed out, keeps
-        # the backstop above unchanged.
-        relaxed = detect_emergency_in_reply(body.question, warning_terms(items))
-        denied_terms = [t for t in terms if t not in relaxed]
-        terms = relaxed
-    if llm is None and not terms:
-        raise HTTPException(status_code=503, detail="The language model is not configured.")
     pending: Optional[PendingClarify] = None
     clarify_id = waiting_id = None
     if found is not None:
@@ -315,7 +302,7 @@ async def ask(
                         await session.rollback()
                     except Exception:
                         log.exception("Rollback after failing to load warning terms failed")
-        document_terms = list(dict.fromkeys([*warning_terms(items), *denied_terms]))
+        document_terms = warning_terms(items)
         settings = request.app.state.settings
         memory_failed = False
 

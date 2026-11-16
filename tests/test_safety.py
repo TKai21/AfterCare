@@ -325,92 +325,31 @@ def test_whitelist_accepts_plain_negations(msg, want):
     assert negated_terms(msg, TERMS) == want
 
 
-# ---------- M4: negation on reply turns only ----------
+# ---------- M4 reverted: the reviewers' probes stay emergencies ----------
 
-def test_reply_backstop_drops_plainly_denied_terms():
-    from safety import detect_emergency, detect_emergency_in_reply
-    assert "chest pain" in detect_emergency("No fever and no chest pain.", [])
-    assert detect_emergency_in_reply("No fever and no chest pain.", []) == []
-    assert detect_emergency_in_reply("No fever but I have chest pain now", []) == ["chest pain"]
-    assert "chest pain" in detect_emergency_in_reply("Not sure if I have chest pain", [])
-    # Document warning terms too.
-    terms = ["redness around the incision"]
-    assert detect_emergency_in_reply("No redness around the incision.", terms) == []
-    assert detect_emergency_in_reply("Some redness around the incision.", terms) == [
-        "redness around the incision"]
+from m4_probe_data import (  # noqa: E402
+    AFF, PLAIN_DENIALS, RETRACTIONS, ROUND1, ROUND3, ROUND3_DOC, SYNONYMS, WRAPS,
+)
 
 
-NEGATIVE_EMERGENCIES = ["I can't breathe", "I cannot breathe", "no, I can't breathe",
-                        "No fever. I can't breathe today", "I can't keep fluids down",
-                        "I can't urinate", "I can't stop bleeding", "I can't stop vomiting"]
+@pytest.mark.parametrize("message", [*SYNONYMS, *RETRACTIONS, *PLAIN_DENIALS, *ROUND1])
+def test_reviewers_probes_hit_the_backstop(message):
+    assert detect_emergency(message, []), message
 
 
-@pytest.mark.parametrize("message", NEGATIVE_EMERGENCIES)
-def test_a_term_that_is_itself_a_negation_is_never_denied(message):
-    from safety import detect_emergency, detect_emergency_in_reply, negated_terms
-    hits = detect_emergency(message, [])
-    assert hits and detect_emergency_in_reply(message, []) == hits, message
-    assert negated_terms(message, hits) == set()
-
-
-def test_a_negated_document_term_is_never_denied():
-    from safety import detect_emergency_in_reply, negated_terms
-    terms = ["you cannot keep fluids down"]
-    message = "I cannot keep fluids down"
-    assert detect_emergency_in_reply(message, terms)
-    assert negated_terms(message, terms) == set()
-
-
-SELF_HARM_DENIALS = [("Not suicidal", "suicidal"), ("I don't want to die", "want to die"),
-                     ("No self harm", "self harm"), ("I did not overdose", "overdose"),
-                     ("I would never kill myself", "kill myself")]
-
-
-@pytest.mark.parametrize("message, label", SELF_HARM_DENIALS)
-def test_self_harm_labels_are_never_relaxed_on_a_reply(message, label):
-    from safety import NEVER_RELAXED, detect_emergency, detect_emergency_in_reply
-    assert label in NEVER_RELAXED
-    assert label in detect_emergency(message, [])
-    assert label in detect_emergency_in_reply(message, []), message
-
-
-def test_never_relaxed_lists_every_self_harm_label():
-    from safety import EMERGENCY_TERMS, NEVER_RELAXED
-    assert set(NEVER_RELAXED) == {"suicidal", "want to die", "kill myself", "self harm",
-                                  "overdose"}
-    assert set(NEVER_RELAXED) <= set(EMERGENCY_TERMS)
-
-
-# ---------- M4 re-review 2: synonyms, subsets, retractions ----------
-
-from m4_probe_data import AFF, PLAIN_DENIALS, RETRACTIONS, SYNONYMS, WRAPS  # noqa: E402
-
-
-@pytest.mark.parametrize("message", SYNONYMS + RETRACTIONS)
-def test_a_reply_keeps_every_term_a_synonym_or_retraction_reasserts(message):
-    from safety import detect_emergency, detect_emergency_in_reply
-    fresh = detect_emergency(message, [])
-    assert fresh and detect_emergency_in_reply(message, []) == fresh, message
+@pytest.mark.parametrize("message", ROUND3)
+def test_round_3_probes_hit_the_backstop(message):
+    assert detect_emergency(message, ROUND3_DOC), message
 
 
 @pytest.mark.parametrize("label", sorted(AFF))
-def test_no_wrapped_affirmative_phrase_is_relaxed(label):
-    from safety import detect_emergency, detect_emergency_in_reply
+def test_every_wrapped_affirmative_phrase_hits_the_backstop(label):
     for wrap in WRAPS:
         message = wrap.format(p=AFF[label])
-        assert detect_emergency_in_reply(message, []) == detect_emergency(message, []), message
+        assert detect_emergency(message, []), message
 
 
-@pytest.mark.parametrize("message", PLAIN_DENIALS)
-def test_plain_denials_are_still_relaxed(message):
-    from safety import detect_emergency, detect_emergency_in_reply
-    assert detect_emergency(message, []) and detect_emergency_in_reply(message, []) == []
-
-
-def test_a_clause_with_only_some_of_the_terms_words_denies_nothing():
-    from safety import negated_terms
-    assert negated_terms("he is not breathing", ["trouble breathing"]) == set()
-    assert negated_terms("No trouble breathing but he is not breathing",
-                         ["trouble breathing"]) == set()
-    assert negated_terms("No fever and no chest pain.", ["fever", "chest pain"]) == {
-        "fever", "chest pain"}
+def test_the_reply_relaxation_is_gone():
+    import safety
+    assert not hasattr(safety, "detect_emergency_in_reply")
+    assert not hasattr(safety, "NEVER_RELAXED")
