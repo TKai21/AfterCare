@@ -28,10 +28,12 @@ from models import (
     GuidanceRule,
     User,
 )
+from closing import doctor_warning_terms
 from routes_agent import NOT_ANSWERED, recent_history
 from routes_care_team import question_view
 from routes_documents import load_items
 from rules import clear_rules, index_entry, is_suppressed
+from safety import match_terms, warning_terms
 from voice import voice_views
 
 router = APIRouter()
@@ -104,6 +106,27 @@ async def document_context(
     }
 
 
+async def first_message_warnings(session: AsyncSession, doctor_id: int,
+                                 rows: list[CareTeamQuestion]) -> dict[int, list[str]]:
+    """For each waiting question, the warning terms its original message
+    matches: the doctor's live warning habits and the question's document's
+    warning terms, as close_blocker reads them. Computed on read, so it always
+    reflects the doctor's current habits (such a case can never close)."""
+    if not rows:
+        return {}
+    doctor_terms = await doctor_warning_terms(session, doctor_id)
+    document_terms: dict[Optional[int], list[str]] = {}
+    found: dict[int, list[str]] = {}
+    for q in rows:
+        if q.document_id not in document_terms:
+            doc = await session.get(DischargeDocument, q.document_id) if q.document_id else None
+            document_terms[q.document_id] = (
+                warning_terms(await load_items(session, doc)) if doc is not None else [])
+        terms = list(dict.fromkeys([*doctor_terms, *document_terms[q.document_id]]))
+        found[q.id] = match_terms(q.question, terms)
+    return found
+
+
 @router.get("/api/doctor/questions")
 async def list_questions(
     request: Request, user: User = Depends(current_doctor),
@@ -144,6 +167,7 @@ async def list_questions(
         .limit(ANSWERED_LIMIT)
     ))
     rows = open_rows + waiting_rows + answered_rows
+    first_warnings = await first_message_warnings(session, user.id, waiting_rows)
     patients = {
         u.id: u
         for u in await session.scalars(select(User).where(User.id.in_({q.user_id for q in rows})))
@@ -176,6 +200,7 @@ async def list_questions(
         if q.answer is None and q.status == "open":
             view["draft"] = draft_view(drafts.get(q.id))
         view["patient"] = {"id": patient.id, "username": patient.username}
+        view["first_warning"] = first_warnings.get(q.id, [])
         view["context"] = contexts[(q.document_id, q.doctor_id)]
         return view
 
@@ -202,9 +227,12 @@ async def cited_counts(session: AsyncSession, doctor_ids: set[int]) -> dict[tupl
     return counts
 
 
-def habit_view(rule: GuidanceRule) -> dict:
+def habit_view(rule: GuidanceRule, question: Optional[str]) -> dict:
+    """One habit as My guidance shows it, with the entry it was read from
+    (`guidance_id`, and that entry's `question`) so the doctor can open it."""
     return {"id": rule.id, "habit_type": rule.habit_type, "statement": rule.statement,
-            "quote": rule.quote, "warning_terms": list(rule.warning_terms or [])}
+            "quote": rule.quote, "warning_terms": list(rule.warning_terms or []),
+            "guidance_id": rule.guidance_id, "question": question}
 
 
 async def rules_and_conflicts(
@@ -319,7 +347,7 @@ async def guidance_views(
             "rules_status": e.rules_status,
             "rules": [{"id": r.id, "statement": r.statement, "quote": r.quote}
                       for r in rules.get(e.id, [])],
-            "habits": [habit_view(h) for h in habits.get(e.id, [])],
+            "habits": [habit_view(h, e.question) for h in habits.get(e.id, [])],
             "conflicts": conflicts.get(e.id, []),
             "created_at": e.created_at.isoformat() if e.created_at else None,
             "updated_at": e.updated_at.isoformat() if e.updated_at else None,
@@ -457,10 +485,12 @@ async def list_guidance(
         .where(DoctorGuidance.doctor_id == doctor.id)
         .order_by(DoctorGuidance.id.desc())
     ))
+    questions = {e.id: e.question for e in entries}
     habits_by_type: dict[str, list[dict]] = {"ask": [], "close": [], "warning": []}
     for habit in await doctor_habits(session, doctor.id):
         if habit.habit_type in habits_by_type:
-            habits_by_type[habit.habit_type].append(habit_view(habit))
+            habits_by_type[habit.habit_type].append(
+                habit_view(habit, questions.get(habit.guidance_id)))
     return {
         "entries": await guidance_views(session, _llm(request), entries),
         "habits_by_type": habits_by_type,

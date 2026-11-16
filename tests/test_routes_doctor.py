@@ -226,10 +226,14 @@ async def test_guidance_list_groups_habits_by_type(client, fake_llm):
     assert [h["id"] for h in by["ask"]] == [ask]
     assert [h["id"] for h in by["close"]] == [close]
     assert [h["id"] for h in by["warning"]] == [warn]
+    (e,) = data["entries"]
+    # Each habit names the entry it came from, so My guidance can open it.
     assert by["warning"][0] == {"id": warn, "habit_type": "warning",
                                 "statement": "Wants to hear about fever.",
-                                "quote": "Tell me about fever.", "warning_terms": ["fever"]}
-    (e,) = data["entries"]
+                                "quote": "Tell me about fever.", "warning_terms": ["fever"],
+                                "guidance_id": g["id"], "question": e["question"]}
+    assert all(h["guidance_id"] == g["id"] and h["question"] == e["question"]
+               for h in e["habits"])
     # Advice rules are listed apart from habits; suppressed rows are hidden.
     assert {r["id"] for r in e["rules"]} == {r["id"] for r in g["rules"]}
     assert {h["id"] for h in e["habits"]} == {ask, close, warn}
@@ -613,8 +617,9 @@ async def add_clarify(client, doctor_username="dr.ting", created_at=None, **kw):
     async with client.app.state.session_factory() as s:
         doctor_id = await s.scalar(select(User.id).where(User.username == doctor_username))
         alice_id = (await s.scalar(select(User).where(User.username == "alice"))).id
+        kw.setdefault("question", "Can I drive?")
         q = CareTeamQuestion(
-            user_id=alice_id, doctor_id=doctor_id, question="Can I drive?", reason="Clone asked",
+            user_id=alice_id, doctor_id=doctor_id, reason="Clone asked",
             source="agent", status="waiting_on_patient", asked="Are you dizzy? Any new pills?",
             created_at=created_at or routes_doctor.utcnow(), **kw)
         s.add(q)
@@ -697,3 +702,40 @@ async def test_deleting_a_habit_removes_twins_of_the_same_type_only(client, fake
     async with client.app.state.session_factory() as s:
         assert (await s.get(GuidanceRule, same_quote)).suppressed is True
         assert (await s.get(GuidanceRule, warning)).suppressed is False
+
+
+async def test_the_timeout_leaves_another_doctors_waiting_row_alone(client, fake_llm, monkeypatch):
+    from datetime import datetime, timedelta
+    import routes_doctor
+    from models import CareTeamQuestion
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    await doctor_headers(client, "dr.b", "Dr. B")
+    now = datetime(2026, 1, 10, 12, 0)
+    monkeypatch.setattr(routes_doctor, "utcnow", lambda: now)
+    theirs = await add_clarify(client, "dr.b", created_at=now - timedelta(hours=48))
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert data["open"] == [] and data["waiting"] == []
+    async with client.app.state.session_factory() as s:
+        row = await s.get(CareTeamQuestion, theirs)
+        assert (row.status, row.reason, row.stopped_by) == ("waiting_on_patient", "Clone asked", None)
+
+
+async def test_waiting_question_flags_a_warning_sign_in_the_first_message(client, fake_llm):
+    dh, g, row = await answered_entry(client, fake_llm)
+    await add_rule(client, g["id"], row.doctor_id, habit_type="warning",
+                   statement="Wants to hear about fever.", quote="Tell me about any fever.")
+    flagged = await add_clarify(client, question="I have a fever and my incision is red.")
+    plain = await add_clarify(client, question="My incision is a bit pink.")
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    by_id = {q["id"]: q for q in data["waiting"]}
+    assert by_id[flagged]["first_warning"] == ["fever"]
+    assert by_id[plain]["first_warning"] == []
+    # Computed on read: a habit deleted later no longer flags the message.
+    from models import GuidanceRule
+    async with client.app.state.session_factory() as s:
+        for r in await s.scalars(select(GuidanceRule).where(GuidanceRule.habit_type == "warning")):
+            r.suppressed = True
+        await s.commit()
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert all(q["first_warning"] == [] for q in data["waiting"])

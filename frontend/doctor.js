@@ -218,11 +218,19 @@ function threadHtml(q, {reply = true, note = true} = {}) {
     ${note && q.stopped_by ? `<p class="doctor-stop-note">${esc(q.stopped_by)}</p>` : ''}`;
 }
 
+// A warning sign in the patient's first message: the clone can never close this case.
+function firstWarningHtml(q) {
+  const terms = q.first_warning || [];
+  if (!terms.length) return '';
+  return `<p class="doctor-first-warning">${WARN_ICON}<span>Warning sign in first message: ${esc(terms.join(', '))}</span></p>`;
+}
+
 function waitingCardHtml(q) {
   return `
     <li class="card doctor-card doctor-card-waiting" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(timeAgo(q.created_at))}</p>
       ${questionHtml(q)}
+      ${firstWarningHtml(q)}
       ${threadHtml(q)}
     </li>`;
 }
@@ -613,24 +621,31 @@ function conflictHtml(c) {
     </li>`;
 }
 
-function rulesHtml(e) {
-  if (!e.rules.length) return '';
-  const open = state.rulesOpen.has(e.id) ? ' open' : '';
-  return `
-    <details class="doctor-rules"${open} data-gid="${e.id}">
-      <summary class="doctor-rules-summary">How your clone reads this <span class="count">${e.rules.length}</span></summary>
-      <ol class="rule-list">${e.rules.map(r => `
-        <li class="rule"><p class="rule-statement">${esc(r.statement)}</p>
-          ${r.quote !== r.statement ? `<p class="rule-quote"><span class="rule-quote-label">Your words</span> ${esc(r.quote)}</p>` : ''}</li>`).join('')}
-      </ol>
-    </details>`;
-}
-
 const HABIT_GROUPS = [
   ['ask', 'Questions I ask'],
   ['close', 'How I close'],
   ['warning', 'Signs I want to hear about'],
 ];
+const HABIT_LABELS = Object.fromEntries(HABIT_GROUPS);
+
+// What the clone read from one entry: its advice rules, then its habits, so an
+// entry that taught only habits does not look empty.
+function rulesHtml(e) {
+  const habits = e.habits || [];
+  const count = e.rules.length + habits.length;
+  if (!count) return '';
+  const open = state.rulesOpen.has(e.id) ? ' open' : '';
+  const quote = r => r.quote !== r.statement ? `<p class="rule-quote"><span class="rule-quote-label">Your words</span> ${esc(r.quote)}</p>` : '';
+  return `
+    <details class="doctor-rules"${open} data-gid="${e.id}">
+      <summary class="doctor-rules-summary">How your clone reads this <span class="count">${count}</span></summary>
+      <ol class="rule-list">${e.rules.map(r => `
+        <li class="rule"><p class="rule-statement">${esc(r.statement)}</p>${quote(r)}</li>`).join('')}${habits.map(h => `
+        <li class="rule rule-habit"><p class="rule-kind">${esc(HABIT_LABELS[h.habit_type] || 'Habit')}</p>
+          <p class="rule-statement">${esc(h.statement)}</p>${quote(h)}</li>`).join('')}
+      </ol>
+    </details>`;
+}
 
 function habitsHtml() {
   if (!state.habits) return '';
@@ -652,6 +667,7 @@ function habitsHtml() {
             <div class="habit-body">
               <p class="habit-statement">${esc(h.statement)}</p>
               ${h.quote !== h.statement ? `<p class="rule-quote"><span class="rule-quote-label">Your words</span> ${esc(h.quote)}</p>` : ''}
+              ${h.question ? `<p class="habit-source"><span class="rule-quote-label">From</span><a class="habit-source-link" href="#guidance" role="button" data-action="open-habit-entry" data-gid="${h.guidance_id}" aria-label="Edit the answer to: ${esc(h.question)}">${esc(h.question)}</a></p>` : ''}
             </div>
             <button type="button" class="btn btn-secondary btn-small habit-delete" data-action="delete-habit" data-hid="${h.id}" aria-label="Delete: ${esc(h.statement)}" ${state.habitBusy.has(h.id) ? 'disabled' : ''}>Delete</button>
           </li>`).join('')}
@@ -847,6 +863,22 @@ async function deleteHabit(hid) {
   renderGuidance();
 }
 
+// "From <question>" on a habit: show that entry and open it for editing.
+function openHabitEntry(id) {
+  const entry = (state.guidance || []).find(e => e.id === id);
+  if (!entry) return;
+  if (!visibleEntries().includes(entry)) {
+    state.filters = {scope: 'all', status: entry.active ? 'active' : 'retired'};
+  }
+  if (!state.editing.has(id)) rowAction('edit', id);
+  else renderGuidance();
+  const row = main.querySelector(`.doctor-row[data-gid="${id}"]`);
+  if (!row) return;
+  row.scrollIntoView({block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+  const box = row.querySelector('.doctor-edit-answer');
+  if (box) box.focus({preventScroll: true});
+}
+
 async function dismissConflict(id, cid) {
   state.busyRows.add(id);
   renderGuidance();
@@ -906,8 +938,10 @@ function addEditTag(id, kind, input) {
 
 function bindShared() {
   main.addEventListener('click', event => {
-    const button = event.target.closest('button[data-action]');
+    // The habit's "From" link is an inline <a>, so a long question wraps after its label.
+    const button = event.target.closest('button[data-action], a[data-action]');
     if (!button) return;
+    if (button.tagName === 'A') event.preventDefault();
     const action = button.dataset.action;
     const kind = button.dataset.kind;
     const qcard = button.closest('.doctor-card[data-id]');
@@ -938,6 +972,8 @@ function bindShared() {
       }
     } else if (action === 'delete-habit') {
       deleteHabit(Number(button.dataset.hid));
+    } else if (action === 'open-habit-entry') {
+      openHabitEntry(Number(button.dataset.gid));
     } else if (action === 'show-conflicts') {
       state.filters.status = 'conflicts';
       renderGuidance();
