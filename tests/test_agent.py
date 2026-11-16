@@ -2137,10 +2137,15 @@ async def test_prompt_says_habits_never_disagree_and_disagreement_still_answers(
     assert ("My usual ways of responding never conflict with, override or count as a source "
             "that disagrees with the discharge document or my earlier advice, and they are never "
             "a reason to call add_care_team_question with reason \"Sources disagree\".") in prompt
-    assert ("When two sources really disagree, still answer with kind \"answer\" following the "
-            "higher source, say the sources differ, and also call add_care_team_question with "
-            "reason \"Sources disagree\". Sources that disagree never make the kind "
-            "\"not_covered\".") in prompt
+    assert ("If a lower source conflicts with a higher one, still answer with kind \"answer\" "
+            "following the higher one, say the sources differ, and also call "
+            "add_care_team_question with reason \"Sources disagree\"; a higher source that "
+            "disagrees never makes the kind \"not_covered\".") in prompt
+    # Equal-rank sources have no higher one to follow.
+    assert ("When sources of the same rank conflict, for example two pieces of my earlier "
+            "advice, neither one wins: do not choose between them; use kind \"not_covered\" and "
+            "call add_care_team_question with reason \"Sources disagree\".") in prompt
+    assert "The same applies when two pieces of my earlier advice disagree" not in prompt
 
 
 LIST_DOC_TEXT = (
