@@ -1530,3 +1530,22 @@ async def test_a_reply_probe_with_a_closing_model_is_the_emergency_answer(client
     assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY, body
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+
+
+async def test_history_leaves_out_fixed_server_answers(client, fake_llm):
+    # A fallback in the history taught the model to send later basic questions
+    # to the doctor too. The patient's question stays; the fixed sentence goes.
+    h = await confirmed(client, fake_llm)
+    fake_llm.script(answer("x", [], kind="not_covered"))
+    first = await post_ask(client, h, "Question alpha")
+    assert first.json()["answer"].startswith("I couldn't answer this")
+    fake_llm.script(answer("Answer beta [2].", [2]))
+    await post_ask(client, h, "Question beta")
+    fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
+    await post_ask(client, h, "Last question")
+    sent = fake_llm.calls[-1][0][1:-1]
+    assert [(m["role"], m["content"]) for m in sent] == [
+        ("user", "Question alpha"), ("user", "Question beta"), ("assistant", "Answer beta.")]
+    # The patient's own conversation still shows the fixed sentence.
+    shown = (await get_conversation(client, h)).json()["messages"]
+    assert any(m["content"].startswith("I couldn't answer this") for m in shown)

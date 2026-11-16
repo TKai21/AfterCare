@@ -68,6 +68,9 @@ def fallback_answer(doctor_name: str = DEFAULT_DOCTOR_NAME) -> str:
 
 
 FALLBACK = fallback_answer()
+# The fallback sentence for any doctor's name (the name may have changed since).
+_FALLBACK_TEXT = re.compile(
+    re.escape(NOT_COVERED_ANSWER).replace(re.escape("{DOCTOR}"), r".+"))
 FALLBACK_REASON = "The assistant could not give a verified answer."
 # The fixed answer for an emergency the model could not handle (no model, a model
 # error, or an answer that failed validation). Same copy as the page's banner.
@@ -1169,6 +1172,13 @@ def _claimed_kind(raw: str) -> Optional[str]:
     return data.get("kind")
 
 
+def is_fixed_answer(text: str) -> bool:
+    """Whether an assistant message is a fixed server text the model did not
+    write: the not-covered fallback (for any doctor) or the emergency answer."""
+    text = text.strip()
+    return text == EMERGENCY_ANSWER or _FALLBACK_TEXT.fullmatch(text) is not None
+
+
 def _fallback(question: str, emergency: bool = False,
               doctor_name: str = DEFAULT_DOCTOR_NAME) -> AgentResult:
     if emergency:
@@ -1247,9 +1257,13 @@ async def run_agent(
     messages = [
         {"role": "system", "content": system_prompt(doctor_name)},
         # Old [n] markers point at another turn's evidence numbers, so they are dropped.
+        # Fixed server answers are left out: the model did not write them, and a
+        # fallback in the history made it hand later answerable questions to the
+        # doctor too. The patient's messages stay, even two in a row.
         *({"role": m["role"],
            "content": strip_markers(m["content"]) if m["role"] == "assistant" else m["content"]}
-          for m in history[-HISTORY_LIMIT:]),
+          for m in history[-HISTORY_LIMIT:]
+          if not (m["role"] == "assistant" and is_fixed_answer(m["content"]))),
         {"role": "user", "content": user_content},
     ]
 

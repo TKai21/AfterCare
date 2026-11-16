@@ -2074,3 +2074,35 @@ def test_prompt_says_list_items_are_cited_by_their_own_numbers():
     assert ("A document paragraph that ends with \":\" introduces the paragraphs after it; cite "
             "each of those paragraphs you use by its own number, not only the one that introduces "
             "them.") in agent.SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("fixed", [
+    agent.fallback_answer("Dr. Ting Kai"), agent.fallback_answer("Dr. Someone Else"),
+    agent.FALLBACK, agent.EMERGENCY_ANSWER,
+])
+async def test_history_leaves_out_fixed_server_answers(store, foods, document, items, fixed):
+    llm = FakeLLM()
+    llm.script(final("Limit high-oxalate foods [2].", [2]))
+    history = [
+        {"role": "user", "content": "What warning signs should I watch for?"},
+        {"role": "assistant", "content": fixed},
+        {"role": "user", "content": "How much water?"},
+        {"role": "assistant", "content": "Drink at least 2 liters of water every day [3]."},
+    ]
+    await ask(llm, store, foods, document, items, history=history, doctor_name="Dr. Ting Kai")
+    sent = [(m["role"], m["content"]) for m in llm.calls[0][0][1:-1]]
+    assert sent == [
+        ("user", "What warning signs should I watch for?"),
+        ("user", "How much water?"),
+        ("assistant", "Drink at least 2 liters of water every day."),
+    ]
+
+
+def test_fixed_answer_recognises_only_server_texts():
+    assert agent.is_fixed_answer(agent.fallback_answer("Dr. Ting Kai"))
+    assert agent.is_fixed_answer(agent.EMERGENCY_ANSWER)
+    for text in ("Your discharge document does not cover this; here is general information. "
+                 "Ibuprofen ... [4].",
+                 "I couldn't answer this from your discharge document, but drink water.",
+                 "Call 911 now."):
+        assert not agent.is_fixed_answer(text)
