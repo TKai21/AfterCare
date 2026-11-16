@@ -1831,6 +1831,7 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .answer.is-muted { background: var(--surface-muted); box-shadow: var(--shadow); }
 .answer-text { font-size: 16.5px; line-height: 1.65; }
 .answer-text > * + * { margin-top: 12px; }
+.reply-hint { margin-top: 12px; color: var(--text-subtle); font-size: 13px; }
 .answer-list { padding-left: 22px; list-style: disc; }
 .answer-list li::marker { color: var(--accent); }
 .answer-list li + li { margin-top: 6px; }

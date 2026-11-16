@@ -1314,3 +1314,15 @@ async def test_a_new_question_names_the_blocker_when_one_applies(client, fake_ll
     await post_ask(client, h, "I threw up. How often do I take amoxicillin?", doctor_id=doctor_id)
     (q,) = await all_questions(client)
     assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Warning sign: threw up")
+
+
+async def test_payload_marks_habit_sources(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)
+    (source,) = body["sources"]
+    assert source["kind"] == "habit"
+    assert source["title"] == "Dr. Ting Kai's usual practice"
+    assert source["content"] == ASK_QUESTIONS
+    assert source["url"] is None

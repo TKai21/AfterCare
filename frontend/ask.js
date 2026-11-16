@@ -131,6 +131,10 @@ async function ask(question) {
   try {
     const payload = await api('/api/ask', {method: 'POST', json: {question, doctor_id: doctorId}});
     if (view.docId !== docId || view.doctorId !== doctorId) return;
+    // Any reply turn ends the clone's pending questions (the server does the same).
+    view.messages.forEach(m => {
+      if (m.payload && m.payload.pending) m.payload = {...m.payload, pending: false};
+    });
     view.messages.push({role: 'assistant', content: payload.answer, payload});
     view.busy = false;
     // A new answer brings back the "Ask directly" button in place of the last confirmation.
@@ -184,6 +188,7 @@ function sourceLabel(source) {
   if (source.kind === 'library') return 'Education library: ' + (source.title || 'Untitled');
   if (source.kind === 'food') return 'Food data: ' + (source.title || 'Untitled');
   if (source.kind === 'doctor') return doctorLabel(source.title);
+  if (source.kind === 'habit') return source.title || 'Usual practice';
   return source.title || 'Source';
 }
 
@@ -250,6 +255,7 @@ function assistantHtml(message, index) {
       <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AI clone answer">
         <p class="clone-label">AI clone of ${esc(cloneName(payload))}</p>
         <div class="answer-text">${answerTextHtml(payload.answer, numbers)}</div>
+        ${payload.kind === 'clarify' && payload.pending === true ? '<p class="reply-hint">Reply below</p>' : ''}
         ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
         ${sourcesHtml(index, sources)}
       </article>
