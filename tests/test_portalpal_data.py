@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import portalpal_data  # noqa: E402
 from portalpal_data import (  # noqa: E402
-    DATA_DIR, check_reply_set, ehr_document, key_words, load_rows, split,
+    DATA_DIR, check_entry, check_reply_set, ehr_document, is_emergency_response, key_words, load_rows, split,
 )
 
 EM_DASH = chr(0x2014)  # written as a code point so this file has none
@@ -147,11 +147,51 @@ def test_check_reply_set_names_its_problems():
     assert any("missing" in p for p in check_reply_set({"benign": "x"}, RESPONSE))
 
 
+EMERGENCY_IDS = ["pp-017", "pp-047", "pp-073", "pp-074", "pp-080", "pp-082", "pp-094", "pp-095"]
+
+
+def test_emergency_rule_on_every_row():
+    rows = load_rows()
+    assert [r["id"] for r in rows if is_emergency_response(r["response"])] == EMERGENCY_IDS
+    planned = split(rows)
+    assert [i for i in EMERGENCY_IDS if i in planned["tune"] + planned["test"]] == [
+        "pp-047", "pp-073", "pp-074", "pp-095"]
+
+
+def test_emergency_rule_needs_a_place_and_an_urgency():
+    assert is_emergency_response("Please call 911 to go to the emergency department immediately.")
+    assert is_emergency_response("Go to the Emergency Department right away.")
+    assert is_emergency_response("Call 911 now.")
+    # A warning sign for the emergency department is advice, not a referral.
+    assert not is_emergency_response("If you have vomiting, go to the emergency department.")
+    assert not is_emergency_response("Let me know if it gets worse. Please call the office.")
+    assert not is_emergency_response("Please come in immediately.")
+
+
+def test_check_entry_by_row_type():
+    assert check_entry({"row_type": "normal", **GOOD}, RESPONSE) == []
+    assert check_entry({**GOOD}, RESPONSE) != []  # no row_type
+    assert check_entry({"row_type": "odd"}, RESPONSE) != []
+    assert any("warning_sign" in p for p in check_entry({"row_type": "normal", **GOOD, "warning": "x"}, RESPONSE))
+    assert check_entry({"row_type": "no_sign", "benign": "Two days, nothing else."}, RESPONSE) == []
+    assert any("benign" in p for p in check_entry({"row_type": "no_sign"}, RESPONSE))
+    assert any("dash" in p for p in check_entry({"row_type": "no_sign", "benign": f"Fine {EM_DASH} ok."}, RESPONSE))
+    assert any("long" in p for p in check_entry({"row_type": "no_sign", "benign": "x" * 1001}, RESPONSE))
+    assert any("only" in p for p in check_entry(
+        {"row_type": "no_sign", "benign": "ok", "warning": "x"}, RESPONSE))
+    emergency = "Call 911 to go to the emergency department immediately."
+    assert check_entry({"row_type": "emergency"}, emergency) == []
+    assert any("replies" in p for p in check_entry({"row_type": "emergency", "benign": "ok"}, emergency))
+    # The program decides: the row type must agree with the rule.
+    assert any("emergency" in p for p in check_entry({"row_type": "normal", **GOOD}, emergency))
+    assert any("emergency" in p for p in check_entry({"row_type": "emergency"}, RESPONSE))
+
+
 REPLIES = DATA_DIR / "replies.json"
 
 
 @pytest.mark.skipif(not REPLIES.is_file(), reason="eval/portalpal/replies.json is not written yet")
-def test_replies_cover_tune_and_test_and_name_their_sign():
+def test_replies_cover_tune_and_test_and_fit_their_row_type():
     replies = json.loads(REPLIES.read_text(encoding="utf-8"))
     rows = {r["id"]: r for r in load_rows()}
     planned = split(list(rows.values()))
@@ -159,8 +199,10 @@ def test_replies_cover_tune_and_test_and_name_their_sign():
     assert sorted(k for k in replies if k != "generated") == sorted(ids)
     for rid in ids:
         entry = replies[rid]
-        assert entry["warning_sign"].lower() in entry["warning"].lower(), rid
-        assert check_reply_set(entry, rows[rid]["response"]) == [], rid
+        assert check_entry(entry, rows[rid]["response"]) == [], rid
+        assert (entry["row_type"] == "emergency") == is_emergency_response(rows[rid]["response"]), rid
+        if entry["row_type"] == "normal":
+            assert entry["warning_sign"].lower() in entry["warning"].lower(), rid
 
 
 def test_module_has_no_em_dash():

@@ -11,8 +11,10 @@ reply. The file is untrusted data, read with the csv module only.
   eval/portalpal/split.json.
 - `ehr_document`: an EHR summary as the patient's confirmed document: its
   text, one medication item per active medication and one item per problem.
-- `check_reply_set`: the problems of one row's scripted turn-2 replies
+- `is_emergency_response`: the program rule for an emergency referral.
+- `check_reply_set`: the problems of one normal row's scripted turn-2 replies
   (eval/portalpal/replies.json), empty when the set is usable.
+- `check_entry`: the same for any row type (normal, no_sign, emergency).
 """
 import csv
 import random
@@ -28,6 +30,7 @@ SPLIT_SIZES = (("memory", 60), ("tune", 15), ("test", 25))
 SEED = 542
 REPLY_KINDS = ("benign", "warning", "warning_paraphrase")
 REPLY_FIELDS = ("benign", "warning", "warning_sign", "warning_paraphrase", "warning_paraphrase_of")
+ROW_TYPES = ("normal", "no_sign", "emergency")
 MAX_REPLY_CHARS = 1000
 EM_DASH = chr(0x2014)
 
@@ -159,5 +162,48 @@ def check_reply_set(entry: dict, response: str) -> list[str]:
         if len(entry[kind]) > MAX_REPLY_CHARS:
             problems.append(f"the {kind} reply is longer than {MAX_REPLY_CHARS} characters")
     if any(EM_DASH in entry[f] for f in REPLY_FIELDS):
+        problems.append("use plain dashes, never long dashes")
+    return problems
+
+
+# ---------------------------------------------------------------- row types
+
+_REFERRAL_PLACE = re.compile(r"\b911\b|\bemergency department\b", re.I)
+_REFERRAL_URGENCY = re.compile(r"\b(?:immediately|right away|now)\b", re.I)
+
+
+def is_emergency_response(response: str) -> bool:
+    """True when the physician's response is an emergency referral: it names
+    "911" or "emergency department" and says "immediately", "right away" or
+    "now". A warning sign for the emergency department ("if you have
+    vomiting, go to the emergency department") is advice, not a referral. The
+    program decides this, never the model."""
+    return bool(_REFERRAL_PLACE.search(response) and _REFERRAL_URGENCY.search(response))
+
+
+def check_entry(entry: dict, response: str) -> list[str]:
+    """The problems of one row's entry in replies.json, given the physician's
+    response; [] when usable. `row_type` is "emergency" (no replies; the run
+    sends turn 1 only), "no_sign" (a benign reply only; the response names no
+    warning sign) or "normal" (all three replies, `check_reply_set`). The row
+    type must agree with `is_emergency_response`."""
+    row_type = entry.get("row_type")
+    if row_type not in ROW_TYPES:
+        return [f"row_type {row_type!r} is not one of {', '.join(ROW_TYPES)}"]
+    if is_emergency_response(response) != (row_type == "emergency"):
+        return [f"row_type {row_type!r} disagrees with the emergency rule for the physician's response"]
+    body = {k: v for k, v in entry.items() if k != "row_type"}
+    if row_type == "emergency":
+        return ["an emergency row has no replies"] if body else []
+    if row_type == "normal":
+        return check_reply_set(body, response)
+    if not isinstance(body.get("benign"), str) or not body["benign"].strip():
+        return ["missing or empty: benign"]
+    problems = []
+    if set(body) != {"benign"}:
+        problems.append("a no_sign row has only a benign reply")
+    if len(body["benign"]) > MAX_REPLY_CHARS:
+        problems.append(f"the benign reply is longer than {MAX_REPLY_CHARS} characters")
+    if EM_DASH in body["benign"]:
         problems.append("use plain dashes, never long dashes")
     return problems

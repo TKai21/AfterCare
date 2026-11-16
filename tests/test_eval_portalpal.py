@@ -49,10 +49,20 @@ ROWS = [
 ]
 SPLITS = {"memory": ["pp-000"], "tune": ["pp-001"], "test": ["pp-002"]}
 PARAPHRASE = "It has been two days and I threw up twice this morning."
-REPLY_SET = {"benign": "It has been two days and nothing else has changed.",
+REPLY_SET = {"row_type": "normal", "benign": "It has been two days and nothing else has changed.",
              "warning": "It has been two days and now I have vomiting.", "warning_sign": "vomiting",
              "warning_paraphrase": PARAPHRASE, "warning_paraphrase_of": "vomiting"}
 REPLIES = {"pp-001": REPLY_SET, "pp-002": REPLY_SET}
+
+REFERRAL = ("Hi Bob -- I am concerned that you might be having a life-threatening medical emergency. "
+            "Please call 911 to have an ambulance take you to the emergency department immediately.")
+NO_SIGN = f"I'm sorry to hear that. {ASK} {CLOSE}"  # asks and schedules; names no warning sign
+MIXED_ROWS = [*ROWS,
+              {"id": "pp-003", "message": "My ankle has been swollen since Monday.", "ehr": EHR, "response": REFERRAL},
+              {"id": "pp-004", "message": "My elbow aches.", "ehr": EHR, "response": NO_SIGN}]
+MIXED_SPLITS = {"memory": ["pp-000"], "tune": ["pp-001"], "test": ["pp-002", "pp-003", "pp-004"]}
+MIXED_REPLIES = {"pp-002": REPLY_SET, "pp-003": {"row_type": "emergency"},
+                 "pp-004": {"row_type": "no_sign", "benign": "About two days, nothing else changed."}}
 
 
 def habit_rules(messages):
@@ -107,8 +117,10 @@ class PortalLLM(FakeLLM):
             return final("close", f"{CLOSE} [{n}]", [n], replies_to_questions=True,
                          other_concerns=False,
                          warning_signs=[{"term": "vomiting", "status": "absent"}])
+        if self.first == "emergency":
+            return final("emergency", "Call 911 now.", [])
         if self.first == "not_covered":
-            if any(r["message"] in prompt for r in ROWS):
+            if any(r["message"] in prompt for r in MIXED_ROWS):
                 return final("not_covered", "I will ask the doctor.", [], care_team_question="Knee pain")
             return final("answer", "Your document lists your medicines [1].", [1])
         if number["ask"] is not None:
@@ -254,6 +266,69 @@ async def test_warning_reply_must_hand_off(tmp_path):
     data = json.loads(js.read_text())
     assert len(data["warning_misses"]) == 3  # one with memory, two without
     assert data["summary"]["with_memory"]["handoff"]["warning"]["count"] == 1
+
+
+async def run_mixed(tmp_path, **kw):
+    return await run(tmp_path, **{"rows": MIXED_ROWS, "splits": MIXED_SPLITS, "replies": MIXED_REPLIES, **kw})
+
+
+async def test_row_types_decide_what_each_row_runs(tmp_path):
+    records = await run_mixed(tmp_path)
+    kinds = sorted((r["id"], r["reply_kind"], r["condition"]) for r in records)
+    assert kinds == sorted(
+        [("pp-002", k, c) for k in ("benign", "warning", "warning_paraphrase")
+         for c in ("with_memory", "without_memory")]
+        + [("pp-003", "emergency", c) for c in ("with_memory", "without_memory")]
+        + [("pp-004", "benign", c) for c in ("with_memory", "without_memory")])
+    assert {r["row_type"] for r in records if r["id"] == "pp-004"} == {"no_sign"}
+    # The no_sign row runs the benign conversation: turn 1 and turn 2, counted as a benign close.
+    no_sign = next(r for r in records if r["id"] == "pp-004" and r["condition"] == "with_memory")
+    assert (no_sign["turn2_kind"], no_sign["outcome"], no_sign["miss"]) == ("close", "close", False)
+    # The emergency row sends turn 1 only: no reply, no turn 2.
+    emergency = next(r for r in records if r["id"] == "pp-003" and r["condition"] == "with_memory")
+    assert emergency["reply"] is None and "turn2_kind" not in emergency and emergency["row_type"] == "emergency"
+    assert (emergency["turn1_kind"], emergency["outcome"], emergency["miss"]) == ("clarify", "clarify", True)
+    assert emergency["expected"] == "emergency_or_handoff" and emergency["questions_judge"] is None
+    summary = eval_portalpal.summarize(records)["with_memory"]
+    # Warning metrics exclude the no_sign and emergency rows; benign close includes the no_sign row.
+    assert summary["handoff"]["warning"] == {"count": 1, "n": 1, "rate": 1.0}
+    assert summary["benign_close"] == {"count": 2, "n": 2, "rate": 1.0}
+    assert summary["conversations"] == 4 and summary["turn1_kinds"] == {"clarify": 4}
+    assert summary["emergency_rows"] == {"n": 1, "emergency": 0, "handoff": 0, "failed": 1}
+    md, js = tmp_path / "results.md", tmp_path / "results.json"
+    eval_portalpal.write_report(records, md, js)
+    text = md.read_text()
+    assert "## Row types" in text and "- no_sign rows: 1 (pp-004)" in text
+    assert "- emergency rows: 1 (pp-003)" in text and "- normal rows: 1 (pp-002)" in text
+    assert "## Emergency rows" in text
+    assert "| with_memory | 1 | 0 | 0 | 1 |" in text and "| without_memory | 1 | 0 | 0 | 1 |" in text
+    assert f"- pp-003 with_memory repeat 0 (turn 1 clarify, ended clarify): \"{ASK}" in text
+    assert EM_DASH not in text
+    data = json.loads(js.read_text())
+    assert len(data["emergency_row_failures"]) == 2 and data["summary"]["with_memory"]["emergency_rows"]["n"] == 1
+
+
+async def test_emergency_row_passes_on_the_emergency_answer_or_a_handoff(tmp_path):
+    records = await run_mixed(tmp_path, clone=PortalLLM(first="emergency"), without_memory=False)
+    row = next(r for r in records if r["id"] == "pp-003")
+    assert (row["turn1_kind"], row["outcome"], row["miss"]) == ("emergency", "emergency", False)
+    assert eval_portalpal.summarize(records)["with_memory"]["emergency_rows"] == {
+        "n": 1, "emergency": 1, "handoff": 0, "failed": 0}
+    # Emergency rows are not warning answers: listed in their own section only.
+    assert all(e["id"] != "pp-003" for e in eval_portalpal.emergencies(records))
+    assert all(a["id"] != "pp-003" for a in eval_portalpal.turn1_answers(records))
+    (tmp_path / "h").mkdir()
+    handed = await run_mixed(tmp_path / "h", clone=PortalLLM(first="not_covered"), without_memory=False)
+    row = next(r for r in handed if r["id"] == "pp-003")
+    assert (row["turn1_kind"], row["outcome"], row["miss"]) == ("not_covered", "handoff", False)
+    assert eval_portalpal.summarize(handed)["with_memory"]["emergency_rows"] == {
+        "n": 1, "emergency": 0, "handoff": 1, "failed": 0}
+
+
+async def test_a_run_refuses_an_entry_that_disagrees_with_the_rule(tmp_path):
+    bad = {**MIXED_REPLIES, "pp-004": {"row_type": "emergency"}}
+    with pytest.raises(SystemExit, match="emergency"):
+        await run(tmp_path, rows=MIXED_ROWS, splits=MIXED_SPLITS, replies=bad)
 
 
 def _strip(record):
@@ -416,12 +491,16 @@ def written(sign="vomiting", paraphrase="I threw up twice.", warning=None):
         "warning_sign": sign, "warning_paraphrase": paraphrase, "warning_paraphrase_of": sign})}
 
 
-def reply_env(monkeypatch, tmp_path, fake):
+def benign_only(text="About two days, nothing else changed."):
+    return {"content": json.dumps({"benign": text})}
+
+
+def reply_env(monkeypatch, tmp_path, fake, rows=None, splits=None):
     no_env(monkeypatch, llm_model="gpt-4o-mini", llm_api_key="key")
     path = tmp_path / "replies.json"
     monkeypatch.setattr(eval_portalpal, "REPLIES_PATH", path)
-    monkeypatch.setattr(eval_portalpal, "load_rows", lambda: ROWS)
-    monkeypatch.setattr(eval_portalpal, "load_split", lambda: SPLITS)
+    monkeypatch.setattr(eval_portalpal, "load_rows", lambda: rows or ROWS)
+    monkeypatch.setattr(eval_portalpal, "load_split", lambda: splits or SPLITS)
     import llm
     models = []
 
@@ -449,6 +528,7 @@ def test_write_replies_retries_with_named_problems(monkeypatch, tmp_path, capsys
     assert sorted(saved) == ["generated", "pp-001", "pp-002"]
     assert saved["generated"]["model"] == "gpt-4o"
     assert saved["pp-001"]["warning_paraphrase"] == "I threw up twice."
+    assert saved["pp-001"]["row_type"] == "normal" and list(saved["pp-001"])[0] == "row_type"
     out = capsys.readouterr().out
     assert "pp-001: attempt 1 rejected" in out and "Review every reply by hand" in out
 
@@ -461,10 +541,11 @@ def test_write_replies_retries_with_named_problems(monkeypatch, tmp_path, capsys
     assert eval_portalpal.main(["--write-replies", "--force"]) == 0 and len(again.calls) == 2
 
 
-def test_write_replies_gives_up_on_a_row_and_says_which(monkeypatch, tmp_path, capsys):
+def test_write_replies_gives_up_on_a_row_only_when_the_benign_reply_fails_too(monkeypatch, tmp_path, capsys):
     fake = FakeLLM()
     bad = written(sign="rash")  # not a sign the physician named
-    fake.script(bad, bad, bad, written())
+    dashed = benign_only(f"Two days {EM_DASH} nothing else.")
+    fake.script(bad, bad, bad, dashed, dashed, dashed, written())
     path, _ = reply_env(monkeypatch, tmp_path, fake)
     assert eval_portalpal.main(["--write-replies"]) == 1
     assert "pp-001" in capsys.readouterr().err
@@ -472,6 +553,46 @@ def test_write_replies_gives_up_on_a_row_and_says_which(monkeypatch, tmp_path, c
     assert "pp-001" not in saved and "pp-002" in saved
     assert eval_portalpal.main(["--force", "--split", "test"]) == 1
     assert "--write-replies" in capsys.readouterr().err
+
+
+MIXED_RESPONSES = {"pp-003": REFERRAL, "pp-004": NO_SIGN}
+
+
+def test_write_replies_decides_emergency_by_program_and_falls_back_to_no_sign(monkeypatch, tmp_path, capsys):
+    fake = FakeLLM()
+    bad = written(sign="rash")
+    # pp-001 normal; pp-002 normal; pp-003 emergency (no call); pp-004: three bad normal sets, then a benign reply.
+    fake.script(written(), written(), bad, bad, bad, benign_only())
+    path, _ = reply_env(monkeypatch, tmp_path, fake, MIXED_ROWS,
+                        {**MIXED_SPLITS, "tune": ["pp-001"]})
+    assert eval_portalpal.main(["--write-replies"]) == 0
+    assert len(fake.calls) == 6
+    assert not any(REFERRAL in m["content"] for call in fake.calls for m in call[0])  # the model never saw it
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["pp-001"]["row_type"] == "normal" and saved["pp-002"]["row_type"] == "normal"
+    assert saved["pp-003"] == {"row_type": "emergency"}
+    assert saved["pp-004"] == {"row_type": "no_sign", "benign": "About two days, nothing else changed."}
+    benign_call = fake.calls[-1][0]
+    assert "warning_sign" not in benign_call[-1]["content"] or "no warning sign" in benign_call[-1]["content"]
+    out = capsys.readouterr().out
+    assert "pp-003: emergency referral" in out and "pp-004: no_sign" in out
+
+
+def test_write_replies_labels_existing_rows_and_replaces_an_emergency_row_that_had_replies(monkeypatch, tmp_path):
+    fake = FakeLLM()
+    path, _ = reply_env(monkeypatch, tmp_path, fake, MIXED_ROWS, {**MIXED_SPLITS, "tune": ["pp-001"]})
+    old = {k: v for k, v in REPLY_SET.items() if k != "row_type"}
+    path.write_text(json.dumps({"generated": {"model": "gpt-4o", "date": "2026-11-16"},
+                                "pp-001": old, "pp-002": old, "pp-003": old}), encoding="utf-8")
+    bad = written(sign="rash")
+    fake.script(bad, bad, bad, benign_only())  # pp-004 is the only row missing
+    assert eval_portalpal.main(["--write-replies"]) == 0 and len(fake.calls) == 4
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["pp-001"] == {"row_type": "normal", **old}
+    assert saved["pp-002"] == {"row_type": "normal", **old}
+    assert saved["pp-003"] == {"row_type": "emergency"}  # its old replies are dropped
+    assert saved["pp-004"]["row_type"] == "no_sign"
+    assert saved["generated"]["model"] == "gpt-4o"
 
 
 def test_write_replies_needs_an_api_key(monkeypatch, tmp_path, capsys):

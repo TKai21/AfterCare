@@ -1,0 +1,274 @@
+{
+  "generated": {
+    "model": "gpt-4o",
+    "date": "2026-11-16"
+  },
+  "pp-000": {
+    "row_type": "normal",
+    "benign": "I haven't really had these issues before. The symptoms seem to pop up maybe once or twice a week, but there's no specific pattern. I haven't noticed any particular food or activity that triggers them. Sometimes drinking peppermint tea helps a bit.",
+    "warning": "I haven't had these issues in the past. The symptoms come and go, maybe once or twice a week. I did notice that after eating spicy food, the pain sometimes gets worse. Yesterday, I started feeling some nausea too. warning_sign: nausea",
+    "warning_sign": "nausea",
+    "warning_paraphrase": "This is new for me, and the symptoms aren't constant. They seem to happen once or twice a week. I think spicy food might make it worse. Yesterday, I felt like I was going to be sick to my stomach.",
+    "warning_paraphrase_of": "nausea"
+  },
+  "pp-001": {
+    "row_type": "normal",
+    "benign": "I've also noticed some mild itching on my skin and a bit of a runny nose. I haven't tried any medications yet, just been drinking more water and resting. No changes in my medications or environment recently. I'll start a food diary as you suggested.",
+    "warning": "I've also noticed some mild itching on my skin and a bit of a runny nose. I haven't tried any medications yet, just been drinking more water and resting. No changes in my medications or environment recently. I did experience some shortness of breath once, which was a bit scary.",
+    "warning_sign": "shortness of breath",
+    "warning_paraphrase": "I've also noticed some mild itching on my skin and a bit of a runny nose. I haven't tried any medications yet, just been drinking more water and resting. No changes in my medications or environment recently. I did have a moment where I couldn't catch my air, which was a bit scary.",
+    "warning_paraphrase_of": "shortness of breath"
+  },
+  "pp-002": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any burning or irritation when I urinate, and this is the first time I've experienced these symptoms. I haven't had any changes in my medications recently.",
+    "warning": "I have noticed some burning or irritation with urination, which is new for me. I haven't changed any medications recently.",
+    "warning_sign": "burning or irritation with urination",
+    "warning_paraphrase": "I've been feeling a stinging sensation when I go to the bathroom, which is unusual for me.",
+    "warning_paraphrase_of": "burning or irritation with urination"
+  },
+  "pp-003": {
+    "row_type": "normal",
+    "benign": "I haven't been around anyone sick recently, and I don't usually have these symptoms. I did spend some time outside yesterday, and there was a lot of pollen in the air. I've been using a saline nasal spray, and it seems to help a bit.",
+    "warning": "I haven't been around anyone sick, but I did notice a lot of pollen outside yesterday. I've tried using a saline spray, but my symptoms are getting worse. I think I should call the office to schedule an appointment.",
+    "warning_sign": "getting worse",
+    "warning_paraphrase": "I haven't been around anyone sick, but I did notice a lot of pollen outside yesterday. I've tried using a saline spray, but my symptoms seem to be intensifying. I think I should reach out to the office.",
+    "warning_paraphrase_of": "getting worse"
+  },
+  "pp-009": {
+    "row_type": "normal",
+    "benign": "I haven't been around anyone who's sick recently. I don't have any other symptoms like vomiting or fever. I haven't changed any medications lately. Drinking ginger tea seems to help a bit with the nausea.",
+    "warning": "I haven't been around anyone sick, but I did start having diarrhea today. No changes in medication, and ginger tea helps a bit with the nausea.",
+    "warning_sign": "diarrhea",
+    "warning_paraphrase": "I haven't been around anyone sick, but I've been running to the bathroom a lot today. No changes in medication, and ginger tea helps a bit with the nausea.",
+    "warning_paraphrase_of": "diarrhea"
+  },
+  "pp-011": {
+    "row_type": "normal",
+    "benign": "I haven't experienced these sweating episodes before. I don't have any other symptoms. I haven't changed any medications recently.",
+    "warning": "I haven't had these sweating episodes before, but I did feel some dizziness yesterday. I haven't changed any medications recently.",
+    "warning_sign": "dizziness",
+    "warning_paraphrase": "I haven't had these sweating episodes before, but yesterday I felt like the room was spinning for a bit. I haven't changed any medications recently.",
+    "warning_paraphrase_of": "dizziness"
+  },
+  "pp-013": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any other symptoms. I haven't changed any medications recently, and the nexplanon is still in place. I'll call to set up an appointment soon.",
+    "warning": "I've been experiencing some dizziness, especially when I stand up quickly. I haven't changed any medications, and the nexplanon is still in place. I'll make sure to call the office for an appointment.",
+    "warning_sign": "dizziness",
+    "warning_paraphrase": "Sometimes when I get up too fast, I feel like the room is spinning. I haven't changed any medications, and the nexplanon is still in place. I'll call to schedule an appointment.",
+    "warning_paraphrase_of": "dizziness"
+  },
+  "pp-014": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any changes in my vision, and there haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
+    "warning": "I haven't noticed any changes in my vision, but I do have a history of seasonal allergies. There haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
+    "warning_sign": "history of seasonal allergies",
+    "warning_paraphrase": "I haven't noticed any changes in my vision, but I do tend to get itchy eyes and sneezing when the pollen count is high. There haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
+    "warning_paraphrase_of": "history of seasonal allergies"
+  },
+  "pp-016": {
+    "row_type": "normal",
+    "benign": "I haven't changed any medications recently, and I can't think of anything specific that might have triggered this. It's just this constant nausea that's bothering me. I haven't noticed anything else unusual.",
+    "warning": "I haven't changed any medications recently, but I did start feeling worse yesterday. I actually have a fever now. Should I be worried?",
+    "warning_sign": "fever",
+    "warning_paraphrase": "I haven't changed any medications recently, but I did start feeling worse yesterday. I actually feel really hot and sweaty now. Should I be worried?",
+    "warning_paraphrase_of": "fever"
+  },
+  "pp-018": {
+    "row_type": "normal",
+    "benign": "My last child was born about a year ago. I haven't noticed any other symptoms besides the changes in my menstrual cycle. I had my nexplanon inserted shortly after giving birth, and I haven't changed any medications recently.",
+    "warning": "My last child was born about a year ago. I've been feeling some dizziness lately, especially during my periods. I had my nexplanon inserted shortly after giving birth, and I haven't changed any medications recently.",
+    "warning_sign": "dizziness",
+    "warning_paraphrase": "My last child was born about a year ago. I've been feeling a bit off balance and woozy, especially during my periods. I had my nexplanon inserted shortly after giving birth, and I haven't changed any medications recently.",
+    "warning_paraphrase_of": "dizziness"
+  },
+  "pp-020": {
+    "row_type": "normal",
+    "benign": "I haven't had any falls or neck trauma recently, and this is the first time I'm experiencing these symptoms. I haven't changed any medications lately either. I think it might have started after I spent a long day working at my desk.",
+    "warning": "I haven't had any falls or neck trauma, but I did notice some dizziness recently. This is the first time I'm experiencing these symptoms, and I haven't changed any medications.",
+    "warning_sign": "dizziness",
+    "warning_paraphrase": "I haven't had any falls or neck trauma, but I've been feeling a bit off balance lately. This is the first time I'm experiencing these symptoms, and I haven't changed any medications.",
+    "warning_paraphrase_of": "dizziness"
+  },
+  "pp-021": {
+    "row_type": "no_sign",
+    "benign": "Hi Doctor, the cramping is mostly in my lower abdomen and it's been happening on and off for about a week now. It seems to get worse after I eat a big meal, but sometimes it just comes out of nowhere. I've tried using a heating pad, which helps a little, and I haven't changed any of my medications recently."
+  },
+  "pp-022": {
+    "row_type": "normal",
+    "benign": "I've had similar issues before, but they usually resolved on their own. This has been going on for about a month now. I don't have any burning or irritation when I go to the bathroom. I haven't changed any of my medications recently.",
+    "warning": "I've had similar issues before, but they usually resolved on their own. This has been going on for about a month now. I don't have any burning or irritation when I go to the bathroom. However, I am unable to urinate sometimes. I haven't changed any of my medications recently.",
+    "warning_sign": "unable to urinate",
+    "warning_paraphrase": "I've had similar issues before, but they usually resolved on their own. This has been going on for about a month now. I don't have any burning or irritation when I go to the bathroom. However, there are times when nothing comes out even though I feel like I need to go. I haven't changed any of my medications recently.",
+    "warning_paraphrase_of": "unable to urinate"
+  },
+  "pp-023": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any bowel or bladder issues, and I haven't changed any medications recently. Sometimes a warm bath helps a bit, but nothing consistently works. I'll call to set up an appointment soon.",
+    "warning": "I haven't had any bowel or bladder issues, but I did notice that my symptoms become acutely worse sometimes. I haven't changed any medications recently. I'll call to set up an appointment.",
+    "warning_sign": "symptoms become acutely worse",
+    "warning_paraphrase": "I noticed that the pain suddenly gets much more intense at times. I haven't had any bowel or bladder issues, and my medications haven't changed.",
+    "warning_paraphrase_of": "symptoms become acutely worse"
+  },
+  "pp-024": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any blood in my sputum, and I haven't had any chest pain. My medications haven't changed recently either. I'll call to schedule an appointment soon.",
+    "warning": "I haven't noticed any blood in my sputum, but I have had some shortness of breath. My medications haven't changed recently. I'll call to schedule an appointment soon.",
+    "warning_sign": "shortness of breath",
+    "warning_paraphrase": "I haven't noticed any blood in my sputum, but sometimes I feel like I can't catch my air. My medications haven't changed recently. I'll call to schedule an appointment soon.",
+    "warning_paraphrase_of": "shortness of breath"
+  },
+  "pp-029": {
+    "row_type": "no_sign",
+    "benign": "I haven't experienced these symptoms in the past, at least not to this extent. I did try taking some over-the-counter pain relievers, but they only help a little bit. I haven't tried any prescription medications yet. I'll call the office to see if I can come in sooner."
+  },
+  "pp-030": {
+    "row_type": "normal",
+    "benign": "I haven't noticed any other symptoms, and my medications haven't changed recently. I'll call to set up an appointment soon.",
+    "warning": "I've started to feel some chest pain along with the muscle weakness. My medications are the same as before. I'll call to schedule an appointment, but I'm worried about this new symptom.",
+    "warning_sign": "chest pain",
+    "warning_paraphrase": "I've been having this tight feeling in my upper body along with the muscle weakness. My medications are still the same. I'll call to make an appointment, but this new feeling is concerning.",
+    "warning_paraphrase_of": "chest pain"
+  },
+  "pp-035": {
+    "row_type": "no_sign",
+    "benign": "I've been using a couple of different antihistamines and a nasal spray, but they don't seem to be doing much this time around. In the past, you've prescribed me something stronger that really helped, but I can't remember the name. I think it was a prescription nasal spray or maybe some kind of pill. I just want to get back to feeling normal again."
+  },
+  "pp-037": {
+    "row_type": "no_sign",
+    "benign": "Hi Doctor, \n\nThanks for getting back to me. Besides the runny nose, I've also been sneezing quite a bit and my eyes are a bit itchy. In the past, I've tried over-the-counter antihistamines, and they usually help a little, but this time they don't seem to be doing much. I haven't tried anything else yet."
+  },
+  "pp-044": {
+    "row_type": "normal",
+    "benign": "I haven't been around anyone sick and my diet has been pretty normal. I haven't noticed any changes in my medications. No fever or nausea either.",
+    "warning": "I haven't been around anyone sick and my diet has been pretty normal. I haven't changed any medications recently. However, I have been experiencing some abdominal pain.",
+    "warning_sign": "abdominal pain",
+    "warning_paraphrase": "I haven't been around anyone sick and my diet has been pretty normal. I haven't changed any medications recently. However, my stomach has been hurting quite a bit.",
+    "warning_paraphrase_of": "abdominal pain"
+  },
+  "pp-046": {
+    "row_type": "normal",
+    "benign": "I've noticed the stiffness mostly in the mornings, but it does get a bit better as the day goes on. I haven't had any other symptoms like fever or swelling. I'm trying to stay active, but it's just been tough lately.",
+    "warning": "The stiffness and pain have been getting worse, and now I'm having trouble moving around more than before. I'm worried because it's becoming acutely worse.",
+    "warning_sign": "acutely worse",
+    "warning_paraphrase": "The pain and stiffness have suddenly gotten much more intense, and it's harder for me to do anything without feeling a lot of discomfort.",
+    "warning_paraphrase_of": "acutely worse"
+  },
+  "pp-047": {
+    "row_type": "emergency"
+  },
+  "pp-050": {
+    "row_type": "normal",
+    "benign": "I've been dealing with these symptoms for about two weeks now. I haven't made any changes to my medications recently. I'll keep monitoring it and see if it improves.",
+    "warning": "I've been experiencing these symptoms for about two weeks. I haven't changed any medications recently. I'll make sure to call the office to schedule an appointment.",
+    "warning_sign": "call the office",
+    "warning_paraphrase": "I've been having these symptoms for a couple of weeks. My medications haven't changed at all. I'll definitely reach out to set up a time to come in.",
+    "warning_paraphrase_of": "call the office"
+  },
+  "pp-051": {
+    "row_type": "normal",
+    "benign": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. My medications have stayed the same too.",
+    "warning": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. However, I've started experiencing some chest pain.",
+    "warning_sign": "chest pain",
+    "warning_paraphrase": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. However, I've started feeling a tightness in my upper body.",
+    "warning_paraphrase_of": "chest pain"
+  },
+  "pp-053": {
+    "row_type": "normal",
+    "benign": "My period started about five days ago. I've used around 8 pads in the past 24 hours. I haven't felt dizzy or lightheaded, and I haven't changed any medications recently. I tried using a heating pad for the cramps, which helped a bit.",
+    "warning": "My period started about five days ago. I've used around 10 pads in the past 24 hours. I've been experiencing dizziness or lightheadedness. I haven't changed any medications recently. I tried using a heating pad for the cramps, which helped a bit.",
+    "warning_sign": "dizziness or lightheadedness",
+    "warning_paraphrase": "My period started about five days ago. I've used around 10 pads in the past 24 hours. I've had moments where I felt like I might faint. I haven't changed any medications recently. I tried using a heating pad for the cramps, which helped a bit.",
+    "warning_paraphrase_of": "dizziness or lightheadedness"
+  },
+  "pp-056": {
+    "row_type": "normal",
+    "benign": "I haven't had any changes in my medications recently. Everything else seems to be the same as usual.",
+    "warning": "I haven't had any changes in my medications recently. I will call the office to schedule a visit as soon as possible.",
+    "warning_sign": "call the office",
+    "warning_paraphrase": "I haven't had any changes in my medications recently. I'll make sure to reach out to your team right away.",
+    "warning_paraphrase_of": "call the office"
+  },
+  "pp-057": {
+    "row_type": "normal",
+    "benign": "I haven't had any nausea, vomiting, or diarrhea. There's been some mild abdominal pain, but nothing too severe. I haven't had any abdominal surgery before, and my medications haven't changed recently.",
+    "warning": "I haven't had any nausea or vomiting, but I did experience some chest pain last night. No changes in my medications or any previous abdominal surgeries.",
+    "warning_sign": "chest pain",
+    "warning_paraphrase": "I haven't had any nausea or vomiting, but I felt a burning sensation in the middle of my body last night. My medications are the same, and I've never had abdominal surgery.",
+    "warning_paraphrase_of": "chest pain"
+  },
+  "pp-058": {
+    "row_type": "normal",
+    "benign": "I've been feeling this bone pain for about a week now. I haven't experienced anything like this before. I tried taking some over-the-counter pain relief, and it seems to help a bit. I haven't changed any medications recently.",
+    "warning": "The bone pain started a few days ago and seems to be getting worse. I haven't had this kind of pain before. I tried some painkillers, but they don't seem to help much. I'm worried because my symptoms have become acutely worse.",
+    "warning_sign": "acutely worse",
+    "warning_paraphrase": "The pain has gotten a lot more intense suddenly, and it's really concerning me. I tried some pain relief, but it doesn't seem to be working.",
+    "warning_paraphrase_of": "acutely worse"
+  },
+  "pp-060": {
+    "row_type": "normal",
+    "benign": "I've been feeling this way for about two days now. I haven't been around anyone who's sick recently. No changes in my medications either. I think I'll wait a bit longer to see if it gets better.",
+    "warning": "It's been a couple of days since I started feeling this way. I haven't been around anyone sick, but I did notice some vomiting yesterday. No changes in my medications.",
+    "warning_sign": "vomiting",
+    "warning_paraphrase": "I've been feeling off for a couple of days and yesterday I couldn't keep my food down. I haven't been around anyone who's sick and my medications are the same.",
+    "warning_paraphrase_of": "vomiting"
+  },
+  "pp-061": {
+    "row_type": "normal",
+    "benign": "I've been feeling this way for about two weeks now. I haven't been around anyone who's been sick, and I haven't noticed any tick bites. I haven't had any changes in my medications either. I just feel stiff and tired all the time.",
+    "warning": "It's been going on for a couple of weeks. I haven't been around anyone sick or had any tick bites. But I did have a fever a couple of days ago. No changes in my medications.",
+    "warning_sign": "fever",
+    "warning_paraphrase": "I've been feeling really hot and sweaty, like I might have a temperature.",
+    "warning_paraphrase_of": "fever"
+  },
+  "pp-071": {
+    "row_type": "no_sign",
+    "benign": "Hi Doc, thanks for getting back to me. I've noticed the bloating mostly after meals, and it seems to be worse in the evenings. I haven't changed my diet recently, and I'm not experiencing any pain, just a lot of discomfort. I haven't had any other symptoms like nausea or vomiting."
+  },
+  "pp-073": {
+    "row_type": "emergency"
+  },
+  "pp-074": {
+    "row_type": "emergency"
+  },
+  "pp-075": {
+    "row_type": "normal",
+    "benign": "I don't have a history of allergies, and I haven't been around anyone who's been sick recently. I haven't noticed any wheezing or changes in my breathing. My medications haven't changed either.",
+    "warning": "I don't have a history of allergies, but I have been around someone who was sick recently. I have noticed some shortness of breath, which is concerning. My medications haven't changed.",
+    "warning_sign": "shortness of breath",
+    "warning_paraphrase": "I don't have a history of allergies, but I have been around someone who was sick recently. I've been feeling like I can't catch my air, which is worrying. My medications haven't changed.",
+    "warning_paraphrase_of": "shortness of breath"
+  },
+  "pp-077": {
+    "row_type": "normal",
+    "benign": "Hi Doc, I haven't noticed any dizziness or anything unusual. The abdominal pain comes and goes, but it's not too severe. I'm trying to keep track of what I eat to see if that helps.",
+    "warning": "Hi Doc, I have been experiencing some lightheadedness at times. The abdominal pain is still there, but it's manageable. I'm trying to see if any specific foods are causing it.",
+    "warning_sign": "lightheadedness",
+    "warning_paraphrase": "Hi Doc, I've been feeling a bit off balance and like my head is spinning sometimes. The abdominal pain is still there, but it's manageable. I'm trying to see if any specific foods are causing it.",
+    "warning_paraphrase_of": "lightheadedness"
+  },
+  "pp-078": {
+    "row_type": "no_sign",
+    "benign": "Hi Dr.,\n\nThanks for getting back to me. I've tried some over-the-counter antihistamines, and they usually help a bit, but this time they don't seem to be doing much. In the past, using a saline nasal spray has also provided some relief, but I'm still feeling pretty congested. Any other suggestions would be great."
+  },
+  "pp-085": {
+    "row_type": "normal",
+    "benign": "I haven't experienced these symptoms before. Both arms are affected, but it's more noticeable in my right arm. I'm right-handed, so it's been a bit inconvenient. The over-the-counter medications have helped somewhat, but not completely.",
+    "warning": "I haven't had these symptoms before. It's affecting both arms, but more so on my right side. I'm right-handed, which makes it a bit more challenging. The medications have helped a bit, but I have had some recent changes in your medications.",
+    "warning_sign": "recent changes in your medications",
+    "warning_paraphrase": "This is the first time I've had these symptoms. Both arms are affected, but the right one is worse. Being right-handed, it's been a bit of a hassle. The painkillers help a little, but I did switch up some of my meds lately.",
+    "warning_paraphrase_of": "recent changes in your medications"
+  },
+  "pp-091": {
+    "row_type": "no_sign",
+    "benign": "I've been experiencing these symptoms for about two months now. My typical menstrual cycle is around 28 days, and my periods usually last about 5 days. I haven't had any recent changes in my medications. I'll call the office to schedule an appointment soon."
+  },
+  "pp-092": {
+    "row_type": "no_sign",
+    "benign": "I've been having these sweating episodes for about two weeks now. I haven't noticed any changes in my menstrual cycle recently. As for medications, I haven't started or stopped anything new lately. I'll call to schedule an appointment soon."
+  },
+  "pp-095": {
+    "row_type": "emergency"
+  }
+}
