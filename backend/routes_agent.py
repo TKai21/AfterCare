@@ -73,10 +73,14 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
         return (replace(result, care_team_question=None, flagged=False),
                 Settle("open", NEEDS_DOCTOR, stop))
     if result.replies_to_questions is False:
+        # A blocker (say a warning sign in the new message) is the more useful
+        # summary for the doctor; otherwise the patient simply moved on.
+        settle = (Settle("open", NEEDS_DOCTOR, blocker) if blocker is not None
+                  else Settle("open", NOT_ANSWERED, NOT_ANSWERED))
         if result.kind == "close":  # a close that is not a reply is never delivered
-            return handoff_result(doctor_name), Settle("open", NOT_ANSWERED, NOT_ANSWERED)
+            return handoff_result(doctor_name), settle
         # The new question is answered as usual (its own gate and question).
-        return result, Settle("open", NOT_ANSWERED, NOT_ANSWERED)
+        return result, settle
     if result.kind == "close":
         stop = blocker or (None if gate_passed else LOW_CONFIDENCE_STOP)
         if stop is not None:
@@ -333,10 +337,10 @@ async def ask(
                 ) from exc
             result = emergency_result()
 
-        if (pending is not None and result.kind in ("answer", "close") and not terms
-                and result.replies_to_questions is not False):
+        if pending is not None and not terms:
             # The server, not the model, decides whether a close is delivered
-            # (4.4); the same checks decide whether an answer settles the case.
+            # (4.4); the same checks decide whether an answer settles the case,
+            # and name what the doctor must see when the patient asked something else.
             lexicon = get_lexicon()
             blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
                 pending.question, body.question, terms, doctor_terms, document_terms,
@@ -366,7 +370,7 @@ async def ask(
     settle: Optional[Settle] = None
     if pending is not None:
         result, settle = settle_reply(result, terms, blocker, gate_passed, name)
-        if settle.status == "open" and settle.reason == NOT_ANSWERED and not gate_passed:
+        if result.replies_to_questions is False and result.kind == "answer" and not gate_passed:
             result = low_confidence_result(body.question, name)  # the new question's gate
     elif not gate_passed:
         result = low_confidence_result(body.question, name)

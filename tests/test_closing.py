@@ -12,7 +12,10 @@ def absent(*terms):
 
 
 def blocker(reply, original=ORIGINAL, emergency=(), doctor=DOCTOR_TERMS, document=(),
-            signs=(), prescribed=("amoxicillin",)):
+            signs=None, prescribed=("amoxicillin",)):
+    """signs=None: the model lists every given term as absent."""
+    if signs is None:
+        signs = absent(*doctor, *document)
     return close_blocker(original, reply, list(emergency), list(doctor), list(document),
                          list(signs), set(prescribed), get_lexicon())
 
@@ -26,7 +29,7 @@ def test_reason_strings():
 
 def test_benign_reply_closes():
     assert blocker("Two days, no fever, no medication changes",
-                   signs=absent("fever", "vomiting")) is None
+                   signs=absent(*DOCTOR_TERMS)) is None
 
 
 def test_emergency_terms_block():
@@ -56,7 +59,7 @@ def test_missing_model_status_blocks():
 
 
 def test_model_term_matches_case_insensitively():
-    assert blocker("No fever", signs=absent("  FEVER ")) is None
+    assert blocker("No fever", signs=absent("  FEVER ", "VOMITING", "Threw Up")) is None
 
 
 def test_warning_in_first_message_blocks():
@@ -106,7 +109,7 @@ def test_checks_run_in_order():
 
 
 def test_original_question_gets_the_medication_and_drug_checks():
-    signs = absent("fever", "threw up")
+    signs = absent(*DOCTOR_TERMS)
     assert blocker("No fever, never threw up.",
                    original="I stopped my antibiotic and the incision is pink.",
                    signs=signs) == "Medication change reported"
@@ -115,7 +118,7 @@ def test_original_question_gets_the_medication_and_drug_checks():
 
 
 def test_timing_changes_are_medication_changes():
-    signs = absent("fever", "threw up")
+    signs = absent(*DOCTOR_TERMS)
     for reply in ("No fever, never threw up. I took my amoxicillin late yesterday.",
                   "I took it early this morning", "I took the pill at the wrong time",
                   "I take it at night instead", "I missed one", "I doubled up yesterday"):
@@ -139,9 +142,22 @@ def test_model_status_counts_for_document_terms_too():
 
 
 def test_model_status_for_a_term_it_was_not_given_is_ignored():
-    assert blocker("It looks fine", signs=absent("fever", "threw up") + [
+    assert blocker("It looks fine", signs=absent(*DOCTOR_TERMS) + [
         {"term": "made up", "status": "present"}]) is None
 
 
 def test_benign_reply_with_every_term_absent_and_none_matched_closes():
-    assert blocker("It looks fine and I feel well", signs=absent("fever", "threw up")) is None
+    assert blocker("It looks fine and I feel well", signs=absent(*DOCTOR_TERMS)) is None
+
+
+def test_a_given_term_left_out_of_warning_signs_blocks():
+    # The matcher misses "vomited" for "threw up", and the model left it out.
+    assert blocker("No fever. I vomited twice though.", doctor=["fever", "threw up"],
+                   signs=absent("fever")) == "Warning sign: threw up"
+    assert close_blocker(ORIGINAL, "It looks fine", [], DOCTOR_TERMS, ["redness"], [],
+                         {"amoxicillin"}, get_lexicon()) == "Warning sign: fever"
+
+
+def test_every_given_term_absent_still_closes():
+    assert blocker("It looks fine", document=["redness"],
+                   signs=absent("fever", "vomiting", "threw up", "redness")) is None

@@ -1059,7 +1059,8 @@ async def test_new_question_hands_off_the_symptom(client, fake_llm):
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
     text = "Take amoxicillin 500 mg three times daily [2]."
-    fake_llm.script(reply_final("answer", text, [2], replies=False))
+    fake_llm.script(reply_final("answer", text, [2], replies=False,
+                                signs=absent("fever", "threw up")))
     body = (await post_ask(client, h, "How often do I take amoxicillin?",
                            doctor_id=doctor_id)).json()
     assert body["kind"] == "answer" and body["answer"] == text  # the new question is answered
@@ -1125,7 +1126,7 @@ async def test_new_question_keeps_its_own_gate(client, fake_llm):
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
     fake_llm.script(reply_final("answer", "Take amoxicillin 500 mg three times daily [2].", [2],
-                                replies=False))
+                                replies=False, signs=absent("fever", "threw up")))
     body = (await post_ask(client, h, "How often do I take it?", doctor_id=doctor_id)).json()
     assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
     waiting, new = await all_questions(client)
@@ -1273,3 +1274,43 @@ async def test_pending_lookup_failure_keeps_the_emergency_answer(client, fake_ll
     resp = await post_ask(client, h, "I have chest pain", doctor_id=doctor_id)
     assert resp.status_code == 200, resp.text
     assert resp.json()["kind"] == "emergency"
+
+
+async def test_a_term_the_model_left_out_hands_off(client, fake_llm):
+    reply = "No fever. I vomited twice though."
+    for kind, text, cites in (("close", CLOSE_TEXT + " [5]", [5]),
+                              ("answer", "Take amoxicillin 500 mg three times daily [2].", [2])):
+        h = await confirmed(client, fake_llm, headers=await auth_headers(client, f"p.{kind}"))
+        doctor_id = await ask_first_doctor(client, fake_llm, f"dr.{kind}", f"Dr. {kind}")
+        await start_clarify(client, fake_llm, h, doctor_id)
+        fake_llm.script(reply_final(kind, text, cites, signs=absent("fever")))
+        body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+        q = [q for q in await all_questions(client) if q.doctor_id == doctor_id][0]
+        assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
+            "open", NEEDS_DOCTOR, "Warning sign: threw up", reply), kind
+        if kind == "close":
+            assert body["answer"] == fallback_answer(f"Dr. {kind}")
+        else:
+            assert body["answer"] == text  # the answer is delivered, the case is not settled
+
+
+async def test_empty_warning_signs_block_the_close(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=[]))
+    body = (await post_ask(client, h, "It looks fine.", doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+async def test_a_new_question_names_the_blocker_when_one_applies(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("answer", "Take amoxicillin 500 mg three times daily [2].", [2],
+                                replies=False, signs=absent("fever")))
+    await post_ask(client, h, "I threw up. How often do I take amoxicillin?", doctor_id=doctor_id)
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Warning sign: threw up")
