@@ -78,7 +78,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
-| `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
+| `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | on, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
 | `GUIDANCE_MIN_SIMILARITY` | 0.45 | Minimum cosine similarity for a doctor guidance entry |
 | `FOODS_PATH` | `data/foods.json` | Food table |
 | `LABEL_FIXTURES` | empty | Dev only: `1` answers RxNav and DailyMed from the recorded `demo/labels` fixtures (offline). Leave it unset in production |
@@ -105,13 +105,13 @@ The index `knowledge/index.sqlite3` is not in git: build it locally with `index`
 
 A library search (the agent's `search_education_library` tool) always starts by filtering. Only manifest sources and the approved drug labels for this patient's own drugs are eligible. The RxCUI filter runs in SQL before any scoring, so another patient's drug label never reaches BM25 or the reranker. What happens next depends on whether the reranker is on.
 
-**Reranker off (the default): embedding-only search.** The best 5 passages by embedding cosine similarity, above the floor `RAG_MIN_SIMILARITY`. This is the search AfterCare has always used.
-
-**Reranker on (`RERANK_ENABLED=1`):**
+**Reranker on (the default, once the model files are fetched):**
 
 1. **Two candidate lists.** The top 20 passages by embedding cosine similarity, and the top 20 by BM25 keyword score (`backend/search.py`; IDF and average length come from the whole index and are rebuilt when the index changes).
 2. **Fusion.** The two lists are merged by reciprocal rank fusion (k = 60) into one list without duplicates.
 3. **Rerank.** The first 20 fused passages are scored by a local cross-encoder (`ms-marco-MiniLM-L-6-v2`, run through ONNX Runtime, no PyTorch, no patient text leaves the server). The best 5 with a score of at least `RAG_MIN_RERANK` are returned. There is no cosine floor here, so a passage that only BM25 found can be returned when the reranker scores it high enough.
+
+**Reranker off (`RERANK_ENABLED=0`, or no model files): embedding-only search.** The best 5 passages by embedding cosine similarity, above the floor `RAG_MIN_SIMILARITY`. This is the search AfterCare used before the reranker.
 
 **Fallback.** If the reranker is missing or fails (an exception, the wrong number of scores, a NaN), the search returns the embedding-only result. A failure is logged once per store and never fails the patient's turn. `manage_knowledge.py status` and the startup log say whether the reranker is on, and why not. Fusion without the reranker ("hybrid") is kept only as an explicit mode for the evaluation, because it measured worse than embedding-only search.
 
@@ -123,7 +123,7 @@ python backend/manage_knowledge.py fetch-reranker   # into models/<RERANK_MODEL>
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `RERANK_ENABLED` | off | `1` turns the reranker on (it needs the model files from `fetch-reranker`); any other value, or unset, leaves it off |
+| `RERANK_ENABLED` | on | `0` turns the reranker off; `1` or unset leaves it on (it needs the model files from `fetch-reranker`, and without them the server starts with a warning and searches embedding-only). Any other value stops the server at startup |
 | `RERANK_MODEL` | `ms-marco-MiniLM-L-6-v2` | Reranker name from `reranker.RERANKERS` |
 | `RAG_MIN_RERANK` | -6.5 | Lowest reranker score (a logit) a passage needs to be returned |
 
@@ -164,7 +164,7 @@ All 106 questions (86 answerable, 20 no-answer):
 
 **`RAG_MIN_RERANK` = -6.5.** The rule is the highest cut, from -10 to 10 in steps of 0.5, whose tune-split hit@5 equals hit@5 with no cut. On the tune split hit@5 is 1.000 from no cut up to -6.5 and drops to 0.977 at -6.0. At -6.5, 4 of the 10 tune no-answer questions still return passages. A cut of 1.0 would remove them all, but hit@5 would fall to 0.841.
 
-**Ship decision: the reranker stays off by default.** The ship rule (from the design spec) keeps rerank on only if, on the test split, it is not worse than embedding-only search on hit@5 and MRR, and returns no more no-answer false hits. Rerank wins on hit@1 (0.952 against 0.857), MRR (0.964 against 0.917) and false hits (7 against 10), but loses on hit@5 (0.976 against 1.000). The loss is one question, "I get lightheaded when I stand up since starting my water pill": embedding search ranks the furosemide (Lasix) label fifth, and neither hybrid nor rerank returns it. This is the same question that decided the first, 40-question round. So `RERANK_ENABLED` defaults to off and library search is embedding-only, as before this work. Set `RERANK_ENABLED=1` to use the calibrated reranker. Rerank did not lose to hybrid on the test split (equal hit@5, better hit@1, MRR and false hits), so the alternative model `bge-reranker-base` was not tried.
+**Ship decision: the reranker is on by default (team decision, 2026-11-15).** The ship rule in the design spec keeps rerank on only if, on the test split, it is not worse than embedding-only search on hit@5 and MRR, and returns no more no-answer false hits. Rerank wins on hit@1 (0.952 against 0.857), MRR (0.964 against 0.917) and false hits (7 against 10), but loses on hit@5 (0.976 against 1.000). The loss is one question, "I get lightheaded when I stand up since starting my water pill": embedding search ranks the furosemide (Lasix) label fifth, and neither hybrid nor rerank returns it. This is the same question that decided the first, 40-question round. The rule therefore said off, and the reranker first shipped off. The team overrode it: putting the right passage first more often and returning fewer passages for questions the library cannot answer outweigh one question at rank five, on a set where one question moves hit@5 by 0.024. Set `RERANK_ENABLED=0` to go back to embedding-only search. Rerank did not lose to hybrid on the test split (equal hit@5, better hit@1, MRR and false hits), so the alternative model `bge-reranker-base` was not tried.
 
 The label filter held in every mode: no near-miss question returned the label of a drug outside the patient's set.
 
@@ -275,7 +275,7 @@ python scripts/eval_clone.py --agreement         # human against judge, once hum
 python scripts/eval_clone.py --generate          # regenerate memory.json (done once; review it by hand)
 ```
 
-Results (`eval/clone/results.md`, clone gpt-4o-mini, judge gpt-4o, 450 answers, 2026-11-15). Habit hit rate is the share of the doctor's judged items met, mean over 3 repeats:
+Results (`eval/clone/results.md`, clone gpt-4o-mini, judge gpt-4o, 450 answers, 2026-11-15, measured before the library reranker was turned on by default, so library search was embedding-only; the doctor memory search is the same either way). Habit hit rate is the share of the doctor's judged items met, mean over 3 repeats:
 
 | Doctor | D1 with / without | D2 with / without | D3 with / without | D4 with / without |
 |---|---|---|---|---|

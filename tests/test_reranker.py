@@ -93,7 +93,7 @@ async def test_fetch_unknown_model(tmp_path):
 def test_load_reranker_notes(tmp_path, monkeypatch):
     monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path)
     assert load_reranker(Settings(rerank_enabled=False)) == (
-        None, "off: disabled, set RERANK_ENABLED=1 to turn it on")
+        None, "off: disabled by RERANK_ENABLED=0")
     got, note = load_reranker(Settings(rerank_enabled=True, rerank_model="nope"))
     assert got is None and note == "off: unknown RERANK_MODEL nope"
     got, note = load_reranker(Settings(rerank_enabled=True))

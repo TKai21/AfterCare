@@ -27,10 +27,11 @@ class Settings:
     # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.
     label_fixtures: bool = False
     rerank_model: str = "ms-marco-MiniLM-L-6-v2"
-    # Off by default: on the evaluation set's test split the reranker lost one
-    # hit@5 to embedding-only search (README, "Library search"). RERANK_ENABLED=1
-    # turns it on. Without it, library search is embedding-only.
-    rerank_enabled: bool = False
+    # On by default: on the evaluation set's test split the reranker beat
+    # embedding-only search on hit@1, MRR and no-answer false hits, at the cost
+    # of one hit@5 question (README, "Library search"). RERANK_ENABLED=0 turns
+    # it off; without the model files search is embedding-only either way.
+    rerank_enabled: bool = True
     # Calibrated by scripts/eval_library.py --sweep on the tune split.
     rag_min_rerank: float = -6.5
 
@@ -44,6 +45,17 @@ class Settings:
     def validate(self) -> None:
         if not self.jwt_secret or self.jwt_secret == PLACEHOLDER_SECRET:
             raise RuntimeError("Set a unique JWT_SECRET in the project .env file.")
+
+
+def _flag(env, name: str, default: bool) -> bool:
+    """"1" is on, "0" is off, unset or empty is the default; anything else is
+    refused, so a typo such as "false" cannot silently mean the opposite."""
+    value = env.get(name, "").strip()
+    if not value:
+        return default
+    if value in ("0", "1"):
+        return value == "1"
+    raise RuntimeError(f"{name} must be 0 or 1, not {value!r}.")
 
 
 @lru_cache
@@ -70,6 +82,6 @@ def get_settings() -> Settings:
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
         label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
         rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),
-        rerank_enabled=env.get("RERANK_ENABLED", "") == "1",
+        rerank_enabled=_flag(env, "RERANK_ENABLED", defaults.rerank_enabled),
         rag_min_rerank=float(env.get("RAG_MIN_RERANK", defaults.rag_min_rerank)),
     )

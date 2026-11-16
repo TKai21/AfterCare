@@ -35,18 +35,24 @@ def test_settings_parse_rerank_env(monkeypatch, clean_settings_cache):
     assert settings.rerank_model == "x"
 
 
-def test_rerank_is_off_by_default_and_on_with_rerank_enabled_1(monkeypatch, clean_settings_cache):
-    # Off by default: the reranker lost to embeddings on test-split hit@5 (README, Library search).
-    assert Settings().rerank_enabled is False
-    monkeypatch.delenv("RERANK_ENABLED", raising=False)
-    assert get_settings().rerank_enabled is False
-    get_settings.cache_clear()  # get_settings is cached; each environment needs a fresh read
-    monkeypatch.setenv("RERANK_ENABLED", "1")
-    assert get_settings().rerank_enabled is True
-    for off in ("", "0", "true"):
-        get_settings.cache_clear()
-        monkeypatch.setenv("RERANK_ENABLED", off)
-        assert get_settings().rerank_enabled is False
+def test_rerank_is_on_by_default_and_off_with_rerank_enabled_0(monkeypatch, clean_settings_cache):
+    # On by default: the reranker beat embeddings on test-split hit@1, MRR and
+    # false hits (README, Library search).
+    assert Settings().rerank_enabled is True
+    for value, expected in ((None, True), ("", True), ("1", True), (" 1 ", True), ("0", False)):
+        get_settings.cache_clear()  # get_settings is cached; each environment needs a fresh read
+        if value is None:
+            monkeypatch.delenv("RERANK_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("RERANK_ENABLED", value)
+        assert get_settings().rerank_enabled is expected, value
+
+
+@pytest.mark.parametrize("value", ["true", "false", "off", "yes", "2"])
+def test_rerank_enabled_refuses_anything_but_0_or_1(monkeypatch, clean_settings_cache, value):
+    monkeypatch.setenv("RERANK_ENABLED", value)
+    with pytest.raises(RuntimeError, match="RERANK_ENABLED must be 0 or 1"):
+        get_settings()
 
 
 def test_rag_min_rerank_default_is_the_calibrated_cut():
@@ -81,7 +87,7 @@ async def test_app_with_rerank_disabled_logs_info_not_warning(tmp_path, monkeypa
     app = create_app(settings, llm=FakeLLM())
     with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         async with app.router.lifespan_context(app):
-            assert app.state.store.reranker_note == "off: disabled, set RERANK_ENABLED=1 to turn it on"
+            assert app.state.store.reranker_note == "off: disabled by RERANK_ENABLED=0"
     lines = [r for r in caplog.records if "Library reranker" in r.getMessage()]
     assert [r.levelno for r in lines] == [logging.INFO]
 
