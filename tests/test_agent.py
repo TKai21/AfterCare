@@ -2344,7 +2344,8 @@ def test_a_fever_item_of_the_merged_warning_list_passes():
 
 def test_one_sentence_may_combine_numbers_of_different_evidence():
     ev = evidence("Drink at least 2 liters of water every day.", "Walk for 30 minutes.")
-    assert check("Drink 2 liters of water and walk for 30 minutes [1, 2].", [1, 2],
+    # Each clause carries its own marker; one clause may not mix evidence (R1).
+    assert check("Drink 2 liters of water [1] and walk for 30 minutes [2].", [1, 2],
                  ev)[0] == "answer"
 
 
@@ -2366,3 +2367,46 @@ def test_drug_binding_error_names_the_evidence_that_names_the_drug():
 def test_drug_binding_lets_911_through():
     ev = evidence("Lisinopril 10 mg once daily.", "Call 911 if you faint.")
     assert check("If you faint after lisinopril, call 911 [1, 2].", [1, 2], ev)[0] == "answer"
+
+
+# Grounding fix 2: a statement takes its numbers from one unit, and a drug
+# binds across sentences and within one prose paragraph.
+
+DOSE_A = "Metformin: take 500 mg once daily with food."
+DOSE_B = "Lisinopril: take 10 mg twice daily."
+
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    # I1: a drug-free statement mixing the numbers of two evidence items
+    ((DOSE_A, DOSE_B), "Take 500 mg twice daily [1][2]."),
+    (("Fever above 101 means call.", "Wait 7 days then call"), "Call if fever above 7 [1][2]."),
+    # I2: the binding is not defeated by a sentence split, a pronoun or a descriptor
+    ((DOSE_A, DOSE_B), "Take lisinopril [2]. 500 mg twice daily [1][2]."),
+    ((DOSE_A, DOSE_B), "Take lisinopril 10 mg [2]. Take it once daily [1]."),
+    ((DOSE_A, DOSE_B), "Take your blood pressure pill 500 mg twice daily [1][2]."),
+    # I3: one prose paragraph naming two drugs
+    (("Metformin 500 mg once daily. Lisinopril 10 mg twice daily.",),
+     "Take lisinopril 500 mg once daily [1]."),
+    (("Take metformin 500 mg once daily and lisinopril 10 mg twice daily",),
+     "Take lisinopril 500 mg once daily [1]."),
+])
+def test_grounding_blocks_cross_unit_mixing(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    with pytest.raises(ValueError, match="(come from|Numbers not)"):
+        check(answer, sorted(set(map(int, re.findall(r"\[(\d+)\]", answer)))), ev)
+
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    ((DOSE_A, DOSE_B), "Take metformin 500 mg once daily with food [1]."),
+    ((DOSE_A, DOSE_B), "Take lisinopril 10 mg twice daily [2]."),
+    ((DOSE_A, DOSE_B), "Take lisinopril 10 mg [2]. Take it twice daily [2]."),
+    (("Metformin 500 mg once daily. Lisinopril 10 mg twice daily.",),
+     "Take lisinopril 10 mg twice daily [1]."),
+    (("Take metformin 500 mg once daily and lisinopril 10 mg twice daily",),
+     "Take metformin 500 mg once daily and lisinopril 10 mg twice daily [1]."),
+    (("Take 500 mg twice daily with food.",), "Take 500 mg twice daily [1]."),
+    (("Fever above 101 means call.",), "Call if fever above 101 [1]."),
+])
+def test_grounding_still_passes_one_unit_statements(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    assert check(answer, sorted(set(map(int, re.findall(r"\[(\d+)\]", answer)))), ev)[0] == "answer"

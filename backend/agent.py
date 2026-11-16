@@ -660,7 +660,7 @@ def validate(
     unsupported = stated - allowed
     if unsupported:
         raise ValueError(_unsupported_numbers_error(unsupported, evidence))
-    _check_statements(MARKER.sub(" ", answer), {n: evidence[n] for n in cited}, evidence, lexicon)
+    _check_statements(answer, {n: evidence[n] for n in cited}, evidence, lexicon)
     return kind, answer, sorted(cited), question
 
 
@@ -710,28 +710,88 @@ def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evid
 class _GroundingUnit(NamedTuple):
     tokens: frozenset  # the number tokens it grounds
     drugs: frozenset  # the drugs it names, with their lexicon equivalents
+    comparator: bool = False  # whether it holds a threshold word ("above", "or more")
+
+
+# A threshold word before a number in an answer ("above 7"), and anywhere in
+# evidence ("above 101", "7 or more"): a stated threshold needs a unit that
+# holds one, so a bare "7 days" never grounds "above 7".
+_COMPARATOR = (r"(?:above|over|more than|greater than|exceed(?:s|ing)?|below|under|less than|"
+               r"fewer than|at least|at most|up to|higher than|lower than|beyond|>=?|<=?)")
+_THRESHOLD_IN_ANSWER = re.compile(rf"(?<![A-Za-z]){_COMPARATOR}\s*(?:about\s+)?[0-9.]",
+                                  re.IGNORECASE)
+_THRESHOLD_IN_EVIDENCE = re.compile(
+    rf"(?<![A-Za-z]){_COMPARATOR}(?![A-Za-z])|[0-9]\s*(?:\+|or\s+(?:more|less|higher|lower|"
+    r"above|below|greater|fewer)|and\s+(?:above|up|over|below))", re.IGNORECASE)
+_CLAUSE_BREAK = re.compile(r"\s+and\s+|;|,(?=\s)", re.IGNORECASE)
 
 
 def _with_equivalents(names: set[str], lexicon: DrugLexicon) -> frozenset[str]:
     return frozenset().union(names, *(lexicon.equivalents(n) for n in names))
 
 
-def _grounding_units(e: Evidence, lexicon: Optional[DrugLexicon]) -> list[_GroundingUnit]:
-    """The units one statement citing `e` may take its numbers from. A merged
-    document paragraph (documents.evidence_paragraphs: a heading line ending
-    with ":" and one list item per line under it) gives one unit per item, each
-    with the heading, so an item never lends its numbers to a sibling. Any other
-    evidence is one unit."""
+def _grounding_texts(e: Evidence) -> list[str]:
+    """The texts of the units one statement citing `e` may take its numbers
+    from. A merged document paragraph (documents.evidence_paragraphs: a heading
+    line ending with ":" and one list item per line under it) gives one text
+    per item, each with the heading, so an item never lends its numbers to a
+    sibling. Any other evidence is one text."""
     text = e.check_text
     if e.kind == "document" and "\n" in text:
         heading, *items = text.split("\n")
-        texts = [f"{heading}\n{item}" for item in items]
-    else:
-        texts = [text]
-    return [_GroundingUnit(
-        frozenset(number_tokens(clean_text(t)) | erased_numerals(t)),
-        _with_equivalents(lexicon.find(clean_text(t)), lexicon) if lexicon else frozenset(),
-    ) for t in texts]
+        return [f"{heading}\n{item}" for item in items]
+    return [text]
+
+
+def _unit(raw: str, text: str, lexicon: Optional[DrugLexicon],
+          drug_text: Optional[str] = None) -> _GroundingUnit:
+    cleaned = clean_text(text)
+    return _GroundingUnit(
+        frozenset(number_tokens(cleaned) | erased_numerals(raw)),
+        _with_equivalents(lexicon.find(clean_text(drug_text or text)), lexicon) if lexicon
+        else frozenset(),
+        bool(_THRESHOLD_IN_EVIDENCE.search(cleaned)))
+
+
+def _grounding_units(e: Evidence, lexicon: Optional[DrugLexicon]) -> list[_GroundingUnit]:
+    """The units a statement that names no drug may take its numbers from
+    (_grounding_texts)."""
+    return [_unit(t, t, lexicon) for t in _grounding_texts(e)]
+
+
+def _clauses(sentence: str, lexicon: DrugLexicon) -> list[str]:
+    """`sentence` cut at "and", ";" and "," into one clause per drug it names:
+    a clause that names no drug stays with the one before it (the first, with
+    the one after), and neighbours that name the same drugs are one clause."""
+    groups: list[tuple[list[str], set[str]]] = []
+    lead: list[str] = []
+    for piece in _CLAUSE_BREAK.split(sentence):
+        named = lexicon.find(piece)
+        if not named:
+            (groups[-1][0] if groups else lead).append(piece)
+        elif groups and groups[-1][1] == named:
+            groups[-1][0].append(piece)
+        else:
+            groups.append(([*lead, piece], named))
+            lead = []
+    if not groups:
+        return [sentence]
+    return [", ".join(parts) for parts, _ in groups]
+
+
+def _drug_units(e: Evidence, lexicon: DrugLexicon) -> list[_GroundingUnit]:
+    """The units a statement that names a drug may take its numbers from: each
+    sentence of the evidence, cut again into one clause per drug it names
+    (_clauses), keeping the heading of its list item. A sentence of one drug
+    never lends its numbers to a statement about another."""
+    units = []
+    for text in _grounding_texts(e):
+        heading, _, body = text.rpartition("\n")
+        prefix = f"{heading}\n" if heading else ""
+        for sentence in _grounding_sentences(clean_text(body)):
+            for clause in _clauses(sentence, lexicon):
+                units.append(_unit(text, prefix + clause, lexicon))
+    return units
 
 
 def _covers(need: frozenset, groups: list[list[frozenset]]) -> bool:
@@ -760,32 +820,53 @@ def _grounding_sentences(text: str) -> list[str]:
             for s in [f"{body}{end}" for body, end in found] + [leftover] if s.strip()]
 
 
+_MARKER_RUN = re.compile(rf"(?:{MARKER.pattern}\s*)+")
+_CUT = "\ue001"
+
+
 def _check_statements(text: str, cited: dict[int, Evidence], evidence: dict[int, Evidence],
                       lexicon: Optional[DrugLexicon]) -> None:
-    """Statement-level grounding, on top of the answer-level check: the numbers
-    of each sentence of `text` (markers removed) must be held by at most one
-    grounding unit (_grounding_units) of each cited evidence, and a sentence
-    that names a drug may take its numbers only from units that name that drug
-    or an equivalent. ALWAYS_ALLOWED_NUMBERS need no unit. Raises ValueError."""
-    units = [_grounding_units(e, lexicon) for e in cited.values()]
-    for sentence in _grounding_sentences(text):
+    """Statement-level grounding, on top of the answer-level check, for each
+    statement of `text` (a sentence cut after each run of citation markers, so
+    "Drink 2 liters [1] and walk 10 minutes [2]" is two) that states numbers
+    (ALWAYS_ALLOWED_NUMBERS need no unit). A sentence naming no drug, and none
+    inherited, takes all its numbers from one grounding unit (_grounding_units)
+    of one cited evidence. A sentence that names a drug, or has none and
+    inherits those of the most recent earlier sentence that named any, takes
+    its numbers, for each drug, from one unit that names that drug or an
+    equivalent (_drug_units). A threshold ("above 7") needs a unit with a
+    threshold word. Raises ValueError."""
+    coarse = [u for e in cited.values() for u in _grounding_units(e, lexicon)]
+    fine = [u for e in cited.values() for u in _drug_units(e, lexicon)] if lexicon else []
+    recent: list[str] = []
+    statements = [part for sentence in _grounding_sentences(_MARKER_RUN.sub(_CUT, text))
+                  for part in sentence.split(_CUT) if part.strip()]
+    for sentence in statements:
+        found = sorted(lexicon.find(sentence)) if lexicon else []
+        drugs = found or recent
+        recent = found or recent
         need = frozenset(number_tokens(sentence)) - ALWAYS_ALLOWED_NUMBERS
         if not need:
             continue
-        drugs = sorted(lexicon.find(sentence)) if lexicon else []
+        threshold = bool(_THRESHOLD_IN_ANSWER.search(sentence))
+
+        def usable(units):
+            return [u for u in units if u.comparator or not threshold]
+
         if drugs:
-            named = _with_equivalents(set(drugs), lexicon)
-            if not _covers(need, [[u.tokens for u in group if u.drugs & named]
-                                  for group in units]):
+            groups = [[u.tokens for u in usable(fine) if u.drugs & _with_equivalents({d}, lexicon)]
+                      for d in drugs]
+            if not _covers(need, groups):
                 raise ValueError(_drug_binding_error(sentence, drugs, need, evidence, lexicon))
-        elif not _covers(need, [[u.tokens for u in group] for group in units]):
-            lists = [n for n, e in cited.items() if len(_grounding_units(e, lexicon)) > 1
-                     and need & set().union(*(u.tokens for u in _grounding_units(e, lexicon)))]
+        elif not _covers(need, [[u.tokens for u in usable(coarse)]]):
+            where = [n for n, e in cited.items()
+                     if need & set().union(*(u.tokens for u in _grounding_units(e, lexicon)))]
             raise ValueError(
-                f"In \"{sentence.strip()}\", the numbers {_and(_shown(need))} come from different "
-                f"list items of evidence [{', '.join(map(str, lists))}]. Each statement may use the "
-                "numbers of only one list item and its heading: give each item its own sentence or "
-                "list line, with only that item's numbers.")
+                f"In \"{sentence.strip()}\", the numbers {_and(_shown(need))} do not come from "
+                f"one list item or one statement of one evidence ([{', '.join(map(str, where))}]). "
+                "Each statement may use the numbers of only one list item and its heading (or one "
+                "evidence statement), and a threshold needs its own wording of one: give each "
+                "item its own sentence or list line, with only that item's numbers.")
 
 
 def _shown(tokens) -> list[str]:
@@ -802,7 +883,7 @@ def _drug_binding_error(sentence: str, drugs: list[str], need: frozenset,
     for drug in drugs:
         names = _with_equivalents({drug}, lexicon)
         where = [n for n in sorted(evidence) if evidence[n].kind in HINT_KINDS
-                 and any(u.drugs & names for u in _grounding_units(evidence[n], lexicon))]
+                 and any(u.drugs & names for u in _drug_units(evidence[n], lexicon))]
         if where:
             parts.append(f"{drug} is named in evidence [{', '.join(map(str, where))}]: use only "
                          f"the numbers given there for {drug}.")
