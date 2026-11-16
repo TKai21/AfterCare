@@ -5,7 +5,9 @@ the model sees gets an evidence number for this request. The model's final
 message is JSON with [n] citation markers, and `validate` checks it on the
 server: citations must exist, markers must match citations, and every quantity
 in the answer must be stated by the cited evidence's values (whole tokens, see
-number_tokens; an answer that cites nothing may not state quantities at all).
+number_tokens; an answer that cites nothing may not state quantities at all),
+sentence by sentence: one list item per cited list, and only evidence that
+names a drug for a sentence that names it (_check_statements).
 Anything that fails becomes the safe fallback answer plus a care-team question.
 Sources shown to the patient are built from server-side Evidence, never from
 model text. An answer that changes a medication (see MEDICATION_CHANGE) must
@@ -69,10 +71,10 @@ def fallback_answer(doctor_name: str = DEFAULT_DOCTOR_NAME) -> str:
 
 FALLBACK = fallback_answer()
 # The fallback sentence for any doctor's name (the name may have changed since).
-# The name stops at the first sentence: no line break, digit or bracket (an
-# answer the model wrote carries "[n]" markers), and a period only right after
-# a title or an initial ("Dr. J. Smith").
-_DOCTOR_NAME = (r"(?:[^.\n\[\]\d]|(?<=\b(?:Dr|Mr|Ms|St|Jr|Sr))\.|(?<=\bMrs)\.|(?<=\bProf)\."
+# The name stops at the first sentence: no line break or bracket (an answer the
+# model wrote carries "[n]" markers), and a period only right after a title or
+# an initial ("Dr. J. Smith"). Digits are allowed ("Dr. Smith 2nd").
+_DOCTOR_NAME = (r"(?:[^.\n\[\]]|(?<=\b(?:Dr|Mr|Ms|St|Jr|Sr))\.|(?<=\bMrs)\.|(?<=\bProf)\."
                 r"|(?<=\b[A-Z])\.){1,80}")
 _FALLBACK_TEXT = re.compile(
     re.escape(NOT_COVERED_ANSWER).replace(re.escape("{DOCTOR}"), _DOCTOR_NAME))
@@ -195,7 +197,7 @@ Every document paragraph, my earlier advice entry, library passage and food entr
 My usual ways of responding are listed under "How I usually respond", each with an evidence number. They are the questions I ask, how I close, and the signs I want to hear about. They are never medical facts and never justify a dose, a drug or a medication change. My usual ways of responding never conflict with, override or count as a source that disagrees with the discharge document or my earlier advice, and they are never a reason to call add_care_team_question with reason "Sources disagree".
 
 Authority rules:
-1. Follow the sources in this order, highest first: the patient's discharge document, then my earlier advice for this patient, then my earlier general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, still answer with kind "answer" following the higher one, say the sources differ, and also call add_care_team_question with reason "Sources disagree"; a higher source that disagrees never makes the kind "not_covered". When sources of the same rank conflict, for example two pieces of my earlier advice, neither one wins: do not choose between them; use kind "not_covered" and call add_care_team_question with reason "Sources disagree".
+1. Follow the sources in this order, highest first: the patient's discharge document, then my earlier advice for this patient, then my earlier general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, still answer with kind "answer" following the higher one, say the sources differ, and also call add_care_team_question with reason "Sources disagree"; a higher source that disagrees never makes the kind "not_covered". When sources of the same rank conflict, for example two pieces of my earlier advice, and no higher source answers the question, neither one wins: do not choose between them; use kind "not_covered" and call add_care_team_question with reason "Sources disagree". If a higher source answers it, follow the higher source as above.
 2. If the document does not answer the question, use my earlier advice (the entries already listed, and search_doctor_guidance) before search_education_library. An entry of my earlier advice about a different drug, condition or situation than the one asked about does not apply; do not use it. You are {DOCTOR}'s AI clone. Speak in the first person as {DOCTOR}'s AI clone ('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when you introduce yourself, say you are {DOCTOR}'s AI clone.
 3. Use the library and food data to explain and apply the document's instruction to the specific thing asked about. For example, if the document says to limit foods high in some nutrient and the patient asks about a food: look up that food, search the library for what counts as high in that nutrient, then answer with the numbers and the serving size. Apply only instructions that are actually in this patient's document. Never say the document tells the patient to avoid or limit something it does not mention; if the document has no instruction about the thing asked, say so.
 4. What counts as "high", "low", or a safe amount must come from a cited document paragraph, my earlier advice, or a library passage, never from your own knowledge. If none of them says it, say that the approved sources do not say.
@@ -216,7 +218,7 @@ Food data:
 
 Output contract: when you are done with tools, reply with only one JSON object and no other text:
 {"kind": "answer" | "not_covered" | "emergency" | "out_of_scope" | "clarify" | "close", "answer": "...", "citations": [evidence numbers], "care_team_question": string or null}
-- Put a marker such as [2] or [2, 5] right after each statement it supports. "citations" must list exactly the numbers used in the markers. A document paragraph that ends with ":" introduces the paragraphs after it; cite each of those paragraphs you use by its own number, not only the one that introduces them.
+- Put a marker such as [2] or [2, 5] right after each statement it supports. "citations" must list exactly the numbers used in the markers. A document paragraph that ends with ":" may have list items on the lines under it: they appear under its number, and that number covers them. Each statement may use the numbers of only one of those items and its heading, so give each item its own sentence or list line.
 - kind "answer" must cite at least one evidence number.
 - kind "clarify" cites only "How I usually respond" entries, at least one of them from "Questions I usually ask". Its questions are my own questions from the cited "Questions I usually ask" entries, copied word for word, each a whole question ending with "?", at most 4 of them. Do not write new questions or change mine. It may open with exactly one of these sentences, and with nothing else: {OPENERS} No numbers (not even 911), no drug names, no links.
 - kind "close" cites at least one entry from "How I usually close" and may also cite document paragraphs. Every sentence of a close is a whole sentence copied word for word from a cited "How I usually close" entry or a cited document paragraph; write nothing else, not even an opening sentence. Every rule for an answer applies to it.
@@ -658,6 +660,7 @@ def validate(
     unsupported = stated - allowed
     if unsupported:
         raise ValueError(_unsupported_numbers_error(unsupported, evidence))
+    _check_statements(MARKER.sub(" ", answer), {n: evidence[n] for n in cited}, evidence, lexicon)
     return kind, answer, sorted(cited), question
 
 
@@ -701,6 +704,112 @@ def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evid
         else:
             parts.append(f"{_and(numbers)} {verb} in no document paragraph or earlier advice "
                          f"of mine; remove {pronoun}.")
+    return " ".join(parts)
+
+
+class _GroundingUnit(NamedTuple):
+    tokens: frozenset  # the number tokens it grounds
+    drugs: frozenset  # the drugs it names, with their lexicon equivalents
+
+
+def _with_equivalents(names: set[str], lexicon: DrugLexicon) -> frozenset[str]:
+    return frozenset().union(names, *(lexicon.equivalents(n) for n in names))
+
+
+def _grounding_units(e: Evidence, lexicon: Optional[DrugLexicon]) -> list[_GroundingUnit]:
+    """The units one statement citing `e` may take its numbers from. A merged
+    document paragraph (documents.evidence_paragraphs: a heading line ending
+    with ":" and one list item per line under it) gives one unit per item, each
+    with the heading, so an item never lends its numbers to a sibling. Any other
+    evidence is one unit."""
+    text = e.check_text
+    if e.kind == "document" and "\n" in text:
+        heading, *items = text.split("\n")
+        texts = [f"{heading}\n{item}" for item in items]
+    else:
+        texts = [text]
+    return [_GroundingUnit(
+        frozenset(number_tokens(clean_text(t)) | erased_numerals(t)),
+        _with_equivalents(lexicon.find(clean_text(t)), lexicon) if lexicon else frozenset(),
+    ) for t in texts]
+
+
+def _covers(need: frozenset, groups: list[list[frozenset]]) -> bool:
+    """Whether at most one unit from each group together holds every token of
+    `need`."""
+    if not need:
+        return True
+    token = min(need, key=repr)
+    for index, group in enumerate(groups):
+        rest = groups[:index] + groups[index + 1:]
+        if any(token in unit and _covers(need - unit, rest) for unit in group):
+            return True
+    return False
+
+
+# A decimal point is not a sentence end ("38.3 C"): kept out of the splitter.
+_DECIMAL_POINT = re.compile(r"(?<=[0-9])\.(?=[0-9])")
+_KEPT_POINT = "\ue000"
+
+
+def _grounding_sentences(text: str) -> list[str]:
+    """The sentences of cleaned answer text (the clarify splitter, so each list
+    line is a sentence too), decimal points kept inside their numbers."""
+    found, leftover = _sentences(_DECIMAL_POINT.sub(_KEPT_POINT, text))
+    return [s.replace(_KEPT_POINT, ".")
+            for s in [f"{body}{end}" for body, end in found] + [leftover] if s.strip()]
+
+
+def _check_statements(text: str, cited: dict[int, Evidence], evidence: dict[int, Evidence],
+                      lexicon: Optional[DrugLexicon]) -> None:
+    """Statement-level grounding, on top of the answer-level check: the numbers
+    of each sentence of `text` (markers removed) must be held by at most one
+    grounding unit (_grounding_units) of each cited evidence, and a sentence
+    that names a drug may take its numbers only from units that name that drug
+    or an equivalent. ALWAYS_ALLOWED_NUMBERS need no unit. Raises ValueError."""
+    units = [_grounding_units(e, lexicon) for e in cited.values()]
+    for sentence in _grounding_sentences(text):
+        need = frozenset(number_tokens(sentence)) - ALWAYS_ALLOWED_NUMBERS
+        if not need:
+            continue
+        drugs = sorted(lexicon.find(sentence)) if lexicon else []
+        if drugs:
+            named = _with_equivalents(set(drugs), lexicon)
+            if not _covers(need, [[u.tokens for u in group if u.drugs & named]
+                                  for group in units]):
+                raise ValueError(_drug_binding_error(sentence, drugs, need, evidence, lexicon))
+        elif not _covers(need, [[u.tokens for u in group] for group in units]):
+            lists = [n for n, e in cited.items() if len(_grounding_units(e, lexicon)) > 1
+                     and need & set().union(*(u.tokens for u in _grounding_units(e, lexicon)))]
+            raise ValueError(
+                f"In \"{sentence.strip()}\", the numbers {_and(_shown(need))} come from different "
+                f"list items of evidence [{', '.join(map(str, lists))}]. Each statement may use the "
+                "numbers of only one list item and its heading: give each item its own sentence or "
+                "list line, with only that item's numbers.")
+
+
+def _shown(tokens) -> list[str]:
+    return sorted(str(value) for _, value in tokens)
+
+
+def _drug_binding_error(sentence: str, drugs: list[str], need: frozenset,
+                        evidence: dict[int, Evidence], lexicon: DrugLexicon) -> str:
+    """The error for a sentence that names a drug but takes numbers from units
+    that do not name it. It names, for each drug, the document paragraphs and
+    doctor's advice (HINT_KINDS) that do name it."""
+    parts = [f"In \"{sentence.strip()}\", the numbers {_and(_shown(need))} must come from "
+             f"evidence that names {_and(drugs)}."]
+    for drug in drugs:
+        names = _with_equivalents({drug}, lexicon)
+        where = [n for n in sorted(evidence) if evidence[n].kind in HINT_KINDS
+                 and any(u.drugs & names for u in _grounding_units(evidence[n], lexicon))]
+        if where:
+            parts.append(f"{drug} is named in evidence [{', '.join(map(str, where))}]: use only "
+                         f"the numbers given there for {drug}.")
+        else:
+            parts.append(f"{drug} is named in no document paragraph or earlier advice of mine; "
+                         "remove the numbers.")
+    parts.append("Put any other number in a sentence of its own that does not name the drug.")
     return " ".join(parts)
 
 
@@ -1216,17 +1325,38 @@ def is_fixed_answer(text: str) -> bool:
     return text == EMERGENCY_ANSWER or _FALLBACK_TEXT.fullmatch(text) is not None
 
 
-def _merge_user_runs(messages: list[dict]) -> list[dict]:
-    """Adjacent user messages joined into one (newline-joined), so roles keep
-    alternating once fixed answers are left out: many vLLM chat templates
-    reject two user messages in a row."""
-    merged: list[dict] = []
+# What the history shows in place of a fixed server answer (is_fixed_answer):
+# the model did not write it, and a fallback in the history made it hand later
+# answerable questions to the doctor too. A stub keeps roles alternating (many
+# vLLM chat templates reject two user messages in a row) and keeps the patient's
+# questions apart.
+CARE_TEAM_STUB = "(I sent that question to the care team.)"
+EMERGENCY_STUB = "(I gave the emergency instructions.)"
+# Between two patient messages with no reply between them (stored turns always
+# pair, so only a hand-built history has them), for the same reason.
+NO_REPLY_STUB = "(No reply.)"
+
+
+def _history_message(m: dict) -> dict:
+    """One history message as the model sees it: old [n] markers point at
+    another turn's evidence numbers, so they are dropped, and a fixed server
+    answer becomes its stub."""
+    if m["role"] != "assistant":
+        return {"role": m["role"], "content": m["content"]}
+    if is_fixed_answer(m["content"]):
+        stub = EMERGENCY_STUB if m["content"].strip() == EMERGENCY_ANSWER else CARE_TEAM_STUB
+        return {"role": "assistant", "content": stub}
+    return {"role": "assistant", "content": strip_markers(m["content"])}
+
+
+def _alternating(messages: list[dict]) -> list[dict]:
+    """`messages` with NO_REPLY_STUB between any two user messages in a row."""
+    out: list[dict] = []
     for m in messages:
-        if merged and m["role"] == "user" and merged[-1]["role"] == "user":
-            merged[-1] = {"role": "user", "content": f"{merged[-1]['content']}\n{m['content']}"}
-        else:
-            merged.append(m)
-    return merged
+        if out and m["role"] == "user" and out[-1]["role"] == "user":
+            out.append({"role": "assistant", "content": NO_REPLY_STUB})
+        out.append(m)
+    return out
 
 
 def _fallback(question: str, emergency: bool = False,
@@ -1307,18 +1437,8 @@ async def run_agent(
     user_content += f"\n\nPatient question:\n{question}"
     messages = [
         {"role": "system", "content": system_prompt(doctor_name)},
-        *_merge_user_runs([
-            # Old [n] markers point at another turn's evidence numbers, so they are dropped.
-            # Fixed server answers are left out: the model did not write them, and a
-            # fallback in the history made it hand later answerable questions to the
-            # doctor too. The patient's messages stay.
-            *({"role": m["role"],
-               "content": strip_markers(m["content"]) if m["role"] == "assistant"
-               else m["content"]}
-              for m in history[-HISTORY_LIMIT:]
-              if not (m["role"] == "assistant" and is_fixed_answer(m["content"]))),
-            {"role": "user", "content": user_content},
-        ]),
+        *_alternating([*(_history_message(m) for m in history[-HISTORY_LIMIT:]),
+                       {"role": "user", "content": user_content}]),
     ]
 
     round_number = 0

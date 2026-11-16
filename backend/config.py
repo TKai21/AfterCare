@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -9,6 +10,26 @@ from dotenv import load_dotenv
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 PLACEHOLDER_SECRET = "please_change_me_to_a_long_random_value"
+log = logging.getLogger(__name__)
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def optional_flag(name: str, value: Optional[str]) -> Optional[bool]:
+    """An on/off environment setting: 1/true/yes/on or 0/false/no/off (any
+    case, surrounding spaces ignored). Unset or empty is None (decided
+    elsewhere); any other value logs a warning and is None too."""
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    if text in _TRUE:
+        return True
+    if text in _FALSE:
+        return False
+    log.warning("%s=%r is not one of 1/0/true/false/yes/no/on/off; deciding automatically.",
+                name, value)
+    return None
 
 
 @dataclass(frozen=True)
@@ -81,8 +102,8 @@ def get_settings() -> Settings:
         llm_api_base=llm_base,
         llm_model=env.get("LLM_MODEL", ""),
         llm_api_key=env.get("LLM_API_KEY", ""),
-        # "1" on, "0" off, unset or empty: decided by the base URL.
-        llm_json_with_tools={"1": True, "0": False}.get(env.get("LLM_JSON_WITH_TOOLS", "")),
+        # On or off (optional_flag); unset, empty or unknown: decided by the base URL.
+        llm_json_with_tools=optional_flag("LLM_JSON_WITH_TOOLS", env.get("LLM_JSON_WITH_TOOLS")),
         embedding_api_base=env.get("EMBEDDING_API_BASE", llm_base).rstrip("/"),
         embedding_model=env.get("EMBEDDING_MODEL", defaults.embedding_model),
         embedding_api_key=env.get("EMBEDDING_API_KEY", env.get("LLM_API_KEY", "")),

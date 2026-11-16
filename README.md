@@ -16,7 +16,7 @@ This is EE542 final project, Team 2, milestone 1. The "Status" section below lis
 | Models | Any OpenAI-compatible server: `/chat/completions` with standard `tools`/`tool_calls`, and `/embeddings` |
 | Education library | Curated, allowlisted official sources (MedlinePlus, NIDDK, CDC, DailyMed, kidney.org), chunked and embedded into a SQLite vector index, exact cosine search with NumPy |
 | Food table | `data/foods.json`: USDA FoodData Central nutrients plus oxalate categories from the UChicago oxalate table |
-| Grounding | The server validates every answer. Citations must exist in the evidence of that request, and every number in an answer must appear in the cited evidence. A rejected answer gets one repair attempt that tells the model what failed (never for an emergency); if that fails too, the user gets a safe fallback and the question is added to the Care team list automatically |
+| Grounding | The server validates every answer. Citations must exist in the evidence of that request, and every number in an answer must appear in the cited evidence, sentence by sentence: a sentence takes its numbers from one list item (with its heading) of a cited list, and a sentence that names a drug takes them only from evidence that names that drug. Lists of drugs or doses are never merged under their heading, so each medication line is evidence of its own. A rejected answer gets one repair attempt that tells the model what failed (never for an emergency); if that fails too, the user gets a safe fallback and the question is added to the Care team list automatically |
 | Safety | Local emergency-symptom detection (a static symptom list plus the document's own warning signs) shows an emergency banner above the answer. It never depends on the model: with no model configured, or when the model fails, an emergency message still gets the call-911 answer and banner |
 
 The app has four tabs: Instructions (upload, then review and confirm the extracted items), Today (daily checklist), Ask (the agent), Care team (questions the app could not answer).
@@ -79,7 +79,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `LLM_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `LLM_MODEL` | empty | Chat model name, for example `gpt-4.1-mini` (see `.env.example`) |
 | `LLM_API_KEY` | empty | May stay empty for a self-hosted server |
-| `LLM_JSON_WITH_TOOLS` | on for `api.openai.com`, off otherwise | `1` lets a chat call that offers tools also request JSON output (`response_format`); `0` requests JSON only on calls without tools (the clone's final, format and repair calls). Unset, empty or any other value: decided by `LLM_API_BASE` |
+| `LLM_JSON_WITH_TOOLS` | on for `api.openai.com`, off otherwise | `1` (or `true`, `yes`, `on`) lets a chat call that offers tools also request JSON output (`response_format`); `0` (or `false`, `no`, `off`) requests JSON only on calls without tools (the clone's final, format and repair calls). Case does not matter. Unset or empty: decided by `LLM_API_BASE`; any other value logs a warning and is decided the same way |
 | `EMBEDDING_API_BASE` | `LLM_API_BASE` | Embeddings endpoint base |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name |
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |

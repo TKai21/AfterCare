@@ -228,3 +228,32 @@ async def test_missing_usage_is_ignored():
     await make_client(handler).chat([{"role": "user", "content": "a"}])
     assert llm.usage_snapshot() == {"test-model": {"calls": 1, "prompt_tokens": 0, "completion_tokens": 0}}
     llm.reset_usage()
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("1", True), ("true", True), ("TRUE", True), ("yes", True), ("On", True),
+    ("0", False), ("false", False), ("No", False), ("off", False),
+    (" yes ", True),
+])
+def test_json_with_tools_env_accepts_boolean_words(monkeypatch, value, expected):
+    get_settings.cache_clear()
+    try:
+        monkeypatch.setenv("LLM_API_BASE", "http://gpu-host:8000/v1")
+        monkeypatch.setenv("LLM_JSON_WITH_TOOLS", value)
+        monkeypatch.setattr("config.load_dotenv", lambda *a, **k: None)
+        assert get_settings().llm_json_with_tools is expected
+    finally:
+        get_settings.cache_clear()
+
+
+def test_json_with_tools_env_unknown_value_warns_and_means_auto(monkeypatch, caplog):
+    get_settings.cache_clear()
+    try:
+        monkeypatch.setenv("LLM_API_BASE", "http://gpu-host:8000/v1")
+        monkeypatch.setenv("LLM_JSON_WITH_TOOLS", "maybe")
+        monkeypatch.setattr("config.load_dotenv", lambda *a, **k: None)
+        with caplog.at_level("WARNING"):
+            assert get_settings().llm_json_with_tools is False
+        assert "LLM_JSON_WITH_TOOLS" in caplog.text and "maybe" in caplog.text
+    finally:
+        get_settings.cache_clear()

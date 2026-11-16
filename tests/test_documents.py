@@ -1,7 +1,7 @@
 import pytest
 from fpdf import FPDF
 
-from documents import MAX_LIST_ITEMS, MAX_PARAGRAPH, evidence_paragraphs, paragraphs, read_upload
+from documents import MAX_LIST_ITEMS, MAX_MERGED, MAX_PARAGRAPH, evidence_paragraphs, paragraphs, read_upload
 
 
 def make_pdf(text: str | None) -> bytes:
@@ -221,3 +221,52 @@ def test_evidence_paragraphs_cap_the_items_of_one_heading():
     parts = evidence_paragraphs("Watch for:\n" + "\n".join(items))
     assert parts[0] == "\n".join(["Watch for:", *items[:MAX_LIST_ITEMS]])
     assert parts[1:] == items[MAX_LIST_ITEMS:]
+
+
+MEDICATION_LIST = (
+    "Medications:\n"
+    "- Metformin 500 mg twice daily\n"
+    "- Lisinopril 10 mg once daily\n"
+    "- Take 1 tablet of aspirin 81 mg"
+)
+
+
+@pytest.mark.parametrize("text", [
+    MEDICATION_LIST,
+    # A dose unit without a drug name keeps the list apart too.
+    "Inhaler:\n- 2 puffs every 4 hours\n- rinse your mouth after",
+    "Eye care:\n- 1 drop in each eye\n- wash your hands first",
+    "Doses:\n- take 5 mL at night\n- take 2 tablets in the morning",
+])
+def test_evidence_paragraphs_never_merge_a_list_of_drugs_or_doses(text):
+    # One item per evidence paragraph: a citation of one medication item never
+    # grounds another item's dose.
+    assert evidence_paragraphs(text) == paragraphs(text)
+    assert all("\n" not in p for p in evidence_paragraphs(text))
+
+
+def test_evidence_paragraphs_merge_warning_lists_without_doses():
+    text = "Call 911 if:\n- a fever of 101 F (38.3 C) or higher\n- you feel faint"
+    assert evidence_paragraphs(text) == [text]
+
+
+def test_evidence_paragraphs_cap_the_length_of_a_merged_paragraph():
+    items = [f"- warning sign number {n} " + "with a long description " * 6 for n in range(1, 9)]
+    items = [" ".join(i.split()) for i in items]
+    parts = evidence_paragraphs("Watch for:\n" + "\n".join(items))
+    assert len(parts[0]) <= MAX_MERGED < len(parts[0]) + 1 + len(items[parts[0].count("\n")])
+    kept = parts[0].count("\n")
+    assert parts[0] == "\n".join(["Watch for:", *items[:kept]])
+    assert parts[1:] == items[kept:]
+
+
+def test_evidence_paragraphs_stop_merging_at_an_item_split_by_the_cap():
+    long_item = "- " + " ".join(f"Sentence {n} is about rest." for n in range(1, 40))
+    assert len(long_item) > MAX_PARAGRAPH
+    text = "Watch for:\n- you feel faint\n" + long_item + "\n- you cannot eat"
+    parts = evidence_paragraphs(text)
+    assert parts[0] == "Watch for:\n- you feel faint"
+    # The split item's parts and every later item stand alone.
+    assert all("\n" not in p for p in parts[1:])
+    assert parts[-1] == "- you cannot eat"
+    assert " ".join(parts[1:-1]) == long_item

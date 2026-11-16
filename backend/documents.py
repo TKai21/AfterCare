@@ -150,25 +150,52 @@ def paragraphs(text: str) -> list[str]:
 
 
 MAX_LIST_ITEMS = 15
+# The longest merged evidence paragraph (heading plus items, with line breaks).
+MAX_MERGED = 900
+# A dose unit: a list whose items carry one (or name a drug) is never merged, so
+# a citation of one medication item never grounds another item's dose.
+_DOSE_UNIT = re.compile(
+    r"(?<![A-Za-z])(?:mg|mcg|ml|units?|tablets?|capsules?|puffs?|drops?|tsp|tbsp)(?![A-Za-z])"
+    r"|(?<=[0-9])\s*g(?![A-Za-z])",
+    re.IGNORECASE)
+
+
+def _names_a_dose(item: str) -> bool:
+    from drugnames import get_lexicon  # the lexicon loads a data file: only when needed
+    return bool(_DOSE_UNIT.search(item) or get_lexicon().find(item))
 
 
 def evidence_paragraphs(text: str) -> list[str]:
     """The clone's evidence units: paragraphs(), except that a unit ending with ":"
     and the list items directly under it (in the same block, so until a blank
-    line) are one paragraph with each item on its own line, at most
-    MAX_LIST_ITEMS items; later items stay paragraphs of their own. Citing
-    "Call 911 if:" then grounds the numbers of its items. The review page, PDF
+    line) are one paragraph with the heading on its first line and each item on
+    its own line. Citing "Call 911 if:" then covers its items; the agent grounds
+    each statement in the heading and one item (agent.validate). A merged
+    paragraph has at most MAX_LIST_ITEMS items and MAX_MERGED characters, and
+    merging stops at an item the paragraph cap (_cap) split; later items stay
+    paragraphs of their own. A list with any item that names a drug or carries a
+    dose unit (_names_a_dose) is never merged. The review page, PDF
     highlighting and extraction keep paragraphs()."""
     result: list[str] = []
     for block in re.split(r"\n\s*\n", text):
-        units = [part for unit in _merge_lines(block, lists=True) for part in _cap(unit)]
+        # (part, whether its unit was split by the cap)
+        units = [(part, len(parts) > 1) for unit in _merge_lines(block, lists=True)
+                 for parts in [_cap(unit)] for part in parts]
         i = 0
         while i < len(units):
+            heading, split = units[i]
             end = i + 1
-            if units[i].endswith(":"):
-                while (end < len(units) and end - i <= MAX_LIST_ITEMS
-                       and _LIST_ITEM.match(units[end])):
-                    end += 1
-            result.append("\n".join(units[i:end]))
+            if heading.endswith(":") and not split:
+                last = end
+                while last < len(units) and _LIST_ITEM.match(units[last][0]):
+                    last += 1
+                items = [part for part, _ in units[end:last]]
+                if not any(_names_a_dose(item) for item in items):
+                    size = len(heading)
+                    while (end < last and end - i <= MAX_LIST_ITEMS and not units[end][1]
+                           and size + 1 + len(units[end][0]) <= MAX_MERGED):
+                        size += 1 + len(units[end][0])
+                        end += 1
+            result.append("\n".join(part for part, _ in units[i:end]))
             i = end
     return result

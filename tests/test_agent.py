@@ -352,8 +352,12 @@ async def test_context_has_numbered_document_active_items_and_history(store, foo
     await ask(llm, store, foods, document, items, history=history)
     messages = llm.calls[0][0]
     assert messages[0]["role"] == "system"
-    # The last 6 history messages; the patient's run of messages is one user message.
-    assert [m["content"] for m in messages[1:-1]] == ["q2\nq3\nq4\nq5\nq6", "Drink water and rest."]
+    # The last 6 history messages; a stub between patient messages in a row keeps
+    # roles alternating and the questions apart.
+    stub = agent.NO_REPLY_STUB
+    assert [m["content"] for m in messages[1:-1]] == [
+        "q2", stub, "q3", stub, "q4", stub, "q5", stub, "q6", "Drink water and rest."]
+    assert [m["role"] for m in messages[1:-1]] == ["user", "assistant"] * 5
     user_content = messages[-1]["content"]
     assert "[2] Limit high-oxalate foods to help prevent kidney stones." in user_content
     assert "Limit high-oxalate foods." in user_content
@@ -2070,17 +2074,19 @@ def test_prompt_asks_for_dash_lists_not_numbered_lists():
     assert 'start each item with "-", never with a number' in agent.SYSTEM_PROMPT
 
 
-def test_prompt_says_list_items_are_cited_by_their_own_numbers():
-    assert ("A document paragraph that ends with \":\" introduces the paragraphs after it; cite "
-            "each of those paragraphs you use by its own number, not only the one that introduces "
-            "them.") in agent.SYSTEM_PROMPT
+def test_prompt_says_a_heading_number_covers_its_list_items():
+    assert "introduces the paragraphs after it" not in agent.SYSTEM_PROMPT
+    assert ("A document paragraph that ends with \":\" may have list items on the lines under "
+            "it: they appear under its number, and that number covers them. Each statement may "
+            "use the numbers of only one of those items and its heading, so give each item its "
+            "own sentence or list line.") in agent.SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize("fixed", [
     agent.fallback_answer("Dr. Ting Kai"), agent.fallback_answer("Dr. Someone Else"),
     agent.FALLBACK, agent.EMERGENCY_ANSWER,
 ])
-async def test_history_leaves_out_fixed_server_answers(store, foods, document, items, fixed):
+async def test_history_replaces_fixed_server_answers_with_a_stub(store, foods, document, items, fixed):
     llm = FakeLLM()
     llm.script(final("Limit high-oxalate foods [2].", [2]))
     history = [
@@ -2091,14 +2097,23 @@ async def test_history_leaves_out_fixed_server_answers(store, foods, document, i
     ]
     await ask(llm, store, foods, document, items, history=history, doctor_name="Dr. Ting Kai")
     sent = [(m["role"], m["content"]) for m in llm.calls[0][0][1:-1]]
-    # The patient's two messages are one user message: roles keep alternating.
+    # A neutral stub stands in for the fixed answer: roles keep alternating and
+    # the two questions stay apart.
+    stub = (agent.EMERGENCY_STUB if fixed == agent.EMERGENCY_ANSWER else agent.CARE_TEAM_STUB)
     assert sent == [
-        ("user", "What warning signs should I watch for?\nHow much water?"),
+        ("user", "What warning signs should I watch for?"),
+        ("assistant", stub),
+        ("user", "How much water?"),
         ("assistant", "Drink at least 2 liters of water every day."),
     ]
 
 
-async def test_history_ending_in_a_fixed_answer_merges_into_the_question(
+def test_history_stubs_are_neutral():
+    assert agent.CARE_TEAM_STUB == "(I sent that question to the care team.)"
+    assert not agent.number_tokens(agent.CARE_TEAM_STUB + agent.EMERGENCY_STUB)
+
+
+async def test_history_ending_in_a_fixed_answer_keeps_the_question_apart(
         store, foods, document, items):
     llm = FakeLLM()
     llm.script(final("Limit high-oxalate foods [2].", [2]))
@@ -2110,9 +2125,10 @@ async def test_history_ending_in_a_fixed_answer_merges_into_the_question(
     ]
     await ask(llm, store, foods, document, items, history=history)
     sent = llm.calls[0][0]
-    roles = [m["role"] for m in sent]
-    assert roles == ["system", "user", "assistant", "user"]
-    assert sent[-1]["content"].startswith("What warning signs should I watch for?\nDischarge document")
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "user", "assistant", "user"]
+    assert sent[3]["content"] == "What warning signs should I watch for?"
+    assert sent[4]["content"] == agent.CARE_TEAM_STUB
+    assert sent[-1]["content"].startswith("Discharge document")
     assert sent[-1]["content"].rstrip().endswith("Can I eat almonds?")
 
 
@@ -2143,8 +2159,10 @@ async def test_prompt_says_habits_never_disagree_and_disagreement_still_answers(
             "disagrees never makes the kind \"not_covered\".") in prompt
     # Equal-rank sources have no higher one to follow.
     assert ("When sources of the same rank conflict, for example two pieces of my earlier "
-            "advice, neither one wins: do not choose between them; use kind \"not_covered\" and "
-            "call add_care_team_question with reason \"Sources disagree\".") in prompt
+            "advice, and no higher source answers the question, neither one wins: do not choose "
+            "between them; use kind \"not_covered\" and call add_care_team_question with reason "
+            "\"Sources disagree\". If a higher source answers it, follow the higher source as "
+            "above.") in prompt
     assert "The same applies when two pieces of my earlier advice disagree" not in prompt
 
 
@@ -2222,3 +2240,129 @@ def test_fixed_answer_stops_at_the_fallback_sentence():
             assert not agent.is_fixed_answer(fixed + extra), (name, extra)
     # A period ends the name unless it follows a title or an initial.
     assert not agent.is_fixed_answer(agent.fallback_answer("Dr. Ting Kai") + " Rest at home.")
+
+
+def test_fixed_answer_recognises_doctor_names_with_digits():
+    for name in ("Dr. Smith 2nd", "Dr. R2 Lee", "Dr. Ana-María López"):
+        assert agent.is_fixed_answer(agent.fallback_answer(name)), name
+        assert not agent.is_fixed_answer(agent.fallback_answer(name) + " Drink 2 liters [2]."), name
+
+
+# Statement-level grounding (validate): each sentence's numbers come from one
+# grounding unit per cited evidence, and a sentence that names a drug takes its
+# numbers only from units that name it.
+
+MEDICATION_DOC = (
+    "Medications:\n"
+    "- Metformin 500 mg twice daily\n"
+    "- Lisinopril 10 mg once daily\n"
+    "- Take 1 tablet of aspirin 81 mg"
+)
+TAKES = frozenset({"lisinopril", "metformin", "aspirin"})
+
+
+def doc_evidence(text):
+    from documents import evidence_paragraphs
+    return evidence(*evidence_paragraphs(text))
+
+
+def check(answer, citations, ev, **kw):
+    kw.setdefault("allowed_drugs", TAKES)
+    return validate(raw(answer=answer, citations=citations), ev, lexicon=get_lexicon(), **kw)
+
+
+@pytest.mark.parametrize("answer", [
+    "Take lisinopril 500 mg twice daily [{n}].",
+    "Take lisinopril 81 mg [{n}].",
+])
+def test_a_medication_item_never_grounds_another_items_dose(answer):
+    ev = doc_evidence(MEDICATION_DOC)
+    n = next(i for i, e in ev.items() if "Lisinopril" in e.content)
+    with pytest.raises(ValueError):
+        check(answer.format(n=n), [n], ev)
+    # Citing every item does not help: the dose must come from the lisinopril item.
+    every = sorted(ev)
+    with pytest.raises(ValueError, match="lisinopril"):
+        check(answer.format(n=", ".join(map(str, every))), every, ev)
+
+
+def test_a_merged_medication_list_still_keeps_each_dose_with_its_item():
+    # Even as one evidence paragraph, an item's numbers never ground a sibling.
+    ev = evidence(MEDICATION_DOC)
+    for answer in ("Take lisinopril 500 mg twice daily [1].", "Take lisinopril 81 mg [1]."):
+        with pytest.raises(ValueError):
+            check(answer, [1], ev)
+    assert check("Take lisinopril 10 mg once daily [1].", [1], ev)[0] == "answer"
+
+
+def test_a_sentence_naming_a_drug_with_its_own_dose_passes():
+    ev = doc_evidence(MEDICATION_DOC)
+    n = next(i for i, e in ev.items() if "Lisinopril" in e.content)
+    assert check(f"Take lisinopril 10 mg once daily [{n}].", [n], ev)[0] == "answer"
+    # A brand name of the same drug binds to the generic's item.
+    assert check(f"Take Zestril 10 mg once daily [{n}].", [n], ev,
+                 allowed_drugs=TAKES | {"zestril"})[0] == "answer"
+
+
+CLINIC_LIST = (
+    "Call the clinic at 555-0115 if:\n"
+    "- blood sugar above 300 two times in a row\n"
+    "- blood sugar below 70 more than once\n"
+    "- blood pressure above 160/100"
+)
+
+
+def test_a_list_item_never_lends_its_numbers_to_a_sibling():
+    ev = doc_evidence(CLINIC_LIST)
+    assert len(ev) == 1
+    with pytest.raises(ValueError) as exc:
+        check("Call the clinic if your blood sugar is below 300 more than once [1].", [1], ev)
+    message = str(exc.value)
+    assert "300" in message and "once" in message and "[1]" in message
+    with pytest.raises(ValueError):
+        check("Call if your blood pressure is above 160/100 two times in a row [1].", [1], ev)
+
+
+def test_a_list_item_with_its_heading_passes():
+    ev = doc_evidence(CLINIC_LIST)
+    assert check("Call the clinic at 555-0115 if your blood sugar is below 70 more than once [1].",
+                 [1], ev)[0] == "answer"
+    listed = ("Call the clinic at 555-0115 if [1]:\n"
+              "- your blood sugar is above 300 two times in a row\n"
+              "- your blood sugar is below 70 more than once")
+    assert check(listed, [1], ev)[0] == "answer"
+
+
+def test_a_fever_item_of_the_merged_warning_list_passes():
+    ev = doc_evidence("Call 911 or return to the ER if:\n"
+                      "- a fever of 101 F (38.3 C) or higher with chills\n"
+                      "- your pain is not better after 3 days")
+    assert len(ev) == 1
+    assert check("Go to the ER for a fever of 101 F (38.3 C) or higher with chills [1].",
+                 [1], ev)[0] == "answer"
+
+
+def test_one_sentence_may_combine_numbers_of_different_evidence():
+    ev = evidence("Drink at least 2 liters of water every day.", "Walk for 30 minutes.")
+    assert check("Drink 2 liters of water and walk for 30 minutes [1, 2].", [1, 2],
+                 ev)[0] == "answer"
+
+
+def test_drug_binding_error_names_the_evidence_that_names_the_drug():
+    ev = evidence("Metformin 500 mg twice daily.", "Lisinopril 10 mg once daily.",
+                  "Drink at least 2 liters of water every day.")
+    ev[4] = Evidence(4, "library", "t", None, "Lisinopril comes as 20 mg tablets.",
+                     check_text="Lisinopril comes as 20 mg tablets.")
+    with pytest.raises(ValueError) as exc:
+        check("Take lisinopril 500 mg twice daily [1, 2].", [1, 2], ev)
+    message = str(exc.value)
+    assert "lisinopril" in message
+    assert "[2]" in message
+    assert "[1]" not in message and "[4]" not in message
+    # The same numbers in a sentence without a drug name pass.
+    assert check("Take 500 mg twice daily [1].", [1], ev)[0] == "answer"
+
+
+def test_drug_binding_lets_911_through():
+    ev = evidence("Lisinopril 10 mg once daily.", "Call 911 if you faint.")
+    assert check("If you faint after lisinopril, call 911 [1, 2].", [1, 2], ev)[0] == "answer"

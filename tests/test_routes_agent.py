@@ -214,11 +214,13 @@ async def test_ask_blocks_volunteered_naproxen(client, fake_llm):
 async def test_ask_allows_a_prescribed_drug_without_a_cited_paragraph_naming_it(client, fake_llm):
     # Amoxicillin is prescribed (item text and name) but the cited paragraph [3] is the
     # fever line; no resolved RxCUIs are needed, and a brand spelling is allowed too.
+    # (The fever number stays in a sentence of its own: a sentence that names a
+    # drug takes its numbers only from evidence that names it.)
     h = await confirmed(client, fake_llm)
-    fake_llm.script(answer("Call if your fever is above 101 F, even while taking amoxicillin [3].", [3]))
+    fake_llm.script(answer("Call if your fever is above 101 F [3]. Keep taking amoxicillin [3].", [3]))
     body = (await post_ask(client, h, "When should I call?")).json()
     assert body["kind"] == "answer" and "amoxicillin" in body["answer"]
-    fake_llm.script(answer("Call if your fever is above 101 F, even while taking Amoxil [3].", [3]))
+    fake_llm.script(answer("Call if your fever is above 101 F [3]. Keep taking Amoxil [3].", [3]))
     body = (await post_ask(client, h, "When should I call?")).json()
     assert body["kind"] == "answer" and "Amoxil" in body["answer"]
 
@@ -1534,7 +1536,7 @@ async def test_a_reply_probe_with_a_closing_model_is_the_emergency_answer(client
 
 async def test_history_leaves_out_fixed_server_answers(client, fake_llm):
     # A fallback in the history taught the model to send later basic questions
-    # to the doctor too. The patient's question stays; the fixed sentence goes.
+    # to the doctor too. The patient's question stays; the fixed sentence becomes a stub.
     h = await confirmed(client, fake_llm)
     fake_llm.script(answer("x", [], kind="not_covered"))
     first = await post_ask(client, h, "Question alpha")
@@ -1544,9 +1546,11 @@ async def test_history_leaves_out_fixed_server_answers(client, fake_llm):
     fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
     await post_ask(client, h, "Last question")
     sent = fake_llm.calls[-1][0][1:-1]
-    # The two questions are one user message, so roles keep alternating.
+    # A stub stands in for the fixed answer: roles keep alternating and the
+    # questions stay apart.
     assert [(m["role"], m["content"]) for m in sent] == [
-        ("user", "Question alpha\nQuestion beta"), ("assistant", "Answer beta.")]
+        ("user", "Question alpha"), ("assistant", "(I sent that question to the care team.)"),
+        ("user", "Question beta"), ("assistant", "Answer beta.")]
     # The patient's own conversation still shows the fixed sentence.
     shown = (await get_conversation(client, h)).json()["messages"]
     assert any(m["content"].startswith("I couldn't answer this") for m in shown)
