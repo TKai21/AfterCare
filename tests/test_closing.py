@@ -161,3 +161,23 @@ def test_a_given_term_left_out_of_warning_signs_blocks():
 def test_every_given_term_absent_still_closes():
     assert blocker("It looks fine", document=["redness"],
                    signs=absent("fever", "vomiting", "threw up", "redness")) is None
+
+
+def test_conflicting_entries_for_a_term_block():
+    terms = ["fever", "threw up"]
+    for signs in ([*absent("fever", "threw up"), {"term": "threw up", "status": "present"}],
+                  [{"term": "Threw up.", "status": "present"}, *absent("fever", "threw up")],
+                  [*absent("fever", "threw up"), {"term": "THREW UP", "status": "unclear"}],
+                  [*absent("fever", "threw up"), {"term": "threw up", "status": "gone"}]):
+        assert blocker("I vomited", doctor=terms, signs=signs) == "Warning sign: threw up", signs
+
+
+def test_a_term_absent_twice_is_absent():
+    assert blocker("It looks fine", doctor=["fever", "threw up"],
+                   signs=absent("fever", "threw up", " Threw Up ")) is None
+
+
+def test_an_unhashable_status_blocks_without_crashing():
+    signs = [*absent("fever", "threw up"), {"term": "threw up", "status": ["absent"]}]
+    assert blocker("It looks fine", doctor=["fever", "threw up"], signs=signs) == (
+        "Warning sign: threw up")

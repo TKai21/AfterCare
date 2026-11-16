@@ -84,10 +84,15 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     in_original = match_terms(original, terms)
     if in_original:
         return WARNING_REASON.format(term=in_original[0])
-    model_absent = {
-        _key(s["term"]) for s in warning_signs
-        if isinstance(s, dict) and isinstance(s.get("term"), str) and s.get("status") == "absent"
-    }
+    # A term is absent only when every entry for it says "absent": one
+    # present, unclear or unknown status among them blocks.
+    statuses: dict[str, set] = {}
+    for sign in warning_signs:
+        if isinstance(sign, dict) and isinstance(sign.get("term"), str):
+            status = sign.get("status")
+            statuses.setdefault(_key(sign["term"]), set()).add(
+                status if isinstance(status, str) else None)  # an odd status blocks
+    model_absent = {key for key, found in statuses.items() if found == {"absent"}}
     denied = negated_terms(reply, terms)
     for term in match_terms(reply, terms):
         if not (term in denied and _key(term) in model_absent):
