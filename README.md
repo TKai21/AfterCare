@@ -180,7 +180,7 @@ Limits of this evaluation:
 - 42 answerable test questions are still few: one question moves hit@5 by 0.024, and that one question decides the ship rule. The split limits overfitting of `RAG_MIN_RERANK` but does not remove it, since the same person wrote both halves.
 - Near-miss no-answer questions are hard for every mode. Embedding and hybrid return passages for all 20 no-answer questions. Rerank at -6.5 still returns passages for 11 of them, for example other drugs' labels for "What should I do if I miss a colchicine dose?" from a patient without colchicine. In the end-to-end check, run before this round, the agent correctly answered `not_covered` for that question and sent it to the doctor.
 - The worst reranker time (358 ms over all questions, 378 ms on the test split) is above the 300 ms budget; the median is about 240 ms.
-- The doctor guidance memory (`GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`) is out of scope; it is unchanged and not evaluated here.
+- The doctor guidance memory (`GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`) is out of scope here; its retrieval has its own sweep (see [Doctor clone](#doctor-clone)).
 
 ## Drug labels
 
@@ -272,7 +272,7 @@ The defaults come from `scripts/sweep_guidance_floor.py`, which scores every flo
 | Fixed floor 0.45 (before) | calibration 11/14, test 9/10 | 1.812 / 1.857 | 32/63 |
 | Floor 0.40, margin 0.05 (now) | calibration 12/14, test 8/10 | 1.562 / 1.286 | 36/63 |
 
-The calibration and test columns come from one world build; the preference-case column comes from a separate world build (the chat model re-reads the rules), so it compares the two pairs within that world only. The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. A looser pair (floor 0.30, margin 0.25) retrieved more of the needed rules (57 of 63 case-doctor pairs) but returned 3.6 rules per question to escalate and made the clone cite unrelated advice, so it was rejected.
+The calibration and test numbers (the two values in each cell of the first two columns) come from one world build; the preference-case column comes from a separate world build (the chat model re-reads the rules), so it compares the two pairs within that world only. The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. A looser pair (floor 0.30, margin 0.25) retrieved more of the needed rules (57 of 63 case-doctor pairs) but returned 3.6 rules per question to escalate and made the clone cite unrelated advice, so it was rejected.
 
 ### Rules and conflicts
 
@@ -280,11 +280,28 @@ When a doctor saves or edits advice, the model splits the answer into **rules**:
 
 New rules are also checked for **conflicts** with the same doctor's other rules (when they could reach the same patient) and with approved FDA drug label passages for the entry's drug tags. The model judges the most similar pairs; a conflict shows on the doctor's guidance page on both entries, with both sides quoted, until the doctor edits the advice or presses "Not a conflict". The My guidance tab badge counts the entries with an open conflict. Conflicts are advisory: they never block saving and never change what the clone may cite.
 
-**Habits.** Besides advice, the model also reads how the doctor works: questions they ask, how they close, and signs they want to hear about. These habits are not retrieved by similarity; the clone sees the doctor's habits on every turn, even from an answer with no tags. The My guidance tab shows them above the entries in "How I respond" (Questions I ask, How I close, Signs I want to hear about), each with the doctor's words and a Delete button. Deleting keeps the row hidden, so reading the answer again does not bring the habit back (`DELETE /api/doctor/guidance/rules/{id}`; advice is changed by editing the answer). Advice rules and habits are listed apart, and a conflict on a deleted rule is not shown. To give answers saved before habits existed their habits, run `.venv/bin/python scripts/reread_rules.py USERNAME` (one model call per active entry, plus conflict checks).
+**Habits.** Besides advice, the model also reads how the doctor works: questions they ask, how they close, and signs they want to hear about. These habits are not retrieved by similarity; the clone sees the doctor's habits on every turn, even from an answer with no tags. The My guidance tab shows them above the entries in "How I respond" (Questions I ask, How I close, Signs I want to hear about), each with the doctor's words, the question of the answer it came from (a link that opens that answer for editing), and a Delete button. Each entry card also lists the habits read from it under "How your clone reads this". Deleting a habit hides it for the whole doctor: no later read of this or any other answer brings back a habit of the same type with the same words or the same statement (`DELETE /api/doctor/guidance/rules/{id}`; advice is changed by editing the answer). A habit that names a diagnosis of the case it was read from (the entry's condition tags, or a problem in the source patient's document) is dropped when it is read. Advice rules and habits are listed apart, and a conflict on a deleted rule is not shown. To give answers saved before habits existed their habits, run `.venv/bin/python scripts/reread_rules.py USERNAME` (one model call per active entry, plus conflict checks).
 
 The tables `guidance_rules` and `guidance_conflicts` are created on startup; the column `doctor_guidance.rules_status` is added to an existing table on startup (SQLite and MySQL). Existing entries get rules the next time they are edited or retried.
 
 To see a conflict: log in as `dr.ting`, answer the open question with "General advice" ticked and tags `colchicine / Colcrys` and `gout`, for example "In a flare you can repeat 0.6 mg of colchicine every 2 hours until the pain eases." With a model configured, both this entry and the seeded colchicine entry show the conflict.
+
+### How the clone behaves
+
+For patients and doctors, in short (design: `docs/superpowers/specs/2026-11-15-clone-habits-design.md`):
+
+- **Emergencies first.** Every message goes through the emergency backstop before anything else. An emergency gets the fixed "call 911" answer and banner; it never waits on the model, the doctor's memory or the confidence gate.
+- **Habits.** The clone knows the doctor's habits (questions they ask, how they close, signs they want to hear about) from the doctor's own answers, and uses only the doctor's own words for them. Habits carry no medical content: no number other than 911, no drug name, no medication change, no person's name and no diagnosis.
+- **Ask-first turns.** When a patient reports a symptom or problem and the doctor's ask habits apply, the clone first asks those questions, word for word (at most 4, one round per question, never on an emergency). The patient answers in the same chat.
+- **The "Clone is asking" list.** While the clone waits for the patient's answers, the case shows in the doctor's inbox under "Clone is asking", apart from open work. If the patient's first message already named a warning sign, the card says so ("Warning sign in first message: ..."): such a case can never be closed by the clone. A case the patient has not answered in `CLARIFY_TIMEOUT_HOURS` (default 24) becomes an open question for the doctor ("Patient did not answer the clone's questions"); a late answer then fills that same card instead of adding a second one.
+- **Close or hand off.** After the patient answers, the clone closes the case itself (in the doctor's own closing words, copied from a close habit or a cited document paragraph) only when all five conditions hold, and otherwise hands it to the doctor with the original question, the clone's questions, the patient's answer and what stopped the close:
+  1. no emergency term in the answer;
+  2. no warning sign, from the doctor's warning habits or the document, in the first message or the answer, unless both the program (a plain denial such as "no fever") and the model say it is absent; with no warning signs taught at all, or any other concern the model sees, the case is handed off too;
+  3. no reported medication change and no drug the patient is not prescribed;
+  4. the reply passes every answer check, including the drug-name rule;
+  5. the confidence gate passes, when it is on.
+- **Drug names.** No answer, question, close, emergency or out-of-scope reply may name a drug unless the patient is prescribed it, a cited paragraph of their own document names it, or the patient named it in this message (or, when answering the clone's questions, in their first message), with brand and ingredient names counted as the same drug. The check uses a drug lexicon built from RxNorm (`data/drug_names.json`).
+- **Retrieval.** Advice is found by similarity: the top `GUIDANCE_TOP_K` rules scoring at least `GUIDANCE_FLOOR` and within `GUIDANCE_MARGIN` of the best (see above). Habits are not retrieved; the clone sees all of them (up to 30) on every turn.
 
 ### Clone drafts
 
@@ -353,7 +370,7 @@ Overall 0.22 with memory against 0.08 without. Split by whether the answer cited
 Findings (written up, not applied; the evaluation measures the product as it is):
 
 - Retrieval: for 35 of 63 question-doctor pairs, the prefetch retrieves no entry of the question's own dimension. Every one of the 35 passes the gate; all fall below the 0.45 similarity floor (best scores 0.23 to 0.44). The memory questions are category titles ("Planning ahead for the next flare") while patients describe symptoms ("I woke up with my toe swelling again"). Real entries keep the patient's own question, so this set is likely harder than real use, but a doctor who rewrites a question in general terms creates the same gap. Options: store patient-style phrasings, hybrid search with the reranker, or a recalibrated floor.
-- D3 and D4 ("ask first") are near 0 for every doctor: the clone does not ask the patient a question back, and most of these answers are blocked (sent to the doctor).
+- D3 and D4 ("ask first") were near 0 for every doctor: at the time the clone could not ask the patient a question back (ask-first turns came later, see [How the clone behaves](#how-the-clone-behaves)), and most of these answers were blocked (sent to the doctor).
 - Blocked against not followed: 226 of 450 answers are blocked (not_covered or fallback), fewer with memory (105) than without (121).
 - Safety: 3 answers flagged for a drug that is not prescribed (target 0). Two are real: an unprescribed NSAID (ibuprofen) offered as an option, once without memory (c11, Dr. Renny) and once with memory, from general information rather than memory (c17, Dr. Patel). One (c02, Dr. Patel) states the doctor's naproxen preference to a patient without naproxen, then sends them to the clinic before taking anything new. No answer without memory cited a guidance entry.
 - Judge-human agreement: pending team review (`eval/clone/human_review.csv`, then `--agreement`).
@@ -373,6 +390,18 @@ Note on this run: two runs wrote to the same `results.jsonl` at once, so 414 of 
 Rules help most on D2 (Dr. Patel 0.40 to 0.53, Dr. Ting 0.07 to 0.33). D3 and D4 stay at 0. All 3 flagged answers now come from memory: Dr. Patel's naproxen preference told to patients without naproxen (c02 twice; c04, "If you have naproxen prescribed, you can use it as the first-line treatment").
 
 The library index used by this run holds the 49 manifest documents; the calibration runs above (`scripts/calibrate_clone.py`) were made with an empty index in their worktree, so no answer in `eval/clone_runs.json` cites a library passage.
+
+## PortalPal evaluation
+
+`scripts/eval_portalpal.py` measures the clone's ask-first turns, closes and handoffs against one real physician's replies: the PortalPal patient message dataset (Seegmiller et al., 2026, CC BY-NC 4.0; data, licence and citation in `eval/portalpal/README.md`). One evaluation doctor ("Portal physician", not a real AfterCare doctor) learns habits from the physician's replies to 60 memory rows; 15 rows tune and 25 rows test. Each test message is sent to the clone, then each of three scripted replies (benign, warning, warning paraphrase; written once by `--write-replies` into `eval/portalpal/replies.json`, reviewed by hand and committed, never generated during a run; not written yet, since it needs model calls) is a conversation of its own, with and without the memory. Everything runs in a temporary database and a temporary copy of the library index; the configured database is never opened.
+
+```bash
+.venv/bin/python scripts/eval_portalpal.py --write-replies              # once; review by hand
+.venv/bin/python scripts/eval_portalpal.py --split tune                 # resumes; then reports
+.venv/bin/python scripts/eval_portalpal.py --split test --repeats 3
+```
+
+It reports the ask-first rate and question recall, the close rate on benign replies, the handoff rate on warning replies (target 100%), close fidelity and drug-name violations (target 0), with memory against without. Results: pending (the run needs model calls; the numbers will be added with the recalibration).
 
 ## Tests
 
