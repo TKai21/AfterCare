@@ -836,7 +836,7 @@ async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake
                                 question="Q", answer="Take 500 mg twice a day.")
     await seed_habit(client, other, "Asks how the pain is", "How is the pain today?")
     fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"),
-                    {"content": '{"ask": []}'})  # the ask-first picker finds none fitting
+                    {"content": '{"reports_symptom": true, "ask": []}'})  # the ask-first picker finds none fitting
     await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
     text = first_user_message(fake_llm, -2)  # the clone's call; the picker's is last
     assert "How I usually respond" in text and "How is the pain today?" in text
@@ -989,7 +989,7 @@ async def test_not_covered_first_turn_with_fitting_ask_habit_asks_instead_of_han
     fake_llm.script(
         tool("add_care_team_question", {"question": "What should I do?", "reason": "Not covered"}),
         final("not_covered", "x", []),
-        {"content": json.dumps({"ask": [4]})},
+        {"content": json.dumps({"reports_symptom": True, "ask": [4]})},
     )
     body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
     assert body["kind"] == "clarify" and body["pending"] is True and body["flagged"] is False

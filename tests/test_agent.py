@@ -2498,8 +2498,8 @@ CONTACTS = "Have you had any recent sick contacts?"
 ALLERGIES = "Do you have a history of seasonal or environmental allergies?"
 
 
-def picker_reply(numbers):
-    return {"content": json.dumps({"ask": numbers})}
+def picker_reply(numbers, reports_symptom=True):
+    return {"content": json.dumps({"reports_symptom": reports_symptom, "ask": numbers})}
 
 
 def call_msg(name, **args):
@@ -2740,12 +2740,34 @@ async def test_a_picked_habit_that_fails_the_clarify_checks_is_dropped(
     assert result.kind == "not_covered" and result.care_team_question is not None
 
 
-async def test_a_non_symptom_message_becomes_a_clarify_when_the_picker_picks(
+async def test_a_message_that_reports_no_symptom_is_never_asked_about(
         store, foods, document, items):
-    """Accepted behaviour: the picker alone decides whether a message fits; a
-    scripted non-empty pick on a non-symptom message is turned into questions."""
+    question = "Can I drink orange juice while taking colchicine?"
     llm = FakeLLM()
-    bug_shape(llm, picker_reply([5]))
-    result = await ask(llm, store, foods, document, items, question="What is the weather like?",
-                       habits=ask_habits())
-    assert result.kind == "clarify" and CONTACTS in result.answer
+    bug_shape(llm, picker_reply([5, 6], reports_symptom=False))
+    result = await ask(llm, store, foods, document, items, question=question, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_question is not None
+    for bad in ({"ask": [5]}, {"reports_symptom": "true", "ask": [5]},
+                {"reports_symptom": 1, "ask": [5]}, {"reports_symptom": None, "ask": [5]}):
+        llm = FakeLLM()
+        bug_shape(llm, {"content": json.dumps(bad)})
+        result = await ask(llm, store, foods, document, items, question=RUNNY,
+                           habits=ask_habits())
+        assert result.kind == "not_covered" and result.care_team_question is not None
+
+
+async def test_near_duplicate_picks_keep_only_the_first(store, foods, document, items):
+    quotes = ["Have you had any recent changes in your medications?",
+              "Have you had any changes in your medications?",
+              "Have you had any recent changes in medications?",
+              CONTACTS]
+    habits = [habit_rule(41 + i, f"Asks {i}", q) for i, q in enumerate(quotes)]
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5, 6, 7]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
+    assert result.kind == "clarify" and result.habit_rule_ids == [41]
+    assert result.answer.count("?") == 1
+    llm = FakeLLM()  # distinct questions all stay
+    bug_shape(llm, picker_reply([5, 8]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
+    assert result.habit_rule_ids == [41, 44]
