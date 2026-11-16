@@ -678,3 +678,22 @@ async def test_clone_closed_question_is_answered_and_labelled(client, fake_llm):
     (item,) = data["answered"]
     assert item["id"] == qid and item["closed_by_clone"] is True
     assert data["waiting"] == [] and data["open"] == []
+
+
+async def test_deleting_a_habit_removes_twins_of_the_same_type_only(client, fake_llm):
+    dh, g, row = await answered_entry(client, fake_llm)
+    ask = await add_rule(client, g["id"], row.doctor_id, statement="Wants to hear about fever.",
+                         quote="Tell me about any fever.")
+    same_quote = await add_rule(client, g["id"], row.doctor_id, statement="Asks if there is fever.",
+                                quote="tell me about  any FEVER.", position=10)
+    warning = await add_rule(client, g["id"], row.doctor_id, habit_type="warning",
+                             statement="Wants to hear about fever.",
+                             quote="Tell me about any fever.", position=11)
+    assert (await client.delete(f"/api/doctor/guidance/rules/{ask}", headers=dh)).status_code == 204
+    data = (await client.get("/api/doctor/guidance", headers=dh)).json()
+    assert data["habits_by_type"]["ask"] == []
+    assert [h["id"] for h in data["habits_by_type"]["warning"]] == [warning]
+    from models import GuidanceRule
+    async with client.app.state.session_factory() as s:
+        assert (await s.get(GuidanceRule, same_quote)).suppressed is True
+        assert (await s.get(GuidanceRule, warning)).suppressed is False

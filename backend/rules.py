@@ -26,7 +26,8 @@ from guidance import embed_entry, tag_names
 from knowledge import KnowledgeError
 from llm import LLMError
 from models import (
-    CareTeamQuestion, DoctorGuidance, DrugLabel, GuidanceConflict, GuidanceRule, User,
+    CareTeamQuestion, DoctorGuidance, DrugLabel, ExtractedItem, GuidanceConflict, GuidanceRule,
+    User,
 )
 
 log = logging.getLogger(__name__)
@@ -94,10 +95,23 @@ def _without_allowed_questions(text: str, habit_type: Optional[str]) -> str:
     return " ".join(kept)
 
 
-def validate_habit(draft: RuleDraft, names: Collection[str], lexicon: DrugLexicon) -> bool:
-    """True when the habit carries no medical content and no person's name: it
+def _names_phrase(phrase: str, text: str) -> bool:
+    """`phrase` occurs in `text` as whole words, case and spacing aside."""
+    words = phrase.split()
+    if not words:
+        return False
+    pattern = r"\s+".join(re.escape(w) for w in words)
+    return re.search(rf"(?<!\w){pattern}(?!\w)", text, re.IGNORECASE) is not None
+
+
+def validate_habit(draft: RuleDraft, names: Collection[str], lexicon: DrugLexicon,
+                   conditions: Collection[str] = ()) -> bool:
+    """True when the habit carries no medical content, no person's name and no
+    diagnosis of the source case (`conditions`, see reader_conditions): it
     applies to every patient of the doctor, so none of it may be case-specific."""
     for text in (draft.statement, draft.quote):
+        if any(_names_phrase(c or "", text) for c in conditions):
+            return False
         if number_tokens(text) - PLAIN_NUMBERS:
             return False
         if lexicon.find(text):
@@ -170,9 +184,11 @@ def _warning_terms(raw, span: str) -> tuple[str, ...]:
     return tuple(terms)
 
 
-def validate_rules(answer: str, data, names: Collection[str] = ()) -> list[RuleDraft]:
+def validate_rules(answer: str, data, names: Collection[str] = (),
+                   conditions: Collection[str] = ()) -> list[RuleDraft]:
     """The rules of a model reply that pass every check, in order, deduplicated.
-    `names` are people's names a habit may not quote (the patient's, the doctor's)."""
+    `names` are people's names a habit may not quote (the patient's, the
+    doctor's); `conditions` are diagnoses a habit may not name."""
     if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
         return []
     rules: list[RuleDraft] = []
@@ -206,7 +222,7 @@ def validate_rules(answer: str, data, names: Collection[str] = ()) -> list[RuleD
                 if not draft.warning_terms:
                     continue
             lexicon = lexicon or get_lexicon()
-            if not validate_habit(draft, names, lexicon):
+            if not validate_habit(draft, names, lexicon, conditions):
                 continue
         key = normalize(statement)
         if key in seen:
@@ -223,7 +239,8 @@ def _tags_line(entry: DoctorGuidance) -> str:
     return ", ".join(tags) if tags else "(none)"
 
 
-async def read_rules(llm, entry: DoctorGuidance, names: Collection[str] = ()) -> list[RuleDraft]:
+async def read_rules(llm, entry: DoctorGuidance, names: Collection[str] = (),
+                     conditions: Collection[str] = ()) -> list[RuleDraft]:
     """Ask the model for the entry's rules. Raises LLMError or ValueError."""
     message = await llm.chat([
         {"role": "system", "content": RULES_PROMPT},
@@ -236,7 +253,7 @@ async def read_rules(llm, entry: DoctorGuidance, names: Collection[str] = ()) ->
         data = json.loads(message.get("content") or "")
     except (TypeError, ValueError) as exc:
         raise ValueError("unreadable rules reply") from exc
-    rules = validate_rules(entry.answer, data, names)
+    rules = validate_rules(entry.answer, data, names, conditions)
     if not rules:
         raise ValueError("no valid rules")
     return rules
@@ -287,29 +304,78 @@ async def reader_names(session: AsyncSession, entry: DoctorGuidance) -> list[str
     return names
 
 
+async def suppressed_keys(session: AsyncSession, doctor_id: int) -> set[tuple[str, str]]:
+    """What the doctor deleted, from any entry: (habit_type, normalised quote)
+    and (habit_type, normalised statement) of every suppressed habit."""
+    rows = (await session.execute(
+        select(GuidanceRule.habit_type, GuidanceRule.statement, GuidanceRule.quote)
+        .where(GuidanceRule.doctor_id == doctor_id, GuidanceRule.kind == "habit",
+               GuidanceRule.suppressed.is_(True)))).all()
+    return {key for habit_type, statement, quote in rows
+            for key in ((habit_type, normalize(quote)), (habit_type, normalize(statement)))}
+
+
+def is_suppressed(habit_type: Optional[str], statement: str, quote: str,
+                  muted: set[tuple[str, str]]) -> bool:
+    return ((habit_type, normalize(quote)) in muted
+            or (habit_type, normalize(statement)) in muted)
+
+
+# The item categories a document stores problems under: the extractor has no
+# diagnosis category (extraction.CATEGORIES), so problems land in "other", as
+# the PortalPal documents' "Active problem: ..." items do.
+PROBLEM_CATEGORIES = ("other",)
+_LABEL = re.compile(r"^[^:]{1,40}:\s*")
+
+
+async def reader_conditions(session: AsyncSession, entry: DoctorGuidance) -> list[str]:
+    """Diagnoses a habit read from this entry must not name: the names of the
+    entry's condition tags, and the problems of the source case (the source
+    question's document, else a patient-scope entry's document): each
+    non-rejected item of PROBLEM_CATEGORIES by its text, its text without a
+    leading label ("Active problem: gout" -> "gout") and its source quote."""
+    phrases: list[str] = [name for tag in (entry.condition_tags or []) for name in tag_names(tag)]
+    document_id = entry.document_id
+    if entry.source_question_id is not None:
+        document_id = await session.scalar(
+            select(CareTeamQuestion.document_id)
+            .where(CareTeamQuestion.id == entry.source_question_id)) or document_id
+    if document_id is not None:
+        for item in await session.scalars(select(ExtractedItem).where(
+                ExtractedItem.document_id == document_id,
+                ExtractedItem.category.in_(PROBLEM_CATEGORIES),
+                ExtractedItem.status != "rejected")):
+            phrases += [item.text, _LABEL.sub("", item.text), item.source_quote or ""]
+    return [p for p in dict.fromkeys(" ".join(p.split()) for p in phrases) if len(p) >= 2]
+
+
 async def build_rules(session: AsyncSession, llm, entry: DoctorGuidance, *,
                       names: Collection[str] = ()) -> list[GuidanceRule]:
     """Replace the entry's rules. Sets rules_status; never raises for a model
-    failure. A habit the doctor suppressed is kept and not added again."""
+    failure. Habits never name the entry's conditions (reader_conditions). A
+    habit the doctor deleted, from this entry or any other, is not added
+    again: a draft of the same habit_type whose quote or statement matches a
+    suppressed habit's (normalised) is dropped. The suppressed rows are kept."""
     await clear_rules(session, entry.id)
     try:
-        drafts = await read_rules(llm, entry, names)
+        drafts = await read_rules(llm, entry, names, await reader_conditions(session, entry))
     except (LLMError, ValueError) as exc:
         log.info("Rules for guidance %s not read: %s", entry.id, exc)
         entry.rules_status = "failed"
         return []
     kept = (await session.execute(
-        select(GuidanceRule.statement, GuidanceRule.position)
+        select(GuidanceRule.position)
         .where(GuidanceRule.guidance_id == entry.id, GuidanceRule.suppressed.is_(True)))).all()
-    muted = {normalize(statement) for statement, _ in kept}
-    drafts = [d for d in drafts if not (d.kind == "habit" and normalize(d.statement) in muted)]
+    muted = await suppressed_keys(session, entry.doctor_id)
+    drafts = [d for d in drafts
+              if not (d.kind == "habit" and is_suppressed(d.habit_type, d.statement, d.quote, muted))]
     try:
         vectors = await llm.embed([d.statement for d in drafts]) if drafts else []
     except (LLMError, ValueError) as exc:
         log.info("Rules for guidance %s not embedded: %s", entry.id, exc)
         entry.rules_status = "failed"
         return []
-    start = max((position for _, position in kept), default=-1) + 1
+    start = max((position for (position,) in kept), default=-1) + 1
     rules = [
         GuidanceRule(guidance_id=entry.id, doctor_id=entry.doctor_id, position=start + i,
                      statement=d.statement, quote=d.quote, kind=d.kind,

@@ -674,3 +674,117 @@ async def test_index_entry_passes_the_source_patient_and_doctor_names(session):
     await rules.index_entry(session, llm, None, e)
     kept = (await session.scalars(select(GuidanceRule.quote))).all()
     assert kept == ["Have you had any chills?"]
+
+
+# ---------- final review fixes: diagnoses and doctor-level suppression ----------
+
+HEART = "Since your heart failure got worse, call me if your legs swell."
+KNEE = "Is your knee replacement incision red?"
+DIABETES = "How is your diabetes?"
+FEVER = "Have you had any fever?"
+
+
+def test_habit_naming_a_condition_is_dropped():
+    answer = " ".join([HEART, KNEE, DIABETES, FEVER])
+    data = {"rules": [habit("Wants to hear about leg swelling.", HEART, "warning", ["legs swell"]),
+                      habit("Asks about the incision.", KNEE, "ask"),
+                      habit("Asks about blood sugar.", DIABETES, "ask"),
+                      habit("Asks about fever.", FEVER, "ask")]}
+    got = rules.validate_rules(answer, data,
+                               conditions=["Heart Failure", "knee replacement", "diabetes"])
+    assert [r.quote for r in got] == [FEVER]
+    # Whole words, case-insensitive; a statement naming it is dropped too.
+    data = {"rules": [habit("Asks about DIABETES control.", FEVER, "ask")]}
+    assert rules.validate_rules(answer, data, conditions=["diabetes"]) == []
+    data = {"rules": [habit("Asks about fever.", FEVER, "ask")]}
+    assert len(rules.validate_rules(answer, data, conditions=["ever", "gout"])) == 1
+
+
+async def problem_source(session, llm, answer, condition_tags, problems):
+    """A general entry answering a question of a patient whose document lists
+    `problems` as "other" items (the way PortalPal and the extractor store them)."""
+    from models import CareTeamQuestion, ExtractedItem
+    (doctor, patient, *_), d = await seed(session)
+    for text, quote, status in problems:
+        session.add(ExtractedItem(document_id=d.id, category="other", text=text,
+                                  source_quote=quote, details={}, status=status))
+    session.add(ExtractedItem(document_id=d.id, category="diet", text="Eat less salt.",
+                              source_quote="less salt", details={}))
+    q = CareTeamQuestion(user_id=patient.id, document_id=d.id, question="q", reason="r",
+                         source="agent")
+    session.add(q)
+    await session.flush()
+    e = await general(session, llm, doctor, answer, source_question_id=q.id)
+    e.condition_tags = list(condition_tags)
+    await session.flush()
+    return e
+
+
+async def test_reader_conditions_are_tags_and_the_source_patients_problems(session):
+    llm = FakeLLM()
+    e = await problem_source(session, llm, FEVER, ["heart failure / HF"], [
+        ("Active problem: Type 2 diabetes", "Type 2 diabetes", "active"),
+        ("Active problem: gout", "gout", "rejected")])
+    got = await rules.reader_conditions(session, e)
+    assert {"heart failure", "HF", "Type 2 diabetes", "Active problem: Type 2 diabetes"} <= set(got)
+    assert "gout" not in got and "Eat less salt." not in got
+
+
+async def test_build_rules_drops_habits_naming_the_entrys_conditions(session):
+    llm = FakeLLM()
+    answer = " ".join([HEART, KNEE, DIABETES, FEVER])
+    e = await problem_source(session, llm, answer, ["heart failure", "knee replacement"],
+                             [("Active problem: diabetes", "diabetes", "active")])
+    route_rules(llm, habit("Wants to hear about leg swelling.", HEART, "warning", ["legs swell"]),
+                habit("Asks about the incision.", KNEE, "ask"),
+                habit("Asks about blood sugar.", DIABETES, "ask"),
+                habit("Asks about fever.", FEVER, "ask"))
+    built = await rules.build_rules(session, llm, e)
+    assert [r.quote for r in built] == [FEVER]
+
+
+async def two_entries(session, llm, first, second):
+    (doctor, *_), _ = await seed(session)
+    return (await general(session, llm, doctor, first),
+            await general(session, llm, doctor, second, question="q2"))
+
+
+async def test_suppression_is_doctor_level_and_by_quote_or_statement(session):
+    llm = FakeLLM()
+    answer = "Have you had any fever? Drink plenty of water."
+    old, new = await two_entries(session, llm, answer, answer)
+    route_rules(llm, habit("Asks about fever.", FEVER, "ask"))
+    (fever,) = await rules.build_rules(session, llm, old)
+    fever.suppressed = True
+    await session.flush()
+    # The same answer re-read with other wording: the same quote stays suppressed.
+    route_rules(llm, habit("Checks whether the patient has a temperature.", FEVER, "ask"),
+                advice("Drink plenty of water.", "Drink plenty of water."))
+    assert [r.kind for r in await rules.build_rules(session, llm, old)] == ["advice"]
+    # The same habit read from another entry: suppressed too.
+    route_rules(llm, habit("Asks about fever.", FEVER, "ask"))
+    assert await rules.build_rules(session, llm, new) == []
+
+
+async def test_suppression_by_statement_from_another_entry(session):
+    llm = FakeLLM()
+    old, new = await two_entries(session, llm, FEVER, "Any fever at all?")
+    route_rules(llm, habit("Asks about fever.", FEVER, "ask"))
+    (fever,) = await rules.build_rules(session, llm, old)
+    fever.suppressed = True
+    await session.flush()
+    route_rules(llm, habit("Asks about fever.", "Any fever at all?", "ask"))
+    assert await rules.build_rules(session, llm, new) == []
+
+
+async def test_suppression_needs_the_same_habit_type(session):
+    llm = FakeLLM()
+    text = "Tell me if you have a fever."
+    old, new = await two_entries(session, llm, text, text)
+    route_rules(llm, habit("Wants to hear about a fever.", text, "warning", ["fever"]))
+    (warning,) = await rules.build_rules(session, llm, old)
+    warning.suppressed = True
+    await session.flush()
+    route_rules(llm, habit("Wants to hear about a fever.", text, "close"))
+    (kept,) = await rules.build_rules(session, llm, new)
+    assert (kept.habit_type, kept.suppressed) == ("close", False)

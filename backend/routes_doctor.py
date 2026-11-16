@@ -31,7 +31,7 @@ from models import (
 from routes_agent import NOT_ANSWERED, recent_history
 from routes_care_team import question_view
 from routes_documents import load_items
-from rules import clear_rules, index_entry
+from rules import clear_rules, index_entry, is_suppressed
 from voice import voice_views
 
 router = APIRouter()
@@ -483,13 +483,15 @@ async def suppress_habit(
         raise HTTPException(
             status_code=422, detail="Advice is changed by editing the answer, not deleted here."
         )
-    # The same habit written in several answers is shown once, so it goes everywhere.
-    key = normalize(rule.statement)
+    # The same habit written in several answers is shown once, so it goes
+    # everywhere: every live habit of the same type with the same normalised
+    # statement or quote, the keys build_rules keeps out of any later read.
+    muted = {(rule.habit_type, normalize(rule.statement)), (rule.habit_type, normalize(rule.quote))}
     for twin in await session.scalars(select(GuidanceRule).where(
         GuidanceRule.doctor_id == doctor.id, GuidanceRule.kind == "habit",
         GuidanceRule.suppressed.is_(False),
     )):
-        if twin.id == rule.id or normalize(twin.statement) == key:
+        if twin.id == rule.id or is_suppressed(twin.habit_type, twin.statement, twin.quote, muted):
             twin.suppressed = True
     await session.commit()
     return Response(status_code=204)
