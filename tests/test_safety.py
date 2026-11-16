@@ -379,3 +379,38 @@ def test_never_relaxed_lists_every_self_harm_label():
     assert set(NEVER_RELAXED) == {"suicidal", "want to die", "kill myself", "self harm",
                                   "overdose"}
     assert set(NEVER_RELAXED) <= set(EMERGENCY_TERMS)
+
+
+# ---------- M4 re-review 2: synonyms, subsets, retractions ----------
+
+from m4_probe_data import AFF, PLAIN_DENIALS, RETRACTIONS, SYNONYMS, WRAPS  # noqa: E402
+
+
+@pytest.mark.parametrize("message", SYNONYMS + RETRACTIONS)
+def test_a_reply_keeps_every_term_a_synonym_or_retraction_reasserts(message):
+    from safety import detect_emergency, detect_emergency_in_reply
+    fresh = detect_emergency(message, [])
+    assert fresh and detect_emergency_in_reply(message, []) == fresh, message
+
+
+@pytest.mark.parametrize("label", sorted(AFF))
+def test_no_wrapped_affirmative_phrase_is_relaxed(label):
+    from safety import detect_emergency, detect_emergency_in_reply
+    for wrap in WRAPS:
+        message = wrap.format(p=AFF[label])
+        assert detect_emergency_in_reply(message, []) == detect_emergency(message, []), message
+
+
+@pytest.mark.parametrize("message", PLAIN_DENIALS)
+def test_plain_denials_are_still_relaxed(message):
+    from safety import detect_emergency, detect_emergency_in_reply
+    assert detect_emergency(message, []) and detect_emergency_in_reply(message, []) == []
+
+
+def test_a_clause_with_only_some_of_the_terms_words_denies_nothing():
+    from safety import negated_terms
+    assert negated_terms("he is not breathing", ["trouble breathing"]) == set()
+    assert negated_terms("No trouble breathing but he is not breathing",
+                         ["trouble breathing"]) == set()
+    assert negated_terms("No fever and no chest pain.", ["fever", "chest pain"]) == {
+        "fever", "chest pain"}

@@ -283,10 +283,12 @@ def detect_emergency_in_reply(message: str, extra_terms: list[str]) -> list[str]
     """detect_emergency for a patient's reply to the clone's questions only:
     a matched term (static or document) that negated_terms finds plainly
     denied ("No fever and no chest pain.") is dropped. Any doubt keeps it,
-    since negated_terms errs toward not negated, and a NEVER_RELAXED label
-    always stays. Every other message uses detect_emergency unchanged (team
+    since negated_terms errs toward not negated (synonyms, repeats and
+    retractions keep the term), and a NEVER_RELAXED label always stays. Every other message uses detect_emergency unchanged (team
     decision, spec 4.4)."""
     hits = detect_emergency(message, extra_terms)
+    if not hits or _RETRACTION.search(message):
+        return hits  # a retraction disables the relaxation for the whole reply
     denied = negated_terms(message, hits)
     # negated_terms already never denies a term that is itself a negation
     # ("can't breathe"); checked again here because this is the emergency path.
@@ -312,7 +314,7 @@ def match_terms(message: str, terms: list[str]) -> list[str]:
     return out
 
 
-_CLAUSE_SPLIT = re.compile(r"[.;,!?:\n]|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[.;,!?:\n/()]|\s[-\u2013\u2014]+\s|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b", re.IGNORECASE)
 _NEGATOR_STEMS = frozenset({"not", "deny", "without", "non"})  # no/n't/never fold to "not"
 _NEGATION_PREFIX = frozenset(_stem(w) for w in (
     "i", "we", "he", "she", "they", "patient", "have", "has", "had", "do", "did", "am",
@@ -355,20 +357,57 @@ def _self_negated(term: str) -> bool:
     return any(w in _NEGATOR_STEMS for w in _words(term))
 
 
+# Words that take a denial back: a reply holding any of them is never read as
+# a denial at all ("No chest pain. Actually yes I do"). "I do", "I did" and
+# "I have" count unless a negation follows them ("I have no fever", "I have
+# had no fever", "I did not faint" are the denial itself, not a retraction).
+_RETRACTION = re.compile(
+    r"\b(?:yes|yeah|yep|actually|wait|lied|kidding|i\s+mean|correction|scratch\s+that"
+    r"|i\s+(?:do|did|have)(?!\s+(?:(?:had|got|been)\s+)?(?:not|no|never)\b))\b",
+    re.IGNORECASE)
+
+
+def _still_mentioned(label: str, text: str) -> bool:
+    """The unchanged backstop's own match for one term on `text`: a static
+    label's compiled pattern, or match_terms for any other term."""
+    rx = _COMPILED.get(label)
+    if rx is not None:
+        return rx.search(_canon(text)) is not None
+    return bool(match_terms(text, [label]))
+
+
+def _denies(words: list[str], content: frozenset[str], term_words: frozenset[str]) -> bool:
+    """The clause names every content word of the term exactly once and is a
+    plain denial of it (_negated_in_clause)."""
+    return (content <= set(words) and all(words.count(w) == 1 for w in content)
+            and _negated_in_clause(words, content, term_words))
+
+
 def negated_terms(message: str, terms: list[str]) -> set[str]:
     """The matched terms (labels from match_terms) the patient plainly denies.
+    The reply backstop (detect_emergency_in_reply) and close_blocker both use it.
 
-    A term is negated only when every clause (split on . ; , ! ? : and the words
-    but/and/or/nor/however/although) that mentions its words is a plain denial,
-    see _negated_in_clause: a negator, at most 2 filler words, the term, nothing
-    else. Hedges, double negatives and qualifiers ("until", "just", "more") fail.
+    Split on . ; , ! ? : / ( ) a spaced dash, and the words
+    but/and/or/nor/however/although. A term is negated only when:
+    - the message holds no retraction word (_RETRACTION: yes, actually, wait,
+      I do, I did, I have, lied, ...);
+    - its own words hold no negation ("can't breathe", "bleeding that won't
+      stop", "you cannot keep fluids down"): its own "not" would read as the
+      patient's denial;
+    - every clause that mentions any of its words names all of them, once, as
+      a plain denial (_negated_in_clause: a negator, at most 2 filler words,
+      the term, nothing else; hedges, double negatives and qualifiers fail);
+    - with those denying clauses removed, the unchanged backstop no longer
+      matches the term in what is left, as a whole or clause by clause (so a
+      synonym such as "soaking through the bandage" for "heavy bleeding", or
+      the term said again, keeps it).
     It errs toward not negated: a missed negation only sends a case to the
-    doctor, a false one could let a warning sign through. A term whose own
-    words hold a negation ("can't breathe", "bleeding that won't stop", "you
-    cannot keep fluids down") is never negated: its own "not" would read as
-    the patient's denial."""
+    doctor, a false one could let a warning sign through."""
+    if _RETRACTION.search(message):
+        return set()
     matched = set(match_terms(message, terms))
-    clauses = [_words(c) for c in _CLAUSE_SPLIT.split(message)]
+    clauses = _CLAUSE_SPLIT.split(message)
+    words_of = [_words(c) for c in clauses]
     out: set[str] = set()
     for term in terms:
         label = _canon(term)
@@ -376,6 +415,14 @@ def negated_terms(message: str, terms: list[str]) -> set[str]:
             continue
         content = _content(term) - {"not"}
         term_words = frozenset(_words(term)) - {"not"}
-        if content and all(_negated_in_clause(c, content, term_words) for c in clauses):
-            out.add(label)
+        if not content:
+            continue
+        mentioning = [i for i, w in enumerate(words_of) if any(x in content for x in w)]
+        if not mentioning or not all(_denies(words_of[i], content, term_words)
+                                     for i in mentioning):
+            continue
+        rest = [c for i, c in enumerate(clauses) if i not in mentioning]
+        if any(_still_mentioned(label, text) for text in (" ".join(rest), *rest)):
+            continue
+        out.add(label)
     return out

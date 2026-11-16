@@ -1601,3 +1601,34 @@ async def test_a_reply_i_dont_want_to_die_is_an_emergency(client, fake_llm):
     assert body["kind"] == "emergency" and body["emergency"]["terms"] == ["want to die"], body
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+
+
+
+from m4_probe_data import RETRACTIONS, SYNONYMS  # noqa: E402
+
+
+@pytest.mark.parametrize("reply", SYNONYMS + RETRACTIONS)
+async def test_a_reply_reasserting_an_emergency_without_a_model_is_answered(app_and_client,
+                                                                            fake_llm, reply):
+    app, client = app_and_client
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    app.state.llm = None
+    resp = await post_ask(client, h, reply, doctor_id=doctor_id)
+    assert resp.status_code == 200 and resp.json()["kind"] == "emergency", resp.text
+
+
+@pytest.mark.parametrize("reply", SYNONYMS + RETRACTIONS)
+async def test_a_reply_reasserting_an_emergency_never_closes(client, fake_llm, reply):
+    from safety import detect_emergency
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up",
+                                             *detect_emergency(reply, []))))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency", body
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
