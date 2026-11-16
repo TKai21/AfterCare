@@ -147,7 +147,8 @@ def test_out_dir_writes_there_only(tmp_path):
     code = calibrate_clone.main(["--from-runs", "--runs", str(eval_dir / "clone_runs.json"),
                                  "--out-dir", str(out)])
     assert code == 0
-    assert {p.name for p in out.glob("clone_calibration.json")} == {"clone_calibration.json"}
+    assert sorted(p.name for p in out.iterdir()) == ["clone_calibration.json",
+                                                    "clone_risk_coverage.svg"]
     assert (out / "clone_risk_coverage.svg").read_text().startswith("<svg")
     assert json.loads((out / "clone_calibration.json").read_text())["threshold"] is not None
     assert {n: (eval_dir / n).read_bytes() for n in names} == before
@@ -163,3 +164,39 @@ def test_refuses_an_empty_library_index(tmp_path, capsys, monkeypatch):
     err = capsys.readouterr().err
     assert str(index) in err and "0 documents" in err
     assert not out.exists()
+
+
+def test_from_runs_without_a_runs_file_is_a_clear_error(tmp_path, capsys):
+    out = tmp_path / "empty"
+    assert calibrate_clone.main(["--from-runs", "--out-dir", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert str(out / "clone_runs.json") in err and "--runs" in err
+    assert not out.exists()
+
+
+def test_the_final_message_lists_the_files_written(tmp_path, capsys):
+    out = tmp_path / "out"
+    assert calibrate_clone.main(["--from-runs", "--runs", str(ROOT / "eval" / "clone_runs.json"),
+                                 "--out-dir", str(out)]) == 0
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last == f"Wrote clone_calibration.json, clone_risk_coverage.svg in {out}"
+
+
+def test_from_runs_help_names_the_runs_option():
+    help_text = calibrate_clone.build_parser().format_help()
+    assert "--runs" in help_text and "OUT_DIR/clone_runs.json" in " ".join(help_text.split())
+    assert "--from-runs" in calibrate_clone.__doc__ and "--runs" in calibrate_clone.__doc__
+
+
+def test_library_index_check_builds_no_model_client(tmp_path, monkeypatch):
+    import llm
+    from dataclasses import replace
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("no model client is needed to count the index's documents")
+
+    monkeypatch.setattr(llm, "LLMClient", refuse)
+    real = calibrate_clone.get_settings
+    monkeypatch.setattr(calibrate_clone, "get_settings",
+                        lambda: replace(real(), rag_db_path=str(tmp_path / "index.sqlite3")))
+    assert "0 documents" in calibrate_clone.library_index_problem()

@@ -404,9 +404,11 @@ async def test_clarify_is_judged_for_first_ask(tmp_path):
     # Without memory no habit is in play.
     assert by[("dr.renny", "without_memory")]["kind"] == "answer"
     assert by[("dr.renny", "without_memory")]["habit_rule_ids"] == []
-    # The habits read are saved beside the results.
+    # The habits read are saved beside the results, one entry per world build.
     saved = json.loads((tmp_path / "habits.json").read_text())
-    assert [h["habit_type"] for h in saved["dr.renny"]] == ["ask", "close"]
+    (build,) = saved["builds"]
+    assert [h["habit_type"] for h in build["habits"]["dr.renny"]] == ["ask", "close"]
+    assert {r["build"] for r in records} == {0}
 
 
 def test_report_has_kinds_table(tmp_path):
@@ -417,8 +419,9 @@ def test_report_has_kinds_table(tmp_path):
         {**base, "repeat": 2, "kind": "close"},
         {**sheet_records()[2], "items": {"first_choice": False}},
     ]
-    habits = {"dr.ting": [{"habit_type": "ask", "statement": "Asks about a flare plan.", "dimension": "D2",
-                           "rule_id": 3, "guidance_id": 1}], "dr.patel": [], "dr.renny": []}
+    habits = {"builds": [{"started": "2026-11-16T00:00:00+00:00", "habits": {
+        "dr.ting": [{"habit_type": "ask", "statement": "Asks about a flare plan.", "dimension": "D2",
+                     "rule_id": 3, "guidance_id": 1}], "dr.patel": [], "dr.renny": []}}]}
     md, js = tmp_path / "results.md", tmp_path / "results.json"
     eval_clone.write_report(records, md, js, habits=habits)
     text = md.read_text()
@@ -428,6 +431,7 @@ def test_report_has_kinds_table(tmp_path):
     assert "| dr.patel | D1 | 0 | 0 | 1 | 0 |" in text
     assert "## Habits read" in text
     assert "- ask: Asks about a flare plan." in text and "dr.patel: none" in text
+    assert "### Build 0 (started 2026-11-16T00:00:00+00:00)" in text
     assert chr(0x2014) not in text
     data = json.loads(js.read_text())
     assert data["kinds"]["dr.ting|D1"] == {"answer": 1, "clarify": 1, "not_covered": 0, "other": 1}
@@ -911,3 +915,50 @@ def test_committed_memory_carries_no_case_content():
     for username, *_ in eval_clone.DOCTORS:
         for e in memory[username]:
             assert leaked(e["question"] + " " + e["answer"]) == set(), (username, e["question"])
+
+
+async def test_a_resumed_run_keeps_every_build_of_habits(tmp_path):
+    settings, _, _ = sentinel_settings(tmp_path)
+    kwargs = dict(results_path=tmp_path / "r.jsonl", cases=[CASE_D1], patients=PATIENTS,
+                  memory=MEMORY_H, judge_model="j")
+    await eval_clone.run_eval(settings, AskingLLM(), FakeJudge(), repeats=1, **kwargs)
+    records = await eval_clone.run_eval(settings, AskingLLM(), FakeJudge(), repeats=2, **kwargs)
+    builds = json.loads((tmp_path / "habits.json").read_text())["builds"]
+    assert len(builds) == 2 and all(b["habits"]["dr.renny"] for b in builds)
+    assert {r["repeat"]: r["build"] for r in records} == {0: 0, 1: 1}
+
+
+def test_load_saved_warns_and_skips_an_unreadable_file(tmp_path, capsys):
+    bad = tmp_path / "habits.json"
+    bad.write_text("{not json", encoding="utf-8")
+    assert eval_clone.load_saved(bad) is None
+    assert str(bad) in capsys.readouterr().err
+    assert eval_clone.load_saved(tmp_path / "missing.json") is None
+
+
+def test_cited_habit_dimensions_name_an_unknown_rule_with_a_question_mark():
+    world = eval_clone.World(doctors={}, names={}, patients={}, documents={}, guidance={},
+                             dimensions={}, labels=[], rule_dimensions={7: "D3"})
+    assert eval_clone.cited_habit_dimensions(world, [7, 99]) == ["D3", "?"]
+
+
+async def test_habits_read_are_the_habits_the_clone_sees(tmp_path, monkeypatch):
+    seen = []
+    real = eval_clone.doctor_habits
+
+    async def spy(session, doctor_id, limit=30):
+        seen.append(limit)
+        return await real(session, doctor_id, limit=limit)
+
+    monkeypatch.setattr(eval_clone, "doctor_habits", spy)
+    llm = AskingLLM()
+    store = KnowledgeStore(tmp_path / "index.sqlite3", llm)
+    async with eval_clone.open_world(make_settings(tmp_path), llm, store, PATIENTS, MEMORY_H) as (_c, _s, w):
+        assert [h["habit_type"] for h in w.habits["dr.renny"]] == ["ask", "close"]
+    assert seen and all(limit is None for limit in seen)
+
+
+def test_report_reads_an_old_habits_file():
+    md = eval_clone._habits_section({"dr.renny": [{"habit_type": "ask", "statement": "Asks.",
+                                                   "dimension": "D2"}]})
+    assert "- ask: Asks. (D2)" in "\n".join(md)

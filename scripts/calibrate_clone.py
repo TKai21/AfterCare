@@ -12,13 +12,17 @@ the calibration split and checked on the test split.
     .venv/bin/python scripts/calibrate_clone.py                    # run the model, then calibrate
     .venv/bin/python scripts/calibrate_clone.py --alpha 0.05
     .venv/bin/python scripts/calibrate_clone.py --from-runs        # recalibrate saved runs, no model calls
+    .venv/bin/python scripts/calibrate_clone.py --from-runs --runs eval/clone_runs_v1.json --out-dir /tmp/x
     .venv/bin/python scripts/calibrate_clone.py --limit 6          # a quick smoke run (no calibration file)
     .venv/bin/python scripts/calibrate_clone.py --out-dir eval/calibration/x   # write there, not eval/
 
 Writes clone_runs.json (every answer, score and verdict, for review),
 clone_calibration.json (the threshold the server reads, for this LLM_MODEL)
-and clone_risk_coverage.svg into --out-dir (default eval/). A run with the
-model refuses to start when the library index has no documents. Everything runs on a temporary
+and clone_risk_coverage.svg into --out-dir (default eval/). --from-runs reads
+saved runs from --runs (default OUT_DIR/clone_runs.json), writes only the
+calibration and the figure, and fails with a clear error when that file is
+missing. A run with the model refuses to start when the library index has no
+documents. Everything runs on a temporary
 SQLite database and a temporary copy of the library index; the real ones are
 never written. The API key is never printed.
 """
@@ -34,6 +38,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -299,8 +304,14 @@ def report(result: dict) -> None:
 
 async def main_async(args) -> int:
     out_dir = Path(args.out_dir)
+    written: list[str] = []
     if args.from_runs:
-        saved = json.loads(Path(args.runs or out_dir / "clone_runs.json").read_text())
+        runs_path = Path(args.runs) if args.runs else out_dir / "clone_runs.json"
+        if not runs_path.is_file():
+            print(f"Error: no saved runs at {runs_path}. Run the model first, or name the runs "
+                  "file with --runs.", file=sys.stderr)
+            return 2
+        saved = json.loads(runs_path.read_text())
         runs, chat_model, embedding_model = saved["runs"], saved["chat_model"], saved["embedding_model"]
     else:
         questions = json.loads(QUESTIONS.read_text())["questions"][: args.limit or None]
@@ -313,6 +324,7 @@ async def main_async(args) -> int:
         (out_dir / "clone_runs.json").write_text(json.dumps({"chat_model": chat_model, "embedding_model": embedding_model,
                                     "date": datetime.now(timezone.utc).date().isoformat(),
                                     "runs": runs}, indent=2) + "\n")
+        written.append("clone_runs.json")
     review = Path(args.review)
     overrides = json.loads(review.read_text())["overrides"] if review.is_file() and not args.limit and not args.no_review else []
     try:
@@ -332,27 +344,31 @@ async def main_async(args) -> int:
     }, indent=2) + "\n")
     (out_dir / "clone_risk_coverage.svg").write_text(
         svg_curve([r for r in runs if r["split"] == "test"], result["threshold"], args.alpha))
-    print(f"Wrote clone_runs.json (unless --from-runs), clone_calibration.json and clone_risk_coverage.svg in {out_dir}")
+    written += ["clone_calibration.json", "clone_risk_coverage.svg"]
+    print(f"Wrote {', '.join(written)} in {out_dir}")
     return 0
 
 
 def library_index_problem() -> Optional[str]:
-    """Why the real library index cannot be used for a run, or None when it can."""
-    from llm import LLMClient
+    """Why the real library index cannot be used for a run, or None when it can.
+    Counting documents needs no model client: the store only reads the
+    embedding model's name from it."""
     settings = get_settings()
-    store = KnowledgeStore(settings.rag_db_path, LLMClient(settings))
+    store = KnowledgeStore(settings.rag_db_path,
+                           SimpleNamespace(embedding_model=settings.embedding_model))
     if not store.status()["documents"]:
         return (f"The library index {store.path} has 0 documents: the clone would answer with no "
                 "library to retrieve from. Build it first (backend/manage_knowledge.py).")
     return None
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--alpha", type=float, default=0.1,
                         help="target rate of wrong answers delivered (default 0.1)")
     parser.add_argument("--from-runs", action="store_true",
-                        help="recalibrate eval/clone_runs.json without calling the model")
+                        help="recalibrate saved runs (--runs, default OUT_DIR/clone_runs.json) "
+                             "without calling the model")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N questions")
     parser.add_argument("--out-dir", default=str(OUT_DIR),
                         help="where to write the runs, calibration and figure (default eval/)")
@@ -360,7 +376,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-review", action="store_true",
                         help="keep the judge's verdicts as they are (apply no review overrides)")
     parser.add_argument("--review", default=str(REVIEW), help="human review overrides")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if not args.from_runs:
         problem = library_index_problem()
         if problem:

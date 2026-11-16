@@ -20,7 +20,8 @@ API; the configured DATABASE_URL is never opened.
 
 Outputs (in --out-dir, default eval/clone/): results.jsonl (a header line with
 the model names, then one record per answer, appended as it is made, so an
-interrupted run resumes), results.md and results.json (the report),
+interrupted run resumes), habits.json (the habits the clone sees, per world
+build: a resumed run reads the memory again), results.md and results.json (the report),
 human_review.csv and human_key.json (the human sheet and its hidden key),
 agreement.json, and retrieval.json (from --retrieval-check; the report reads it
 and agreement.json when they exist). --generate writes eval/clone/memory.json (whatever --out-dir
@@ -75,12 +76,14 @@ from clone_eval_score import (  # noqa: E402
 )
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport  # noqa: E402
 from eval_library import copy_index, demo_label_records, existing_index_path  # noqa: E402
-from guidance import RuleHit, eligible, embed_entry, patient_text, retrieve  # noqa: E402
+from guidance import (  # noqa: E402
+    RuleHit, doctor_habits, eligible, embed_entry, patient_text, retrieve,
+)
 from knowledge import open_store  # noqa: E402
 from llm import LLMError  # noqa: E402
 from rules import build_rules  # noqa: E402
 from models import (  # noqa: E402
-    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, GuidanceRule, User,
+    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, User,
 )
 
 CONDITIONS = ("with_memory", "without_memory")
@@ -195,10 +198,8 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
                                    f"{entry.question!r}")
         guidance[username] = sorted(e.id for e in entries)
         dimensions.update({e.id: d for e, d in zip(entries, dims)})
-        rows = await session.scalars(
-            select(GuidanceRule).where(GuidanceRule.guidance_id.in_(guidance[username]),
-                                       GuidanceRule.kind == "habit", GuidanceRule.suppressed.is_(False))
-            .order_by(GuidanceRule.id))
+        # What the clone sees on a turn (every habit, deduplicated), not every row read.
+        rows = await doctor_habits(session, doctors[username].id, limit=None)
         habits[username] = [{"rule_id": r.id, "guidance_id": r.guidance_id, "habit_type": r.habit_type,
                              "statement": r.statement, "dimension": dimensions[r.guidance_id]} for r in rows]
     await session.commit()
@@ -206,6 +207,12 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
                  names={u: n for u, n, _ in DOCTORS}, patients=users, documents=documents,
                  guidance=guidance, dimensions=dimensions, labels=labels, habits=habits,
                  rule_dimensions={h["rule_id"]: h["dimension"] for hs in habits.values() for h in hs})
+
+
+def cited_habit_dimensions(world: World, rule_ids: list[int]) -> list[str]:
+    """The dimension of each cited habit's entry; "?" for a rule the world did
+    not list (never a crash in the middle of a long run)."""
+    return [world.rule_dimensions.get(i, "?") for i in rule_ids]
 
 
 async def set_memory(session, world: World, username: str, active: bool) -> None:
@@ -413,12 +420,19 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
     planned = {(c["id"], u, cond, r) for c, u, cond, r in plan}
     records = [r for r in existing if _key(r) in planned]
     done = {_key(r) for r in records}
-    habits_path = results_path.with_name("habits.json")
     if len(done) == len(plan):
         return records
 
+    # The rules reading is a model call, so a resumed run, which builds the
+    # world again, may read other habits: every build is kept (as PortalPal
+    # does), and each record names the build it ran in.
+    habits_path = results_path.with_name("habits.json")
+    builds = _builds(load_saved(habits_path)) if existing else []
     async with temporary_world(settings, llm, patients, memory) as (client, session, world):
-        habits_path.write_text(json.dumps(world.habits, indent=2) + "\n", encoding="utf-8")
+        build = len(builds)
+        builds.append({"started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                       "habits": world.habits})
+        habits_path.write_text(json.dumps({"builds": builds}, indent=2) + "\n", encoding="utf-8")
         memory_on: dict[str, bool] = {}
         for number, (case, username, condition, repeat) in enumerate(plan, 1):
             if (case["id"], username, condition, repeat) in done:
@@ -432,11 +446,11 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
             record = {"case": case["id"], "patient": patient["id"], "question": case["question"],
                       "prescribed": list(patient["prescribed"]), "dimension": case["dimension"],
                       "doc_governs": bool(case.get("doc_governs")),
-                      "doctor": username, "condition": condition, "repeat": repeat}
+                      "doctor": username, "condition": condition, "repeat": repeat, "build": build}
             record.update({k: v for k, v in turn.items() if k not in ("case", "doctor")})
             # Which dimension each cited entry answers: retrieval against following.
             record["cited_dimensions"] = [world.dimensions[i] for i in turn["guidance_ids"]]
-            record["cited_habit_dimensions"] = [world.rule_dimensions[i] for i in turn["habit_rule_ids"]]
+            record["cited_habit_dimensions"] = cited_habit_dimensions(world, turn["habit_rule_ids"])
             record.update(await judge_turn(judge_llm, case, patient, turn))
             _append(results_path, record)
             records.append(record)
@@ -496,15 +510,29 @@ def kind_counts(records: list[dict]) -> dict:
             for k, c in out.items()}
 
 
+def _builds(habits: dict | None) -> list[dict]:
+    """The world builds of a habits.json: {"builds": [{started, habits}]}; a
+    file from before builds were kept (username -> habits) is one build."""
+    if not habits:
+        return []
+    if "builds" in habits:
+        return list(habits["builds"])
+    return [{"started": None, "habits": habits}]
+
+
 def _habits_section(habits: dict | None) -> list[str]:
     md = ["", "## Habits read", "",
-          "The habits the rules reading took from each doctor's generated memory (ask, close, warning)."]
+          "The habits the rules reading took from each doctor's generated memory (ask, close, warning), "
+          "as the clone sees them. A resumed run builds the world again and reads the memory again; "
+          "each build is listed."]
     if habits is None:
         return md + ["", "Not recorded: run the evaluation to list them."]
-    for username, _, _ in DOCTORS:
-        got = habits.get(username, [])
-        md += ["", f"{username}: " + ("none" if not got else "")]
-        md += [f"- {h['habit_type']}: {h['statement']} ({h['dimension']})" for h in got]
+    for number, build in enumerate(_builds(habits)):
+        md += ["", f"### Build {number} (started {build['started'] or 'not recorded'})"]
+        for username, _, _ in DOCTORS:
+            got = build["habits"].get(username, [])
+            md += ["", f"{username}: " + ("none" if not got else "")]
+            md += [f"- {h['habit_type']}: {h['statement']} ({h['dimension']})" for h in got]
     return md
 
 
@@ -568,7 +596,7 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
                  habits: dict | None = None) -> None:
     """results.md and results.json. `retrieval` is a saved --retrieval-check
     (retrieval.json: floor, limit, rows), or None; `habits` is habits.json
-    (username -> habits read), or None."""
+    ({"builds": [{started, habits: username -> habits read}]}), or None."""
     meta = meta or {}
     rates = hit_rates(records)
     following = following_split(records)
@@ -976,8 +1004,16 @@ def _summary(records: list[dict]) -> str:
 
 
 def load_saved(path: Path) -> dict | None:
-    """A saved JSON output (retrieval.json, agreement.json), or None when there is none."""
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    """A saved JSON output beside the results (retrieval.json, agreement.json,
+    habits.json), or None when there is none. They are optional: an unreadable
+    one is reported on stderr and treated as missing."""
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        print(f"Warning: {path} is not valid JSON ({exc}); ignoring it.", file=sys.stderr)
+        return None
 
 
 def _retrieval_check(path: Path) -> int:
