@@ -1,6 +1,8 @@
 """The PortalPal data: rows, the fixed split, the EHR as a document, and the
 committed scripted replies. Offline: the committed CSV only."""
+import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -40,6 +42,19 @@ Recently Ended Within 30-Days of Message:
 """
 
 NO_MEDS = EHR.split("-LISINOPRIL")[0] + "*No Active Medications*\n"
+
+
+def test_committed_csv_is_the_one_the_readme_names():
+    readme = (DATA_DIR / "README.md").read_text(encoding="utf-8")
+    (named,) = re.findall(r"SHA-256 `([0-9a-f]{64})`", readme)
+    assert hashlib.sha256(portalpal_data.CSV_PATH.read_bytes()).hexdigest() == named
+
+
+def test_load_rows_reads_a_file_with_a_byte_order_mark(tmp_path):
+    path = tmp_path / "bom.csv"
+    path.write_text("﻿Patient Message,Patient EHR Summary,Clinician Response\nhi,ehr,reply\n",
+                    encoding="utf-8")
+    assert load_rows(path) == [{"id": "pp-000", "message": "hi", "ehr": "ehr", "response": "reply"}]
 
 
 def test_load_rows_reads_the_committed_csv():

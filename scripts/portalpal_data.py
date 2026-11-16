@@ -42,7 +42,7 @@ def row_id(index: int) -> str:
 
 def load_rows(path: Path = CSV_PATH) -> list[dict]:
     """Every row as {id, message, ehr, response}, in file order."""
-    with Path(path).open(encoding="utf-8", newline="") as f:
+    with Path(path).open(encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         missing = [c for c in COLUMNS.values() if c not in (reader.fieldnames or [])]
         if missing:
