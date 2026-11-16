@@ -52,6 +52,7 @@ def answer_payload(result, terms: list[str], doctor_id: Optional[int],
         "emergency": {"terms": terms, "banner": bool(terms) or result.kind == "emergency"},
         # Read by the doctor's guidance list to count citations.
         "guidance_ids": result.guidance_ids,
+        "habit_rule_ids": result.habit_rule_ids,
         "doctor_id": doctor_id,
         "doctor_name": doctor_name,
         # The confidence gate's score of the clone's answer (None: not scored).

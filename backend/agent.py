@@ -37,6 +37,7 @@ class GuidanceUnavailable(Exception):
     """Raised by a guidance search that cannot reach the guidance memory."""
 
 DEFAULT_DOCTOR_NAME = "your doctor"
+HABIT_ONLY_ERROR = "An answer needs a source other than the doctor's usual practice."
 MEDICATION_CHANGE_ERROR = (
     "A medication change must be backed by a cited document paragraph or my earlier advice."
 )
@@ -240,6 +241,7 @@ class Evidence:
     check_text: str = field(default="", repr=False)
     guidance_id: Optional[int] = None  # the DoctorGuidance row, for kind "doctor" or "habit"
     habit_type: Optional[str] = None  # ask | close | warning, for kind "habit"
+    rule_id: Optional[int] = None  # the GuidanceRule row, for kind "habit"
 
 
 @dataclass
@@ -252,6 +254,7 @@ class AgentResult:
     care_team_reason: Optional[str] = None
     care_team_source: str = "agent"  # agent | validation_fallback
     guidance_ids: list[int] = field(default_factory=list)  # cited doctor advice entries
+    habit_rule_ids: list[int] = field(default_factory=list)  # cited habits (GuidanceRule ids)
     # Every piece of evidence the turn saw, cited or not: the verifier checks the
     # answer did not leave out a warning or limit from it (confidence.py).
     seen: list[Evidence] = field(default_factory=list)
@@ -438,6 +441,8 @@ def validate(
         raise ValueError("Citation markers do not match the citations.")
     if cited - evidence.keys():
         raise ValueError("A citation refers to evidence that does not exist.")
+    if kind == "answer" and all(evidence[n].kind == "habit" for n in cited):
+        raise ValueError(HABIT_ONLY_ERROR)
     if GENERAL_INFO_MARK in answer.lower() and not any(
         evidence[n].kind == "library" for n in cited
     ):
@@ -702,6 +707,7 @@ class _Turn:
                               None, rule.quote, check_text=rule.quote)
         self.evidence[number].guidance_id = rule.guidance_id
         self.evidence[number].habit_type = rule.habit_type
+        self.evidence[number].rule_id = rule.id
         return {"evidence_number": number, "habit_type": rule.habit_type,
                 "statement": rule.statement, "my_words": rule.quote}
 
@@ -923,7 +929,10 @@ async def run_agent(
                 kind=kind, answer=answer, sources=sources,
                 flagged=care_question is not None, care_team_question=care_question,
                 care_team_reason=reason,
-                guidance_ids=[e.guidance_id for e in sources if e.guidance_id is not None],
+                guidance_ids=[e.guidance_id for e in sources
+                              if e.kind == "doctor" and e.guidance_id is not None],
+                habit_rule_ids=[e.rule_id for e in sources
+                                if e.kind == "habit" and e.rule_id is not None],
                 seen=list(turn.evidence.values()),
             )
         if not tools_allowed:

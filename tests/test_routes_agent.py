@@ -90,6 +90,7 @@ async def test_ask_returns_cited_answer_and_saves_conversation(client, fake_llm)
         "flagged": False,
         "emergency": {"terms": [], "banner": False},
         "guidance_ids": [],
+        "habit_rule_ids": [],
         "doctor_id": doctor_id,
         "doctor_name": "Dr. Default",
         "confidence": None,

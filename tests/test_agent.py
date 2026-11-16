@@ -1268,10 +1268,10 @@ async def test_habit_evidence_shape_and_citation(store, foods, document, items):
     habit = habit_rule(7, "Closes by asking about questions", "Anything else I can help with?",
                        habit_type="close", guidance_id=42)
     llm = FakeLLM()
-    llm.script(final("Anything else I can help with? [5]", [5]))
+    llm.script(final("Drink water [2]. Anything else I can help with? [5]", [2, 5]))
     result = await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai",
                        habits=[habit])
-    (source,) = result.sources
+    source = result.sources[-1]
     assert (source.kind, source.title, source.url) == ("habit", "Dr. Ting Kai's usual practice", None)
     assert source.content == source.check_text == "Anything else I can help with?"
     assert (source.guidance_id, source.habit_type) == (42, "close")
@@ -1299,8 +1299,49 @@ async def test_habit_evidence_grounds_no_numbers(store, foods, document, items):
 
 def test_habit_evidence_is_not_doctor_evidence_for_a_medication_change():
     habit = Evidence(1, "habit", "t", None, "Stop it", check_text="Stop it")
-    out = raw(kind="answer", answer="Stop it [1].", citations=[1])
+    library = Evidence(2, "library", "t", None, "Stopping is fine", check_text="Stopping is fine")
+    out = raw(kind="answer", answer="Stop it [1, 2].", citations=[1, 2])
     with pytest.raises(ValueError, match="medication change"):
-        validate(out, {1: habit})
+        validate(out, {1: habit, 2: library})
     doctor = Evidence(1, "doctor", "t", None, "Stop it", check_text="Stop it")
-    validate(out, {1: doctor})
+    validate(out, {1: doctor, 2: library})
+
+
+async def test_guidance_ids_count_advice_only_and_habits_have_their_own_ids(store, foods, document, items):
+    habit = habit_rule(7, "Closes by asking", "Anything else I can help with?",
+                       habit_type="close", guidance_id=42)
+    entry = DoctorGuidance(id=9, doctor_id=1, question="q", answer="Take it with food.",
+                           scope="general", active=True)
+    from guidance import RuleHit
+    from models import GuidanceRule
+    rule = GuidanceRule(id=3, guidance_id=9, doctor_id=1, position=0, statement="s", quote="food",
+                        kind="advice")
+    llm = FakeLLM()
+    llm.script(final("Take it with food [5, 6].", [5, 6]))
+    result = await ask(llm, store, foods, document, items, habits=[habit],
+                       prefetch=[RuleHit(entry, rule)])
+    assert result.guidance_ids == [9]
+    assert result.habit_rule_ids == [7]
+    llm = FakeLLM()
+    llm.script(final("Anything else? [5]", [5]))
+    llm.script(final("Anything else? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, habits=[habit])
+    assert result.guidance_ids == [] and result.habit_rule_ids == []
+
+
+async def test_habit_only_answer_is_repaired_then_falls_back(store, foods, document, items):
+    habit = habit_rule(1, "Closes", "Anything else I can help with?", habit_type="close")
+    llm = FakeLLM()
+    llm.script(final("Anything else I can help with? [5]", [5]))
+    llm.script(final("Anything else I can help with? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, habits=[habit])
+    assert_fallback(result)
+    assert "needs a source other than" in llm.calls[1][0][-1]["content"]
+
+
+async def test_answer_citing_document_and_habit_passes(store, foods, document, items):
+    habit = habit_rule(1, "Closes", "Anything else I can help with?", habit_type="close")
+    llm = FakeLLM()
+    llm.script(final("Drink water [2]. Anything else I can help with? [5]", [2, 5]))
+    result = await ask(llm, store, foods, document, items, habits=[habit])
+    assert result.kind == "answer"
