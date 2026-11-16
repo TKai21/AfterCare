@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from config import Settings, get_settings
+import llm
 from llm import LLMClient, LLMError
 
 
@@ -196,3 +197,34 @@ def test_json_with_tools_env(monkeypatch, base, value, expected):
         get_settings.cache_clear()
         os.environ.clear()
         os.environ.update(saved)
+
+
+async def test_usage_is_counted_per_model_without_changing_results():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/embeddings"):
+            return httpx.Response(200, json={
+                "data": [{"index": 0, "embedding": [1.0, 0.0]}], "usage": {"prompt_tokens": 7, "total_tokens": 7}})
+        return httpx.Response(200, json={
+            "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}})
+
+    llm.reset_usage()
+    client = make_client(handler)
+    assert (await client.chat([{"role": "user", "content": "a"}]))["content"] == "hi"
+    await client.chat([{"role": "user", "content": "b"}])
+    assert await client.embed(["x"]) == [[1.0, 0.0]]
+    usage = llm.usage_snapshot()
+    assert usage["test-model"] == {"calls": 2, "prompt_tokens": 20, "completion_tokens": 8}
+    assert usage["embed-model"] == {"calls": 1, "prompt_tokens": 7, "completion_tokens": 0}
+    llm.reset_usage()
+    assert llm.usage_snapshot() == {}
+
+
+async def test_missing_usage_is_ignored():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "hi"}}]})
+
+    llm.reset_usage()
+    await make_client(handler).chat([{"role": "user", "content": "a"}])
+    assert llm.usage_snapshot() == {"test-model": {"calls": 1, "prompt_tokens": 0, "completion_tokens": 0}}
+    llm.reset_usage()

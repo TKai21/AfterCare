@@ -6,6 +6,29 @@ from config import Settings
 
 EMBED_BATCH_SIZE = 64
 
+# Token usage per model since the process started (or reset_usage()), read by the
+# evaluation scripts to report spend. Recording changes no behaviour.
+_USAGE: dict[str, dict[str, int]] = {}
+
+
+def _record_usage(model: str, data: dict) -> None:
+    usage = data.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    entry = _USAGE.setdefault(model, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
+    entry["calls"] += 1
+    for key in ("prompt_tokens", "completion_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            entry[key] += value
+
+
+def usage_snapshot() -> dict[str, dict[str, int]]:
+    return {model: dict(entry) for model, entry in _USAGE.items()}
+
+
+def reset_usage() -> None:
+    _USAGE.clear()
+
 
 class LLMError(Exception):
     """Raised when the model service fails or returns an unexpected shape."""
@@ -59,6 +82,7 @@ class LLMClient:
             raise LLMError("Model service returned an unexpected chat response.") from exc
         if not isinstance(message, dict):
             raise LLMError("Model service returned an unexpected chat response.")
+        _record_usage(self.settings.llm_model, data)
         return message
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -78,6 +102,7 @@ class LLMClient:
                 raise LLMError("Embedding service returned an unexpected response.") from exc
             if len(embeddings) != len(batch):
                 raise LLMError("Embedding service returned an incomplete batch.")
+            _record_usage(self.settings.embedding_model, data)
             vectors.extend(embeddings)
         self._validate(vectors)
         return vectors
