@@ -158,6 +158,10 @@ CREATE TABLE IF NOT EXISTS guidance_rules (
   quote TEXT NOT NULL,                                    -- exact span of the answer
   embedding JSON NULL,
   embedding_model VARCHAR(100) NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'advice',             -- advice | habit
+  habit_type VARCHAR(20) NULL,                            -- ask | close | warning
+  warning_terms JSON NULL,                                -- NULL reads as []
+  suppressed TINYINT(1) NOT NULL DEFAULT 0,               -- a doctor-deleted habit
   PRIMARY KEY (id),
   KEY ix_guidance_rules_guidance_id (guidance_id),
   KEY ix_guidance_rules_doctor_id (doctor_id),

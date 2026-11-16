@@ -162,7 +162,11 @@ async def retrieve(
     rules_by_entry: dict[int, list[GuidanceRule]] = {row.id: [] for row in candidates}
     for rule in await session.scalars(
         select(GuidanceRule)
-        .where(GuidanceRule.guidance_id.in_(list(rules_by_entry)))
+        .where(
+            GuidanceRule.guidance_id.in_(list(rules_by_entry)),
+            GuidanceRule.kind == "advice",
+            GuidanceRule.suppressed.is_(False),
+        )
         .order_by(GuidanceRule.guidance_id, GuidanceRule.position)
     ):
         rules_by_entry[rule.guidance_id].append(rule)

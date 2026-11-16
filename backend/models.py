@@ -7,8 +7,20 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from db import Base
+
+
+class JSONList(TypeDecorator):
+    """A JSON list stored in a nullable column; NULL (a row that predates the
+    column) reads as []. MySQL cannot add a NOT NULL JSON column with a literal
+    default to an existing table, so the empty list lives here, not in the DDL."""
+    impl = JSON
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):
+        return [] if value is None else value
 
 
 class User(Base):
@@ -213,6 +225,14 @@ class GuidanceRule(Base):
     quote: Mapped[str] = mapped_column(Text)
     embedding: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # "advice" is retrievable guidance; "habit" is how the doctor asks, closes or
+    # warns (habit_type ask | close | warning). warning_terms are the signs a
+    # warning habit listens for. A doctor-deleted habit is kept `suppressed` so a
+    # re-read does not bring it back.
+    kind: Mapped[str] = mapped_column(String(20), default="advice", server_default="advice")
+    habit_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    warning_terms: Mapped[list] = mapped_column(JSONList, nullable=True, default=list)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class GuidanceConflict(Base):

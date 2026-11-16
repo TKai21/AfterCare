@@ -47,6 +47,11 @@ async def init_db(engine: AsyncEngine) -> None:
 ADDED_COLUMNS = (
     ("users", "specialty", "VARCHAR(100) NULL"),
     ("doctor_guidance", "rules_status", "VARCHAR(20) NULL"),
+    ("guidance_rules", "kind", "VARCHAR(20) NOT NULL DEFAULT 'advice'"),
+    ("guidance_rules", "habit_type", "VARCHAR(20) NULL"),
+    # Nullable: MySQL has no portable NOT NULL JSON default; the ORM reads NULL as [].
+    ("guidance_rules", "warning_terms", "JSON NULL"),
+    ("guidance_rules", "suppressed", "BOOLEAN NOT NULL DEFAULT 0"),
 )
 
 

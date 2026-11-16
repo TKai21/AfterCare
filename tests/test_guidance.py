@@ -244,7 +244,6 @@ async def test_margin_is_measured_from_the_best_even_when_it_is_the_only_hit_abo
     assert [round(s, 2) for _, s in got] == [0.30, 0.25]
 
 
-@pytest.mark.xfail(strict=True, reason="GuidanceRule.kind arrives with the habits task")
 async def test_habit_rules_are_never_retrieved(session):
     from models import GuidanceRule
     llm = VectorLLM()
