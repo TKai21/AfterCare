@@ -792,7 +792,8 @@ async def run_agent(
     doctor_name: str = DEFAULT_DOCTOR_NAME,
     prefetch: Optional[list[DoctorGuidance]] = None,
     library_rxcuis: frozenset[str] = frozenset(),
-    allowed_drugs: frozenset[str] = frozenset(),
+    *,
+    allowed_drugs: frozenset[str],
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -816,8 +817,8 @@ async def run_agent(
     (the tool then reports guidance unavailable, as it does when the search is
     None). An entry found both ways keeps one evidence number. `library_rxcuis` are
     the patient's drug RxCUIs: only they unlock drug label passages in the library.
-    `allowed_drugs` are the lower-case drug names an answer may name beyond those a
-    cited document paragraph names (see drugnames.allowed_drug_names)."""
+    `allowed_drugs` (required, so the check never silently blocks every drug) are the
+    lower-case drug names an answer may name beyond those a cited document paragraph names (see drugnames.allowed_drug_names)."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
     user_content = _document_context(turn.paragraphs, items)
     if prefetch is not None:
@@ -848,8 +849,8 @@ async def run_agent(
         if not calls:
             raw = reply.get("content") or ""
             try:
-                kind, answer, cited, final_question = validate(raw, turn.evidence, allowed_drugs=allowed_drugs,
-                                                       lexicon=get_lexicon())
+                kind, answer, cited, final_question = validate(
+                    raw, turn.evidence, allowed_drugs=allowed_drugs, lexicon=get_lexicon())
             except ValueError as exc:
                 emergency = bool(emergency_terms) or _claimed_kind(raw) == "emergency"
                 # A reply with no JSON object gets its own retry, so a format slip

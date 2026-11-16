@@ -7,8 +7,8 @@ import pytest
 
 import agent
 from agent import FALLBACK, Evidence, number_tokens, render_food, run_agent, validate
-from fake_llm import FakeLLM
 from drugnames import allowed_drug_names, get_lexicon
+from fake_llm import FakeLLM
 from foods import FoodTable
 from knowledge import KnowledgeStore
 from llm import LLMError
@@ -131,6 +131,8 @@ def final(answer, citations, kind="answer", care_team_question=None):
 
 async def ask(llm, store, foods, document, items, question="Can I eat almonds?", history=(),
               emergency_terms=(), **kw):
+    # Tests that answer no drug name pass an empty set; the others pass their own.
+    kw.setdefault("allowed_drugs", frozenset())
     return await run_agent(llm, store, foods, document, items, list(history), question,
                            list(emergency_terms), **kw)
 
@@ -1225,3 +1227,8 @@ def test_document_named_drug_allows_its_equivalents():
     assert validate(raw(answer="Skip ibuprofen [1].", citations=[1]), ev, lexicon=lex)[0] == "answer"
     ev = evidence("Do not take ibuprofen.")
     assert validate(raw(answer="Skip Advil [1].", citations=[1]), ev, lexicon=lex)[0] == "answer"
+
+
+async def test_run_agent_requires_allowed_drugs(store, foods, document, items):
+    with pytest.raises(TypeError, match="allowed_drugs"):
+        await run_agent(FakeLLM(), store, foods, document, items, [], "Q?", [])
