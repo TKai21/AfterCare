@@ -200,15 +200,18 @@ function cloneDraftHtml(q, d) {
     </section>${error}`;
 }
 
-// The clone's questions to a patient: what the patient asked, what the clone
-// asked back, what the patient replied, and why the clone did not close it.
+// What the clone asked back, what the patient replied, and why the clone did not close it.
+// The patient's question as the card heading; a clone thread names it for screen readers.
+function questionHtml(q) {
+  return `<p class="doctor-question">${q.asked ? '<span class="visually-hidden">Patient asked: </span>' : ''}${esc(q.question)}</p>`;
+}
+
 function threadHtml(q, {reply = true, note = true} = {}) {
   const block = (label, text) => `
     <div class="doctor-thread-block"><p class="doctor-thread-label">${label}</p>
       <p class="doctor-thread-text">${esc(text)}</p></div>`;
   return `
     <div class="doctor-thread">
-      ${block('Patient asked', q.question)}
       ${block('My clone asked', q.asked)}
       ${reply && q.patient_reply ? block('Patient replied', q.patient_reply) : ''}
     </div>
@@ -219,6 +222,7 @@ function waitingCardHtml(q) {
   return `
     <li class="card doctor-card doctor-card-waiting" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(timeAgo(q.created_at))}</p>
+      ${questionHtml(q)}
       ${threadHtml(q)}
     </li>`;
 }
@@ -229,8 +233,9 @@ function openCardHtml(q) {
   return `
     <li class="card doctor-card" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
-      ${handoff ? threadHtml(q) : `<p class="doctor-question">${esc(q.question)}</p>`}
+      ${questionHtml(q)}
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
+      ${handoff ? threadHtml(q) : ''}
       ${q.reason && q.source !== 'patient' && !handoff ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
       ${q.source === 'patient_voice' ? '' : `<div class="clone-draft-slot">${cloneDraftHtml(q, d)}</div>
@@ -256,8 +261,9 @@ function answeredCardHtml(q) {
   return `
     <li class="card doctor-card doctor-card-answered">
       <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
-      ${q.asked ? threadHtml(q, {note: false}) : `<p class="doctor-question">${esc(q.question)}</p>`}
+      ${questionHtml(q)}
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
+      ${q.asked ? threadHtml(q, {note: false}) : ''}
       <p class="doctor-reason"><span class="doctor-reason-label">${q.closed_by_clone ? 'Closed by your clone' : esc(q.answered_by_name || 'Doctor') + ' answered'} ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
       ${voicePlayerHtml(q.voice?.answer, 'your reply')}
     </li>`;
