@@ -2106,3 +2106,20 @@ def test_fixed_answer_recognises_only_server_texts():
                  "I couldn't answer this from your discharge document, but drink water.",
                  "Call 911 now."):
         assert not agent.is_fixed_answer(text)
+
+
+async def test_prompt_says_habits_never_disagree_and_disagreement_still_answers(
+        store, foods, document, items):
+    # A real reply flagged "Sources disagree" over a warning habit and answered
+    # not_covered to "When should I call the doctor?".
+    llm = FakeLLM()
+    llm.script(final("Limit high-oxalate foods [2].", [2]))
+    await ask(llm, store, foods, document, items)
+    prompt = llm.calls[0][0][0]["content"]
+    assert ("My usual ways of responding never conflict with, override or count as a source "
+            "that disagrees with the discharge document or my earlier advice, and they are never "
+            "a reason to call add_care_team_question with reason \"Sources disagree\".") in prompt
+    assert ("When two sources really disagree, still answer with kind \"answer\" following the "
+            "higher source, say the sources differ, and also call add_care_team_question with "
+            "reason \"Sources disagree\". Sources that disagree never make the kind "
+            "\"not_covered\".") in prompt
