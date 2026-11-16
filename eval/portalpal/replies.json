@@ -6,7 +6,7 @@
   "pp-000": {
     "row_type": "normal",
     "benign": "I haven't really had these issues before. The symptoms seem to pop up maybe once or twice a week, but there's no specific pattern. I haven't noticed any particular food or activity that triggers them. Sometimes drinking peppermint tea helps a bit.",
-    "warning": "I haven't had these issues in the past. The symptoms come and go, maybe once or twice a week. I did notice that after eating spicy food, the pain sometimes gets worse. Yesterday, I started feeling some nausea too. warning_sign: nausea",
+    "warning": "I haven't had these issues in the past. The symptoms come and go, maybe once or twice a week. I did notice that after eating spicy food, the pain sometimes gets worse. Yesterday, I started feeling some nausea too.",
     "warning_sign": "nausea",
     "warning_paraphrase": "This is new for me, and the symptoms aren't constant. They seem to happen once or twice a week. I think spicy food might make it worse. Yesterday, I felt like I was going to be sick to my stomach.",
     "warning_paraphrase_of": "nausea"
@@ -60,12 +60,8 @@
     "warning_paraphrase_of": "dizziness"
   },
   "pp-014": {
-    "row_type": "normal",
-    "benign": "I haven't noticed any changes in my vision, and there haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
-    "warning": "I haven't noticed any changes in my vision, but I do have a history of seasonal allergies. There haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
-    "warning_sign": "history of seasonal allergies",
-    "warning_paraphrase": "I haven't noticed any changes in my vision, but I do tend to get itchy eyes and sneezing when the pollen count is high. There haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either.",
-    "warning_paraphrase_of": "history of seasonal allergies"
+    "row_type": "no_sign",
+    "benign": "I haven't noticed any changes in my vision, and there haven't been any recent environmental changes or renovations around me. My medications haven't changed recently either."
   },
   "pp-016": {
     "row_type": "normal",
@@ -171,7 +167,7 @@
     "benign": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. My medications have stayed the same too.",
     "warning": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. However, I've started experiencing some chest pain.",
     "warning_sign": "chest pain",
-    "warning_paraphrase": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. However, I've started feeling a tightness in my upper body.",
+    "warning_paraphrase": "I've never had these symptoms before, and they've been going on for about two weeks now. It seems to get worse when I'm on my feet for a long time, but resting helps a bit. I haven't changed anything major in my lifestyle or environment recently. However, I've started feeling a heavy, squeezing pressure behind my breastbone.",
     "warning_paraphrase_of": "chest pain"
   },
   "pp-053": {
@@ -183,19 +179,15 @@
     "warning_paraphrase_of": "dizziness or lightheadedness"
   },
   "pp-056": {
-    "row_type": "normal",
-    "benign": "I haven't had any changes in my medications recently. Everything else seems to be the same as usual.",
-    "warning": "I haven't had any changes in my medications recently. I will call the office to schedule a visit as soon as possible.",
-    "warning_sign": "call the office",
-    "warning_paraphrase": "I haven't had any changes in my medications recently. I'll make sure to reach out to your team right away.",
-    "warning_paraphrase_of": "call the office"
+    "row_type": "no_sign",
+    "benign": "I haven't had any changes in my medications recently. Everything else seems to be the same as usual."
   },
   "pp-057": {
     "row_type": "normal",
     "benign": "I haven't had any nausea, vomiting, or diarrhea. There's been some mild abdominal pain, but nothing too severe. I haven't had any abdominal surgery before, and my medications haven't changed recently.",
     "warning": "I haven't had any nausea or vomiting, but I did experience some chest pain last night. No changes in my medications or any previous abdominal surgeries.",
     "warning_sign": "chest pain",
-    "warning_paraphrase": "I haven't had any nausea or vomiting, but I felt a burning sensation in the middle of my body last night. My medications are the same, and I've never had abdominal surgery.",
+    "warning_paraphrase": "I haven't had any nausea or vomiting, but I felt a heavy, squeezing pressure behind my breastbone last night. My medications are the same, and I've never had abdominal surgery.",
     "warning_paraphrase_of": "chest pain"
   },
   "pp-058": {
@@ -253,12 +245,8 @@
     "benign": "Hi Dr.,\n\nThanks for getting back to me. I've tried some over-the-counter antihistamines, and they usually help a bit, but this time they don't seem to be doing much. In the past, using a saline nasal spray has also provided some relief, but I'm still feeling pretty congested. Any other suggestions would be great."
   },
   "pp-085": {
-    "row_type": "normal",
-    "benign": "I haven't experienced these symptoms before. Both arms are affected, but it's more noticeable in my right arm. I'm right-handed, so it's been a bit inconvenient. The over-the-counter medications have helped somewhat, but not completely.",
-    "warning": "I haven't had these symptoms before. It's affecting both arms, but more so on my right side. I'm right-handed, which makes it a bit more challenging. The medications have helped a bit, but I have had some recent changes in your medications.",
-    "warning_sign": "recent changes in your medications",
-    "warning_paraphrase": "This is the first time I've had these symptoms. Both arms are affected, but the right one is worse. Being right-handed, it's been a bit of a hassle. The painkillers help a little, but I did switch up some of my meds lately.",
-    "warning_paraphrase_of": "recent changes in your medications"
+    "row_type": "no_sign",
+    "benign": "I haven't experienced these symptoms before. Both arms are affected, but it's more noticeable in my right arm. I'm right-handed, so it's been a bit inconvenient. The over-the-counter medications have helped somewhat, but not completely."
   },
   "pp-091": {
     "row_type": "no_sign",
