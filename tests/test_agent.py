@@ -1360,7 +1360,8 @@ def pending_reply(kind, answer, citations, replies=True, signs=()):
                  warning_signs=list(signs))
 
 
-ASK = ("Asks about fever", "Thanks for telling me. Do you have a fever?")
+ASK = ("Asks about fever and the wound",
+       "Do you have a fever? Is it draining? Any chills? Any pain? Any swelling?")
 CLOSE = ("Closes with a follow-up reminder", "Keep your follow-up visit and call me if it changes.")
 
 
@@ -1373,7 +1374,7 @@ async def test_clarify_cites_ask_habits_only(store, foods, document, items):
     ask_habit = habit_rule(7, *ASK, habit_type="ask")
     close_habit = habit_rule(8, *CLOSE, habit_type="close")
     llm = FakeLLM()
-    llm.script(reply("clarify", "Thanks for telling me. Do you have a fever? Is it draining? [5]",
+    llm.script(reply("clarify", "Thanks for letting me know. Do you have a fever? Is it draining? [5]",
                      [5]))
     result = await ask(llm, store, foods, document, items, question="My incision is red.",
                        habits=[ask_habit, close_habit])
@@ -1392,8 +1393,8 @@ async def test_clarify_cites_ask_habits_only(store, foods, document, items):
 
 
 def test_clarify_validation_rules():
-    ask_ev = Evidence(1, "habit", "t", None, "Do you have a fever?", "Do you have a fever?",
-                      habit_type="ask")
+    ask_ev = Evidence(1, "habit", "t", None, "Do you have a fever? Is it red?",
+                      "Do you have a fever? Is it red?", habit_type="ask")
     ev = {1: ask_ev}
     assert validate(raw(kind="clarify", answer="Do you have a fever? Is it red? [1]",
                         citations=[1]), ev)[0] == "clarify"
@@ -1409,9 +1410,9 @@ def test_clarify_validation_rules():
 
 async def test_clarify_with_five_questions_is_repaired(store, foods, document, items):
     habit = habit_rule(7, *ASK)
-    five = "Any fever? Any chills? Any pain? Any swelling? Any drainage? [5]"
+    five = "Do you have a fever? Is it draining? Any chills? Any pain? Any swelling? [5]"
     llm = FakeLLM()
-    llm.script(reply("clarify", five, [5]), reply("clarify", "Any fever? Any chills? [5]", [5]))
+    llm.script(reply("clarify", five, [5]), reply("clarify", "Do you have a fever? Any chills? [5]", [5]))
     result = await ask(llm, store, foods, document, items, question="My incision is red.",
                        habits=[habit])
     assert result.kind == "clarify"
@@ -1576,7 +1577,8 @@ async def test_pending_context_lists_original_question_and_asked(store, foods, d
 ])
 async def test_clarify_medication_change_wording(store, foods, document, items, question, ok):
     habit = habit_rule(7, "Asks about medication changes",
-                       "Have you had any recent changes in your medications?")
+                       "Do you have a fever? Have you had any recent changes in your "
+                       "medications? Have you changed your medications?")
     bad = reply("clarify", f"Do you have a fever? {question} [5]", [5])
     llm = FakeLLM()
     llm.script(bad, bad)
@@ -1594,6 +1596,8 @@ def test_rules_reuses_the_medication_change_question_pattern():
     assert rules.MEDICATION_CHANGE_QUESTION is agent.MEDICATION_CHANGE_QUESTION
 
 
+OWN_QUESTIONS = ("Rest in bed and drink fluids. Any fever? Any vomiting? Did you skip doses? "
+                 "How long has it hurt? Can you describe the pain?")
 CLARIFY_EV = {
     1: Evidence(1, "habit", "t", None, "Thanks for letting me know. Do you have a fever?",
                 "Thanks for letting me know. Do you have a fever?", habit_type="ask"),
@@ -1607,6 +1611,7 @@ CLARIFY_EV = {
                 habit_type="ask"),
     5: Evidence(5, "habit", "t", None, "Do you have a fever?", "Do you have a fever?",
                 habit_type="ask"),
+    6: Evidence(6, "habit", "t", None, OWN_QUESTIONS, OWN_QUESTIONS, habit_type="ask"),
 }
 
 
@@ -1621,7 +1626,7 @@ def clarify_check(answer, citations=(1,)):
     'Any fever? "Rest in bed. Drink fluids." Any pain?',
     "A?B?C?D?E?",
     "Any fever?\nRest and stay home",
-    "Any fever⁇ Take it easy⁇",
+    "Any fever\u2047 Take it easy\u2047",
     # the only lead-in allowed is the doctor's own words, first
     "Take your naproxen. Any fever?",
     "Go to the emergency room now. Any fever?",
@@ -1638,24 +1643,26 @@ def test_clarify_rejects_smuggled_content(answer):
         clarify_check(answer)
 
 
-@pytest.mark.parametrize("answer", [
-    "Any fever? Any vomiting?",
-    "Did you skip doses?",
-    "How long has it hurt?",
-    "Can you describe the pain?",
-    "Thanks for letting me know. Do you have a fever? Any vomiting?",
-    "thanks  for letting me KNOW. Any fever?",  # normalised case and whitespace
-    "Any fever? Any vomiting? [1]",
+@pytest.mark.parametrize("answer, citations", [
+    ("Any fever? Any vomiting?", [6]),
+    ("Did you skip doses?", [6]),
+    ("How long has it hurt?", [6]),
+    ("Can you describe the pain?", [6]),
+    ("Thanks for letting me know. Do you have a fever? Any vomiting?", [1, 6]),
+    ("thanks  for letting me KNOW. any FEVER?", [6]),  # normalised case and whitespace
+    ("I'm sorry to hear that. Any fever? Any vomiting?", [6]),
+    ("I\u2019m sorry you are dealing with this. Any fever?", [6]),
+    ("Thank you for telling me. Any fever? Any vomiting? [6]", [6]),
 ])
-def test_clarify_accepts_questions_and_the_doctors_own_lead_in(answer):
-    assert clarify_check(answer)[0] == "clarify"
+def test_clarify_accepts_questions_and_the_doctors_own_lead_in(answer, citations):
+    assert clarify_check(answer, citations)[0] == "clarify"
 
 
 def test_clarify_lead_in_errors_name_the_rule():
-    with pytest.raises(ValueError, match="only open with the doctor's own words"):
-        clarify_check("Go to the emergency room now. Any fever?")
-    with pytest.raises(ValueError, match="only open with the doctor's own words"):
-        clarify_check("Any fever? Thanks for letting me know.")
+    with pytest.raises(ValueError, match="only open with"):
+        clarify_check("Go to the emergency room now. Do you have a fever?")
+    with pytest.raises(ValueError, match="only open with"):
+        clarify_check("Do you have a fever? Thanks for letting me know.")
     with pytest.raises(ValueError, match="drug"):
         clarify_check("Have you tried taking naproxen?")
     with pytest.raises(ValueError, match="link"):
@@ -1681,15 +1688,15 @@ async def test_pending_blocks_are_tagged_untrusted(store, foods, document, items
     # Unicode and line boundaries (checked after NFKC)
     ("Rest in bed\nDrink fluids\nAny fever?", [1]),
     ("- Rest in bed\n- Drink fluids\n- Any fever?", [1]),
-    ("Rest in bed Any fever?", [1]),
-    ("Rest in bed Any fever?", [1]),
-    ("Any fever。Rest in bed。Any pain?", [1]),
-    ("Any fever？Rest in bed and skip the gym？Any pain?", [1]),
-    ("Rest in bed． Any fever?", [1]),
-    ("Rest in bed। Any fever?", [1]),
-    ("Rest in bed; Any fever?", [1]),
-    ("Rest in bed； Any fever?", [1]),
-    ("A？B？C？D？E？F？G?", [1]),
+    ("Rest in bed\u2028Any fever?", [1]),
+    ("Rest in bed\u2029Any fever?", [1]),
+    ("Any fever\u3002Rest in bed\u3002Any pain?", [1]),
+    ("Any fever\uff1fRest in bed and skip the gym\uff1fAny pain?", [1]),
+    ("Rest in bed\uff0e Any fever?", [1]),
+    ("Rest in bed\u0964 Any fever?", [1]),
+    ("Rest in bed\u037e Any fever?", [1]),
+    ("Rest in bed\uff1b Any fever?", [1]),
+    ("A\uff1fB\uff1fC\uff1fD\uff1fE\uff1fF\uff1fG?", [1]),
     ("?", [1]),
     ("Any fever? ?", [1]),
     ("Any fever?!", [1]),
@@ -1714,8 +1721,77 @@ def test_clarify_rejects_unicode_boundaries_lifted_lead_ins_and_advice(answer, c
         clarify_check(answer, citations)
 
 
-def test_clarify_lead_in_is_a_whole_sentence_of_an_ask_habit():
-    assert clarify_check("If it is not red, do not go to the clinic, rest at home! Is it red?",
-                         [4])[0] == "clarify"
+def test_clarify_lead_in_is_never_habit_text():
+    # a whole sentence of a cited ask habit is still not an opener
+    with pytest.raises(ValueError, match="only open with"):
+        clarify_check("If it is not red, do not go to the clinic, rest at home! Is it red?", [4])
+    with pytest.raises(ValueError, match="only open with"):
+        clarify_check("Rest in bed and drink fluids. Any fever?", [6])
     with pytest.raises(ValueError, match="only ask questions"):
         clarify_check("Can you go to the ER now?")
+
+
+@pytest.mark.parametrize("answer", [
+    # (A) an opener with an instruction after it: not one of the doctor's questions
+    "Is it red, and if so go to the ER right away?",
+    "Is it worse, go to the ER?",
+    "Any fever, you must rest?",
+    "Any fever [if so, rest]?",
+    "Do rest in bed?",
+    "Do you have a fever, because if not you can go back to work?",
+    "Any fever, and if not, is staying home and resting all week what you plan?",
+    "Is going to the ER right now an option?",
+    "Any reason not to go to the ER?",
+    "Do you have fever?",  # a paraphrase of "Do you have a fever?"
+    # (B) format and control characters, tabs
+    "Any fever, you sh\u200bould rest?",
+    "Any fever, you sh\u200could rest?",
+    "Any fever, ple\u2060ase rest?",
+    "Any fever, you\ufeffshould rest?",
+    "Any fever, you sh\u00adould rest?",
+    "Any fever, you\tshould rest?",
+    "Have you tried napro\u200bxen?",
+    "Is it OK to st\u200bop the pills?",
+    "Rest in bed\u0001Any fever?",
+    "Rest in bed\u001eAny fever?",
+    "\u200bRest in bed? Any fever?",
+])
+def test_clarify_asks_only_the_doctors_questions(answer):
+    with pytest.raises(ValueError):
+        clarify_check(answer, [1, 4, 5, 6])
+
+
+def test_clarify_of_verbatim_questions_and_errors():
+    assert clarify_check("Is it red? Do you have a fever?", [4, 5])[0] == "clarify"
+    assert clarify_check("I'm sorry to hear that. Is it red? Any fever?", [4, 6])[0] == "clarify"
+    with pytest.raises(ValueError, match="only ask the doctor's own questions"):
+        clarify_check("Is the wound red?", [4])
+    with pytest.raises(ValueError, match="only ask the doctor's own questions"):
+        clarify_check("Any chills?", [6])
+
+
+def test_cleaning_strips_format_characters_for_every_kind():
+    ev = {1: Evidence(1, "document", "t", None, "Drink 2 liters of water.",
+                      "Drink 2 liters of water.")}
+    lex = get_lexicon()
+    with pytest.raises(ValueError, match="naproxen"):
+        validate(raw(answer="Take napro\u200bxen [1].", citations=[1]), ev, lexicon=lex)
+    with pytest.raises(ValueError, match="naproxen"):
+        validate(raw(answer="Take napro\u00adxen [1].", citations=[1]), ev, lexicon=lex)
+    library = {1: Evidence(1, "library", "t", None, "Rest helps.", "Rest helps.")}
+    with pytest.raises(ValueError, match="medication change"):
+        validate(raw(answer="St\u200bop\u2060 taking it [1].", citations=[1]), library)
+    # fullwidth digits are digits
+    with pytest.raises(ValueError, match="Numbers"):
+        validate(raw(answer="Drink \uff13 liters [1].", citations=[1]), ev)
+    assert validate(raw(answer="Drink\u200b \uff12\tliters\ufeff  of water [1].", citations=[1]),
+                    ev)[1] == "Drink 2 liters of water [1]."
+
+
+async def test_answer_with_a_hidden_drug_name_is_repaired(store, foods, document, items):
+    hidden = final("You can take napro\u200bxen [2].", [2])
+    llm = FakeLLM()
+    llm.script(hidden, final("Drink\u200b water\tevery day [3].", [3]))
+    result = await ask(llm, store, foods, document, items)
+    assert "naproxen" in llm.calls[1][0][-1]["content"]
+    assert result.kind == "answer" and result.answer == "Drink water every day [3]."
