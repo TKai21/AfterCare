@@ -38,10 +38,13 @@ async def score_answer(llm, question: str, answer: str, sources: Sequence,
                        seen: Sequence = ()) -> float:
     """The verifier's confidence in an answer, 0 to 1. `sources` are the cited
     agent.Evidence items, `seen` everything the turn saw (cited items are
-    skipped there). Raises LLMError, or ValueError on an unusable reply."""
+    skipped there). Uncited habits are left out of the other evidence: every
+    turn sees all of the doctor's habits, and an uncited warning or close habit
+    is the doctor's usual practice, not a when-to-call instruction the answer
+    left out. Raises LLMError, or ValueError on an unusable reply."""
     nonce = secrets.token_hex(6)
     cited = {e.number for e in sources}
-    other = [e for e in seen if e.number not in cited]
+    other = [e for e in seen if e.number not in cited and e.kind != "habit"]
     message = await llm.chat([
         {"role": "system", "content": VERIFY_PROMPT},
         {"role": "user", "content": (

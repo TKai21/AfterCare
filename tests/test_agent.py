@@ -1322,11 +1322,15 @@ async def test_guidance_ids_count_advice_only_and_habits_have_their_own_ids(stor
                        prefetch=[RuleHit(entry, rule)])
     assert result.guidance_ids == [9]
     assert result.habit_rule_ids == [7]
+    # A delivered clarify cites only an ask habit: its entry (42) is never
+    # counted as cited advice, and the habit's own rule id is.
+    ask_habit = habit_rule(8, "Asks about fever", "Do you have a fever?", guidance_id=42)
     llm = FakeLLM()
-    llm.script(final("Anything else? [5]", [5]))
-    llm.script(final("Anything else? [5]", [5]))
-    result = await ask(llm, store, foods, document, items, habits=[habit])
-    assert result.guidance_ids == [] and result.habit_rule_ids == []
+    llm.script(final("Do you have a fever? [5]", [5], kind="clarify"))
+    result = await ask(llm, store, foods, document, items, question="My incision is red.",
+                       habits=[ask_habit])
+    assert result.kind == "clarify" and len(llm.calls) == 1
+    assert result.guidance_ids == [] and result.habit_rule_ids == [8]
 
 
 async def test_habit_only_answer_is_repaired_then_falls_back(store, foods, document, items):
@@ -1355,9 +1359,9 @@ def reply(kind, answer, citations, **extra):
     return {"content": json.dumps(body)}
 
 
-def pending_reply(kind, answer, citations, replies=True, signs=()):
+def pending_reply(kind, answer, citations, replies=True, signs=(), concerns=False):
     return reply(kind, answer, citations, replies_to_questions=replies,
-                 warning_signs=list(signs))
+                 warning_signs=list(signs), other_concerns=concerns)
 
 
 ASK = ("Asks about fever and the wound",
@@ -1483,15 +1487,22 @@ def test_close_gets_the_answer_checks():
                         habit_type="close")
     library = Evidence(2, "library", "t", None, "Rest helps.", "Rest helps.")
     ev = {1: close_ev, 2: library}
-    extra = {"replies_to_questions": True, "warning_signs": []}
+    extra = {"replies_to_questions": True, "warning_signs": [], "other_concerns": False}
     for answer, citations in (("Come back in 3 days [1].", [1]),          # ungrounded number
                               ("Stop taking it [1, 2].", [1, 2]),         # medication change
                               ("Take ibuprofen and call me [1].", [1])):  # drug not allowed
         with pytest.raises(ValueError):
             validate(raw(kind="close", answer=answer, citations=citations, **extra), ev,
                      pending=True, lexicon=get_lexicon())
-    assert validate(raw(kind="close", answer="Rest, and call me if it changes [1, 2].",
-                        citations=[1, 2], **extra), ev, pending=True)[0] == "close"
+    assert validate(raw(kind="close", answer="Call me if it changes [1].",
+                        citations=[1], **extra), ev, pending=True)[0] == "close"
+    # The structural check does not hide the drug check: a close habit that
+    # names a drug the patient does not take still fails on the drug.
+    drug = {1: Evidence(1, "habit", "t", None, "Take ibuprofen and call me.",
+                        "Take ibuprofen and call me.", habit_type="close")}
+    with pytest.raises(ValueError, match="ibuprofen"):
+        validate(raw(kind="close", answer="Take ibuprofen and call me [1].", citations=[1],
+                     **extra), drug, pending=True, lexicon=get_lexicon())
 
 
 async def test_warning_signs_are_parsed(store, foods, document, items):
@@ -1845,3 +1856,98 @@ async def test_answer_with_a_hidden_drug_name_is_repaired(store, foods, document
     result = await ask(llm, store, foods, document, items)
     assert "naproxen" in llm.calls[1][0][-1]["content"]
     assert result.kind == "answer" and result.answer == "Drink water every day [3]."
+
+
+# --- final review fixes: every delivered kind gets the drug and change checks ---
+
+@pytest.mark.parametrize("kind", ["emergency", "out_of_scope"])
+def test_emergency_and_out_of_scope_get_the_drug_check(kind):
+    ev = {1: Evidence(1, "document", "t", None, "Call 911 for chest pain.",
+                      "Call 911 for chest pain.")}
+    with pytest.raises(ValueError, match="ibuprofen"):
+        validate(raw(kind=kind, answer="Call 911 now and chew an aspirin. Ibuprofen is also fine.",
+                     citations=[]), ev, allowed_drugs=frozenset({"aspirin"}), lexicon=get_lexicon())
+
+
+@pytest.mark.parametrize("kind", ["emergency", "out_of_scope"])
+def test_emergency_and_out_of_scope_get_the_medication_change_check(kind):
+    library = {1: Evidence(1, "library", "t", None, "Rest helps.", "Rest helps.")}
+    with pytest.raises(ValueError, match="medication change"):
+        validate(raw(kind=kind, answer="Call 911 and stop taking your pills [1].", citations=[1]),
+                 library)
+
+
+async def test_a_model_emergency_with_a_stray_drug_is_the_fixed_text_without_repair(
+        store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Call 911 now and chew an aspirin. Ibuprofen is also fine.", [],
+                     kind="emergency"))
+    result = await ask(llm, store, foods, document, items, question="My chest hurts a lot.")
+    assert result.kind == "emergency" and result.answer == agent.EMERGENCY_ANSWER
+    assert len(llm.calls) == 1  # an emergency never waits on a repair call
+
+
+def test_reply_turn_needs_other_concerns_as_a_bool():
+    ev = {1: Evidence(1, "document", "t", None, "Drink water.", "Drink water.")}
+    for value in (None, "no", 0):
+        fields = {"replies_to_questions": True, "warning_signs": []}
+        if value is not None:
+            fields["other_concerns"] = value
+        with pytest.raises(ValueError, match="other_concerns"):
+            validate(raw(answer="Drink water [1].", citations=[1], **fields), ev, pending=True)
+    assert validate(raw(answer="Drink water [1].", citations=[1], replies_to_questions=True,
+                        warning_signs=[], other_concerns=False), ev, pending=True)[0] == "answer"
+
+
+async def test_other_concerns_is_parsed_and_prompted(store, foods, document, items):
+    habit = habit_rule(8, *CLOSE, habit_type="close")
+    llm = FakeLLM()
+    llm.script(pending_reply("close", CLOSE[1] + " [5]", [5], concerns=True))
+    result = await ask(llm, store, foods, document, items, question="No fever.",
+                       habits=[habit], pending=pending(), warning_terms=["fever"])
+    assert result.kind == "close" and result.other_concerns is True
+    assert '"other_concerns"' in agent.SYSTEM_PROMPT
+    assert "anything else" in first_user(llm) and "other_concerns" in first_user(llm)
+    llm = FakeLLM()
+    llm.script(final("Drink water [2].", [2]))
+    assert (await ask(llm, store, foods, document, items)).other_concerns is None
+
+
+CLOSE_EV = {
+    1: Evidence(1, "habit", "t", None, "Keep your follow-up visit. Call me if it gets worse.",
+                "Keep your follow-up visit. Call me if it gets worse.", habit_type="close"),
+    2: Evidence(2, "document", "t", None, "Rest at home for 2 days. Walk a little each day.",
+                "Rest at home for 2 days. Walk a little each day."),
+    3: Evidence(3, "library", "t", None, "Ice helps swelling.", "Ice helps swelling."),
+    4: Evidence(4, "habit", "t", None, "Do you have a fever?", "Do you have a fever?",
+                habit_type="ask"),
+}
+REPLY_FIELDS = {"replies_to_questions": True, "warning_signs": [], "other_concerns": False}
+
+
+def close_check(answer, citations):
+    return validate(raw(kind="close", answer=answer, citations=citations, **REPLY_FIELDS),
+                    CLOSE_EV, pending=True, lexicon=get_lexicon())
+
+
+@pytest.mark.parametrize("answer, citations", [
+    ("Keep your follow-up visit [1].", [1]),
+    ("keep  your FOLLOW-UP visit. Call me if it gets worse [1].", [1]),
+    ("Call me if it gets worse [1]. Rest at home for 2 days [2].", [1, 2]),
+    ("Keep your follow-up visit\nWalk a little each day [1, 2].", [1, 2]),
+])
+def test_close_of_the_doctors_own_sentences_passes(answer, citations):
+    assert close_check(answer, citations)[0] == "close"
+
+
+@pytest.mark.parametrize("answer, citations", [
+    ("Thanks for letting me know. Keep your follow-up visit [1].", [1]),  # no opener
+    ("Keep your follow-up visit and rest [1].", [1]),  # not a whole sentence
+    ("You are fine, no need to worry [1].", [1]),  # free text
+    ("Ice helps swelling. Call me if it gets worse [1, 3].", [1, 3]),  # library is not a close
+    ("Do you have a fever? Call me if it gets worse [1, 4].", [1, 4]),  # ask habit text
+    ("Keep your follow-up visit? [1]", [1]),  # a statement turned into a question
+])
+def test_close_may_only_use_the_doctors_closing_words(answer, citations):
+    with pytest.raises(ValueError, match="only use the doctor's own closing words"):
+        close_check(answer, citations)

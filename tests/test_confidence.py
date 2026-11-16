@@ -165,3 +165,30 @@ async def test_gate_never_scores_an_emergency(client, fake_llm):
     body = (await post_ask(client, h, "I have chest pain right now")).json()
     assert body["kind"] == "emergency" and body["emergency"]["banner"]
     assert not any(c[0][0]["content"] == confidence.VERIFY_PROMPT for c in fake_llm.routed_calls)
+
+
+async def test_uncited_habits_are_not_other_evidence():
+    # Every turn sees up to 30 habits; an uncited warning or close habit is not
+    # a when-to-call instruction the answer left out. A cited habit stays.
+    llm = FakeLLM()
+    llm.script({"content": json.dumps({"score": 90})})
+    doc = Evidence(1, "document", "Your discharge document", None, "Drink water.", "Drink water.")
+    other_doc = Evidence(2, "document", "Your discharge document", None,
+                         "Call the clinic if you have a fever.", "Call the clinic if you have a fever.")
+    cited_habit = Evidence(3, "habit", "Dr. A's usual practice", None,
+                           "Keep your follow-up visit.", "Keep your follow-up visit.",
+                           habit_type="close")
+    warning = Evidence(4, "habit", "Dr. A's usual practice", None,
+                       "Go to the ER if you vomit blood.", "Go to the ER if you vomit blood.",
+                       habit_type="warning")
+    ask_habit = Evidence(5, "habit", "Dr. A's usual practice", None, "Any fever?", "Any fever?",
+                         habit_type="ask")
+    await confidence.score_answer(llm, "Can I drink water?", "Drink water [1]. Keep your "
+                                  "follow-up visit [3].", [doc, cited_habit],
+                                  [doc, other_doc, cited_habit, warning, ask_habit])
+    prompt = llm.calls[0][0][1]["content"]
+    sources = prompt.split("Cited sources:")[1].split("Other evidence")[0]
+    other = prompt.split("Other evidence the assistant had:")[1]
+    assert "Keep your follow-up visit." in sources
+    assert "Call the clinic if you have a fever." in other
+    assert "vomit blood" not in prompt and "Any fever?" not in prompt

@@ -3,7 +3,8 @@
 The server, not the model, decides. A close is blocked (fails closed into a
 handoff to the doctor) by emergency terms, any warning sign in the original
 question or the reply that is not denied by both the program and the model, a
-reported medication change, or a drug the patient is not prescribed."""
+reported medication change, a drug the patient is not prescribed, no warning
+signs to check against, or any other concern the model reports."""
 import re
 from typing import Optional
 
@@ -19,6 +20,8 @@ EMERGENCY_REASON = "Emergency terms"
 WARNING_REASON = "Warning sign: {term}"
 MEDICATION_REASON = "Medication change reported"
 DRUG_REASON = "Drug not on the prescription: {name}"
+NO_TERMS_REASON = "No warning signs taught"
+OTHER_CONCERNS_REASON = "Other concerns"
 
 WAITING = "waiting_on_patient"
 
@@ -68,16 +71,21 @@ def _key(term: str) -> str:
 def close_blocker(original: str, reply: str, emergency_terms: list[str],
                   doctor_warning_terms: list[str], document_warning_terms: list[str],
                   warning_signs: list[dict], prescribed: set[str],
-                  lexicon: DrugLexicon) -> Optional[str]:
+                  lexicon: DrugLexicon, *, other_concerns) -> Optional[str]:
     """None when a close may be delivered, else the reason shown to the doctor.
 
     Checks, in order: emergency terms in the reply; a warning term matched in
     the original question (always blocks: the case was reported with it) or
     in the reply, unless negated_terms finds a plain denial AND the model's
     warning_signs lists that term as "absent" (a term the model left out is
-    present); any given term the model does not list as "absent" (present,
-    unclear or left out), whether or not the program matched it; medication-change wording in the original question or the
-    reply; a lexicon drug name in either that is not in `prescribed`."""
+    present, and a term the model lists more than once is absent only when
+    every one of its entries says "absent"); any given term the model does not list as "absent" (present,
+    unclear or left out), whether or not the program matched it, so every
+    given term must be explicitly absent; medication-change wording in the
+    original question or the reply; a lexicon drug name in either that is not
+    in `prescribed`; no warning term given at all (nothing to check the reply
+    against); and `other_concerns` (the model's reply-turn field) anything
+    but an explicit False."""
     if emergency_terms:
         return EMERGENCY_REASON
     terms = list(dict.fromkeys([*doctor_warning_terms, *document_warning_terms]))
@@ -109,6 +117,10 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     unprescribed = sorted((lexicon.find(original) | lexicon.find(reply)) - allowed)
     if unprescribed:
         return DRUG_REASON.format(name=unprescribed[0])
+    if not terms:
+        return NO_TERMS_REASON
+    if other_concerns is not False:
+        return OTHER_CONCERNS_REASON
     return None
 
 

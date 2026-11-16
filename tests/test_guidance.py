@@ -351,6 +351,28 @@ async def test_stale_live_advice_still_falls_back_to_whole_entry(session):
     assert len(got) == 1 and got[0][0].id is not None and not hasattr(got[0][0], "rule")
 
 
+@pytest.mark.parametrize("stale", [{"embedding": None, "embedding_model": None},
+                                   {"embedding": [1.0, 0.0], "embedding_model": "old"}])
+async def test_one_advice_rule_without_a_current_embedding_scores_the_whole_entry(session, stale):
+    # One live advice rule of the current model and one without a current-model
+    # embedding: the rules cannot all be scored, so the entry is scored whole,
+    # never by its current rule alone.
+    from models import GuidanceRule
+    (doc, a, _), (d1, _) = await seed(session)
+    e = entry(doctor_id=doc.id, drug_tags=["colchicine"], embedding=[0.1, 0.99],
+              embedding_model="vec", rules_status="ready")
+    session.add(e)
+    await session.flush()
+    session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=0, statement="r0",
+                             quote="r0", embedding=[1.0, 0.0], embedding_model="vec"))
+    session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=1, statement="r1",
+                             quote="r1", **stale))
+    await session.flush()
+    got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0,
+                         doctor_id=doc.id)
+    assert len(got) == 1 and isinstance(got[0][0], DoctorGuidance)
+
+
 async def add_habit(session, e, statement, **kw):
     from models import GuidanceRule
     fields = dict(guidance_id=e.id, doctor_id=e.doctor_id, position=0, statement=statement,

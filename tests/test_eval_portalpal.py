@@ -98,11 +98,14 @@ class PortalLLM(FakeLLM):
         if "The patient is replying to my questions" in prompt:
             if self.second == "emergency":
                 return final("emergency", "Call 911 now.", [], replies_to_questions=True,
+                             other_concerns=False,
                              warning_signs=[{"term": "vomiting", "status": "present"}])
             if number["close"] is None:
-                return final("not_covered", "x", [], replies_to_questions=True, warning_signs=[])
+                return final("not_covered", "x", [], replies_to_questions=True,
+                             other_concerns=False, warning_signs=[])
             n = int(number["close"].group(1))
             return final("close", f"{CLOSE} [{n}]", [n], replies_to_questions=True,
+                         other_concerns=False,
                          warning_signs=[{"term": "vomiting", "status": "absent"}])
         if self.first == "not_covered":
             if any(r["message"] in prompt for r in ROWS):

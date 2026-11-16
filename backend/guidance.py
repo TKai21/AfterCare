@@ -180,9 +180,10 @@ async def retrieve(
         rules = rules_by_entry[row.id]
         if rules_usable(row, rules, llm.embedding_model):
             hits = []
-            # Usability is decided on ALL rules; only advice that is not
-            # suppressed is scored, so an entry left with none adds nothing and
-            # its whole answer never becomes evidence.
+            # rules_usable looked only at the live advice rules' embeddings;
+            # only that advice is scored, so an entry whose rules are all habits
+            # or suppressed adds nothing and its whole answer never becomes
+            # evidence.
             for rule in rules:
                 if rule.kind != "advice" or rule.suppressed:
                     continue

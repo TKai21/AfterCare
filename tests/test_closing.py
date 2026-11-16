@@ -1,5 +1,6 @@
 from closing import (
-    DRUG_REASON, EMERGENCY_REASON, MEDICATION_REASON, WARNING_REASON, close_blocker,
+    DRUG_REASON, EMERGENCY_REASON, MEDICATION_REASON, NO_TERMS_REASON, OTHER_CONCERNS_REASON,
+    WARNING_REASON, close_blocker,
 )
 from drugnames import get_lexicon
 
@@ -12,12 +13,12 @@ def absent(*terms):
 
 
 def blocker(reply, original=ORIGINAL, emergency=(), doctor=DOCTOR_TERMS, document=(),
-            signs=None, prescribed=("amoxicillin",)):
+            signs=None, prescribed=("amoxicillin",), concerns=False):
     """signs=None: the model lists every given term as absent."""
     if signs is None:
         signs = absent(*doctor, *document)
     return close_blocker(original, reply, list(emergency), list(doctor), list(document),
-                         list(signs), set(prescribed), get_lexicon())
+                         list(signs), set(prescribed), get_lexicon(), other_concerns=concerns)
 
 
 def test_reason_strings():
@@ -25,6 +26,8 @@ def test_reason_strings():
     assert WARNING_REASON == "Warning sign: {term}"
     assert MEDICATION_REASON == "Medication change reported"
     assert DRUG_REASON == "Drug not on the prescription: {name}"
+    assert NO_TERMS_REASON == "No warning signs taught"
+    assert OTHER_CONCERNS_REASON == "Other concerns"
 
 
 def test_benign_reply_closes():
@@ -155,7 +158,8 @@ def test_a_given_term_left_out_of_warning_signs_blocks():
     assert blocker("No fever. I vomited twice though.", doctor=["fever", "threw up"],
                    signs=absent("fever")) == "Warning sign: threw up"
     assert close_blocker(ORIGINAL, "It looks fine", [], DOCTOR_TERMS, ["redness"], [],
-                         {"amoxicillin"}, get_lexicon()) == "Warning sign: fever"
+                         {"amoxicillin"}, get_lexicon(),
+                         other_concerns=False) == "Warning sign: fever"
 
 
 def test_every_given_term_absent_still_closes():
@@ -181,3 +185,24 @@ def test_an_unhashable_status_blocks_without_crashing():
     signs = [*absent("fever", "threw up"), {"term": "threw up", "status": ["absent"]}]
     assert blocker("It looks fine", doctor=["fever", "threw up"], signs=signs) == (
         "Warning sign: threw up")
+
+
+def test_no_warning_terms_at_all_never_closes():
+    # Nothing to check a reply against: the clone cannot know it is benign.
+    reply = "Yes I have a fever and pus is coming out of the wound"
+    assert blocker(reply, doctor=[], document=[], signs=[]) == "No warning signs taught"
+    assert blocker("It looks fine", doctor=[], document=[], signs=[]) == (
+        "No warning signs taught")
+
+
+def test_other_concerns_must_be_an_explicit_false():
+    assert blocker("It looks fine") is None
+    for concerns in (True, None, "false", 0):
+        assert blocker("It looks fine", concerns=concerns) == "Other concerns", concerns
+
+
+def test_specific_reasons_come_before_the_general_ones():
+    assert blocker("I stopped the antibiotic yesterday", doctor=[], signs=[],
+                   concerns=True) == "Medication change reported"
+    assert blocker("I had a fever", concerns=True,
+                   signs=[{"term": "fever", "status": "present"}]) == "Warning sign: fever"

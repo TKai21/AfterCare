@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
@@ -67,11 +67,18 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
     is close_blocker's reason for a close or an answer; `gate_passed` is False
     only when the confidence gate ran and failed. A reported symptom always
     reaches the doctor unless an unblocked close or answer settled it: a
-    blocked answer is still delivered, but the question goes to the doctor."""
-    if terms or result.kind == "emergency":
-        stop = EMERGENCY_REASON if terms else EMERGENCY_ANSWER_STOP
+    blocked answer is still delivered, but the question goes to the doctor.
+
+    Emergency terms in the reply: whatever kind the model gave (a close, an
+    answer, anything but its own validated emergency text) the patient gets
+    the fixed emergency answer, and the case goes to the doctor."""
+    if terms:
+        delivered = (replace(result, care_team_question=None, flagged=False)
+                     if result.kind == "emergency" else emergency_result())
+        return delivered, Settle("open", NEEDS_DOCTOR, EMERGENCY_REASON)
+    if result.kind == "emergency":
         return (replace(result, care_team_question=None, flagged=False),
-                Settle("open", NEEDS_DOCTOR, stop))
+                Settle("open", NEEDS_DOCTOR, EMERGENCY_ANSWER_STOP))
     if result.replies_to_questions is False:
         # A blocker (say a warning sign in the new message) is the more useful
         # summary for the doctor; otherwise the patient simply moved on.
@@ -106,6 +113,9 @@ async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
                          document_id: int, doctor_id: int) -> None:
     """Settle the waiting question, only while it is still waiting: a
     conditional UPDATE, so of two concurrent replies only the first owns it.
+    A question the inbox timed out (open, unanswered, reason NOT_ANSWERED and
+    no reply yet) still counts as waiting for this reply: the reply fills that
+    same card, or resolves it on a close, so the doctor never sees two cards.
     When it is no longer waiting (the doctor answered it, or another reply
     settled it), a handoff becomes a new open question so a reply is never
     lost; a resolving outcome then only delivers its answer."""
@@ -114,9 +124,14 @@ async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
         values["reason"] = settle.reason
     if settle.answer is not None:
         values["answer"] = settle.answer
+    still_waiting = or_(
+        CareTeamQuestion.status == WAITING,
+        and_(CareTeamQuestion.status == "open", CareTeamQuestion.answer.is_(None),
+             CareTeamQuestion.reason == NOT_ANSWERED, CareTeamQuestion.patient_reply.is_(None)),
+    )
     done = await session.execute(
         update(CareTeamQuestion)
-        .where(CareTeamQuestion.id == waiting_id, CareTeamQuestion.status == WAITING)
+        .where(CareTeamQuestion.id == waiting_id, still_waiting)
         .values(**values)
         .execution_options(synchronize_session=False)
     )
@@ -207,8 +222,6 @@ async def ask(
     user_id, doc_id = user.id, doc.id
     # Read here, before the transaction ends: only these drugs' labels may be quoted.
     library_rxcuis = await patient_rxcuis(session, doc_id)
-    allowed_drugs = frozenset(
-        allowed_drug_names(items, library_rxcuis, body.question, get_lexicon()))
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
     terms = detect_emergency(body.question, warning_terms(items))
@@ -243,6 +256,11 @@ async def ask(
         clarify_id, waiting_id = clarify_message.id, waiting.id
         pending = PendingClarify(question=waiting.question,
                                  asked=waiting.asked or clarify_message.content)
+    # On a reply turn the patient's original message also names drugs they
+    # asked about (with the lexicon's equivalents).
+    asked_text = body.question if pending is None else f"{body.question}\n{pending.question}"
+    allowed_drugs = frozenset(
+        allowed_drug_names(items, library_rxcuis, asked_text, get_lexicon()))
     gate_score: Optional[float] = None  # the confidence gate's score, when it ran
     gate_passed = True
     blocker: Optional[str] = None  # why a close may not be delivered
@@ -345,7 +363,7 @@ async def ask(
             blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
                 pending.question, body.question, terms, doctor_terms, document_terms,
                 result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
-                lexicon)
+                lexicon, other_concerns=result.other_concerns)
 
         threshold = request.app.state.clone_threshold
         # The gate never runs when the backstop saw an emergency term: that

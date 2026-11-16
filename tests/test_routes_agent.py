@@ -895,8 +895,9 @@ def final(kind, text, citations, **extra):
     return {"content": json.dumps(body)}
 
 
-def reply_final(kind, text, citations, replies=True, signs=()):
-    return final(kind, text, citations, replies_to_questions=replies, warning_signs=list(signs))
+def reply_final(kind, text, citations, replies=True, signs=(), concerns=False):
+    return final(kind, text, citations, replies_to_questions=replies, warning_signs=list(signs),
+                 other_concerns=concerns)
 
 
 def absent(*terms):
@@ -1090,14 +1091,36 @@ async def test_other_doctors_tab_is_not_the_reply(client, fake_llm):
     assert body["kind"] == "close" and REPLY_MARK in first_user_message(fake_llm)
 
 
+def test_settle_reply_with_emergency_terms_is_always_the_emergency_answer():
+    # The rule itself: on a reply turn with emergency terms, any kind the model
+    # gave other than "emergency" becomes the fixed emergency answer.
+    from agent import AgentResult, EMERGENCY_ANSWER
+    from routes_agent import settle_reply
+    for kind in ("close", "answer", "not_covered", "out_of_scope"):
+        result = AgentResult(kind=kind, answer="Keep your follow-up visit.", sources=[],
+                             flagged=True, care_team_question="q", replies_to_questions=True)
+        delivered, settle = settle_reply(result, ["chest pain"], None, True, "Dr. A")
+        assert (delivered.kind, delivered.answer, delivered.flagged,
+                delivered.care_team_question) == ("emergency", EMERGENCY_ANSWER, False, None), kind
+        assert (settle.status, settle.reason, settle.stopped_by) == (
+            "open", NEEDS_DOCTOR, "Emergency terms"), kind
+    own = AgentResult(kind="emergency", answer="Call 911 now.", sources=[], flagged=False,
+                      care_team_question=None)
+    delivered, settle = settle_reply(own, ["chest pain"], None, True, "Dr. A")
+    assert delivered.answer == "Call 911 now." and settle.stopped_by == "Emergency terms"
+
+
 async def test_emergency_in_reply_gives_emergency_answer_and_opens_question(client, fake_llm):
-    # Review Focus 5.
+    # Review Focus 5. The model answers with a valid non-emergency kind (the
+    # document paragraph [2] is evidence even on an emergency turn): the server
+    # still gives the fixed emergency answer.
     gate_on(client, fake_llm)
     h = await confirmed(client, fake_llm)
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
     reply = "No fever, but now I have chest pain"
-    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=absent("fever")))
+    fake_llm.script(reply_final("answer", "Take amoxicillin 500 mg three times daily [2].", [2],
+                                signs=absent("fever")))
     body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
     assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY
     assert body["emergency"]["banner"] is True
@@ -1326,3 +1349,131 @@ async def test_payload_marks_habit_sources(client, fake_llm):
     assert source["title"] == "Dr. Ting Kai's usual practice"
     assert source["content"] == ASK_QUESTIONS
     assert source["url"] is None
+
+
+# ---------- final review fixes ----------
+
+async def bare_doctor(client, fake_llm, username="dr.bare", display_name="Dr. Bare"):
+    """A doctor with one ask and one close habit and no warning habit: [4] ask, [5] close."""
+    doctor_id = await make_doctor(client, username, display_name)
+    entry = await seed_guidance(client, fake_llm, doctor_id)
+    await seed_habit(client, entry, "Asks about fever and vomiting", ASK_QUESTIONS)
+    await seed_habit(client, entry, "Closes with the follow-up visit", CLOSE_TEXT, "close")
+    return doctor_id
+
+
+async def test_no_warning_signs_taught_never_closes(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await bare_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    reply = "Yes I have a fever and pus is coming out of the wound"
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5]))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Bare")
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "No warning signs taught")
+
+
+async def test_other_concerns_hand_off(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up"), concerns=True))
+    body = (await post_ask(client, h, "No fever, never threw up. My leg feels odd.",
+                           doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Other concerns")
+    assert "other_concerns" in first_user_message(fake_llm)
+
+
+async def test_free_text_close_never_resolves_with_the_gate_off(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    free = reply_final("close", "You are fine, no need to see anyone [5].", [5],
+                       signs=absent("fever", "threw up"))
+    fake_llm.script(free, free)
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    assert "only use the doctor's own closing words" in fake_llm.calls[-1][0][-1]["content"]
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("open", None)
+
+
+async def test_reply_turn_may_name_a_drug_from_the_original_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    fake_llm.script(final("clarify", ASK_QUESTIONS + " [4]", [4]))
+    await post_ask(client, h, "I took Advil and my incision is red.", doctor_id=doctor_id)
+    text = "Ibuprofen is not in your document; take amoxicillin 500 mg three times daily [2]."
+    fake_llm.script(reply_final("answer", text, [2], signs=absent("fever", "threw up")))
+    before = len(fake_llm.calls)
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text, body
+    assert len(fake_llm.calls) == before + 1  # no repair: "ibuprofen" is Advil's ingredient
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Drug not on the prescription: advil")
+
+
+async def time_out_waiting(client):
+    from datetime import timedelta
+    from models import CareTeamQuestion
+    from routes_doctor import utcnow
+    async with client.app.state.session_factory() as session:
+        await session.execute(update(CareTeamQuestion).values(
+            created_at=utcnow() - timedelta(hours=30)))
+        await session.commit()
+
+
+async def doctor_inbox(client, username="dr.ting"):
+    resp = await client.post("/api/login",
+                             json={"username": username, "password": "doctor-password-1"})
+    assert resp.status_code == 200, resp.text
+    headers = {"Authorization": f"Bearer {resp.json()['token']}"}
+    return (await client.get("/api/doctor/questions", headers=headers)).json()
+
+
+async def test_a_late_reply_after_the_timeout_fills_the_same_card(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await time_out_waiting(client)
+    inbox = await doctor_inbox(client)
+    assert [q["stopped_by"] for q in inbox["open"]] == [NOT_ANSWERED]
+    reply = "no fever, but I threw up twice"
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    await post_ask(client, h, reply, doctor_id=doctor_id)
+    (q,) = await all_questions(client)  # never a second card
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
+        "open", NEEDS_DOCTOR, "Warning sign: threw up", reply)
+
+
+async def test_a_late_benign_close_after_the_timeout_resolves_the_same_card(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await time_out_waiting(client)
+    await doctor_inbox(client)
+    reply = "No fever, never threw up."
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "close"
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer, q.patient_reply) == ("resolved", CLOSE_TEXT, reply)
+
+
+async def test_payload_lists_cited_habit_rule_ids(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)
+    from models import GuidanceRule
+    async with client.app.state.session_factory() as session:
+        ask_id = await session.scalar(select(GuidanceRule.id).where(
+            GuidanceRule.habit_type == "ask"))
+    assert body["habit_rule_ids"] == [ask_id] and body["guidance_ids"] == []
+    message = await clarify_message(client, doctor_id)
+    assert message.payload["habit_rule_ids"] == [ask_id]
