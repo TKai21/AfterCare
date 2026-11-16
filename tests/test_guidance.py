@@ -286,3 +286,32 @@ def test_margin_and_top_k_come_from_the_environment(monkeypatch, clean_settings_
     settings = get_settings()
     assert settings.guidance_margin == 0.07 and settings.guidance_top_k == 4
     assert Settings().guidance_top_k == 6
+
+
+async def _entry_with_rules(session, rules, **kw):
+    from models import GuidanceRule
+    (doc, a, _), (d1, _) = await seed(session)
+    e = entry(doctor_id=doc.id, drug_tags=["colchicine"], embedding=[0.1, 0.99], embedding_model="vec", **kw)
+    session.add(e)
+    await session.flush()
+    for i, extra in enumerate(rules):
+        session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=i, statement=f"r{i}", quote=f"r{i}",
+                                 embedding=[1.0, 0.0], embedding_model="vec", **extra))
+    await session.flush()
+    return doc, a, d1
+
+
+async def test_ready_entry_with_only_habit_rules_adds_nothing(session):
+    doc, a, d1 = await _entry_with_rules(session, [{"kind": "habit", "habit_type": "ask"}], rules_status="ready")
+    assert await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id) == []
+
+
+async def test_ready_entry_with_only_suppressed_rules_adds_nothing(session):
+    doc, a, d1 = await _entry_with_rules(session, [{"suppressed": True}], rules_status="ready")
+    assert await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id) == []
+
+
+async def test_entry_not_ready_still_scores_whole(session):
+    doc, a, d1 = await _entry_with_rules(session, [{"kind": "habit"}], rules_status="failed")
+    got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
+    assert len(got) == 1

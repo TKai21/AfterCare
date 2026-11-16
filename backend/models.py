@@ -6,6 +6,7 @@ from sqlalchemy import (
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -231,7 +232,9 @@ class GuidanceRule(Base):
     # re-read does not bring it back.
     kind: Mapped[str] = mapped_column(String(20), default="advice", server_default="advice")
     habit_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    warning_terms: Mapped[list] = mapped_column(JSONList, nullable=True, default=list)
+    # Never None on read (NULL reads as []); nullable only for the portable ALTER.
+    warning_terms: Mapped[list] = mapped_column(
+        MutableList.as_mutable(JSONList()), nullable=True, default=list)
     suppressed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 

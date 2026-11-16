@@ -162,11 +162,7 @@ async def retrieve(
     rules_by_entry: dict[int, list[GuidanceRule]] = {row.id: [] for row in candidates}
     for rule in await session.scalars(
         select(GuidanceRule)
-        .where(
-            GuidanceRule.guidance_id.in_(list(rules_by_entry)),
-            GuidanceRule.kind == "advice",
-            GuidanceRule.suppressed.is_(False),
-        )
+        .where(GuidanceRule.guidance_id.in_(list(rules_by_entry)))
         .order_by(GuidanceRule.guidance_id, GuidanceRule.position)
     ):
         rules_by_entry[rule.guidance_id].append(rule)
@@ -179,7 +175,12 @@ async def retrieve(
         rules = rules_by_entry[row.id]
         if rules_usable(row, rules, llm.embedding_model):
             hits = []
+            # Usability is decided on ALL rules; only advice that is not
+            # suppressed is scored, so an entry left with none adds nothing and
+            # its whole answer never becomes evidence.
             for rule in rules:
+                if rule.kind != "advice" or rule.suppressed:
+                    continue
                 score = _cosine(rule.embedding, query_vec, query_norm)
                 if score is not None:
                     hits.append((RuleHit(row, rule), score))
