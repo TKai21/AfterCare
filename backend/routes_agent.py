@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass, replace
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,17 +8,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
-    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, emergency_result, fallback_answer, run_agent,
+    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, PendingClarify, emergency_result,
+    fallback_answer, run_agent, strip_markers,
 )
 from auth import current_patient
+from closing import EMERGENCY_REASON, WAITING, close_blocker, pending_clarify
 from confidence import LOW_CONFIDENCE_REASON, score_answer
 from db import get_session
 from doctors import doctor_label, require_doctor
 from druglabels import patient_rxcuis
-from drugnames import allowed_drug_names, get_lexicon
-from guidance import Unit, doctor_habits, retrieve
+from drugnames import allowed_drug_names, get_lexicon, prescribed_drug_names
+from guidance import HABITS_IN_CONTEXT, Unit, doctor_habits, retrieve
 from llm import LLMError
-from models import ChatMessage, User
+from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import detect_emergency, warning_terms
@@ -27,6 +30,65 @@ log = logging.getLogger(__name__)
 
 # A care-team question with this reason is added at most once while open.
 SOURCES_DISAGREE = "Sources disagree"
+
+# The waiting question of a clarify (spec 4.3-4.4): its reason once it is the
+# doctor's, and what stopped the clone from closing (CareTeamQuestion.stopped_by).
+NEEDS_DOCTOR = "Needs doctor after questions"
+NOT_ANSWERED = "Patient did not answer the clone's questions"
+LOW_CONFIDENCE_STOP = "Low confidence"
+COULD_NOT_ANSWER = "Clone could not answer"
+EMERGENCY_ANSWER_STOP = "Emergency answer"
+HABITS_UNAVAILABLE = "The doctor's warning signs could not be loaded"
+STOPPED_BY_CHARS = 100
+
+
+@dataclass
+class Settle:
+    """What a reply turn does to the waiting question."""
+    status: str  # open | resolved
+    reason: Optional[str] = None  # set when it becomes open
+    stopped_by: Optional[str] = None
+    answer: Optional[str] = None  # set when the clone resolved it
+
+
+def handoff_result(doctor_name: str) -> AgentResult:
+    """The patient's side of a handoff: the fixed sentence. The waiting question
+    is the doctor's copy, so no second question is added."""
+    return AgentResult(kind="not_covered", answer=fallback_answer(doctor_name), sources=[],
+                       flagged=True, care_team_question=None)
+
+
+def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
+                 gate_passed: bool, doctor_name: str) -> tuple[AgentResult, Settle]:
+    """The delivered result and the waiting question's fate on a reply turn.
+    `result` is the agent's (before the gate's low-confidence swap); `blocker`
+    is close_blocker's reason for a close; `gate_passed` is False only when the
+    confidence gate ran and failed. A reported symptom always reaches the
+    doctor unless the clone closed it (or answered it, the reply included)."""
+    if terms or result.kind == "emergency":
+        stop = EMERGENCY_REASON if terms else EMERGENCY_ANSWER_STOP
+        return (replace(result, care_team_question=None, flagged=False),
+                Settle("open", NEEDS_DOCTOR, stop))
+    if result.replies_to_questions is False:
+        if result.kind == "close":  # a close that is not a reply is never delivered
+            return handoff_result(doctor_name), Settle("open", NOT_ANSWERED, NOT_ANSWERED)
+        # The new question is answered as usual (its own gate and question).
+        return result, Settle("open", NOT_ANSWERED, NOT_ANSWERED)
+    if result.kind == "close":
+        stop = blocker or (None if gate_passed else LOW_CONFIDENCE_STOP)
+        if stop is not None:
+            return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, stop)
+        return result, Settle("resolved", answer=strip_markers(result.answer))
+    if result.kind == "answer":
+        if not gate_passed:
+            return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, LOW_CONFIDENCE_STOP)
+        if result.care_team_question:  # the clone flagged it: the doctor sees the reply
+            stop = (result.care_team_reason or COULD_NOT_ANSWER)[:STOPPED_BY_CHARS]
+            return (replace(result, care_team_question=None),
+                    Settle("open", NEEDS_DOCTOR, stop))
+        return result, Settle("resolved", answer=strip_markers(result.answer))
+    # not_covered (rule 6 or 7), out_of_scope or the validation fallback.
+    return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER)
 
 
 class AskBody(BaseModel):
@@ -58,6 +120,13 @@ def answer_payload(result, terms: list[str], doctor_id: Optional[int],
         # The confidence gate's score of the clone's answer (None: not scored).
         "confidence": confidence,
     }
+
+
+def low_confidence_result(question: str, doctor_name: str) -> AgentResult:
+    return AgentResult(
+        kind="not_covered", answer=fallback_answer(doctor_name), sources=[], flagged=True,
+        care_team_question=question, care_team_reason=LOW_CONFIDENCE_REASON,
+    )
 
 
 def message_view(m: ChatMessage) -> dict:
@@ -113,10 +182,22 @@ async def ask(
         return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
+    if llm is None and not terms:
+        raise HTTPException(status_code=503, detail="The language model is not configured.")
+    # A cheap read, also on an emergency turn: the waiting question must reach
+    # the doctor. The pending clarify is this conversation's only (Focus 4).
+    found = await pending_clarify(session, doc_id, doctor_id)
+    pending: Optional[PendingClarify] = None
+    clarify_id = waiting_id = None
+    if found is not None:
+        clarify_message, waiting = found
+        clarify_id, waiting_id = clarify_message.id, waiting.id
+        pending = PendingClarify(question=waiting.question,
+                                 asked=waiting.asked or clarify_message.content)
     gate_score: Optional[float] = None  # the confidence gate's score, when it ran
+    gate_passed = True
+    blocker: Optional[str] = None  # why a close may not be delivered
     if llm is None:
-        if not terms:
-            raise HTTPException(status_code=503, detail="The language model is not configured.")
         result = emergency_result()
     else:
         history = await recent_history(session, doc_id, doctor_id)
@@ -127,19 +208,27 @@ async def ask(
         for loaded in (user, doc, *items):
             session.expunge(loaded)
         habits = []
+        live_habits = []  # every live habit: a reply turn needs all warning terms
+        habits_failed = False
         if not terms:  # an emergency answer does not wait on memory
             try:
-                habits = await doctor_habits(session, doctor_id)
-                for habit in habits:
+                live_habits = await doctor_habits(
+                    session, doctor_id, limit=None if pending is not None else HABITS_IN_CONTEXT)
+                for habit in live_habits:
                     session.expunge(habit)  # stays loaded after any later rollback
+                habits = live_habits[:HABITS_IN_CONTEXT]
                 await session.commit()
             except Exception:
                 log.exception("Loading the doctor's habits failed")
-                habits = []
+                habits, live_habits, habits_failed = [], [], True
                 try:
                     await session.rollback()
                 except Exception:
                     log.exception("Rollback after failing to load habits failed")
+        doctor_terms = list(dict.fromkeys(
+            t for h in live_habits if h.habit_type == "warning"
+            for t in (h.warning_terms or []) if isinstance(t, str) and t.strip()))
+        document_terms = warning_terms(items)
         settings = request.app.state.settings
         memory_failed = False
 
@@ -181,7 +270,8 @@ async def ask(
                 doc, items, history, body.question, terms,
                 guidance_search=search, doctor_name=name, prefetch=prefetch,
                 library_rxcuis=library_rxcuis, allowed_drugs=allowed_drugs,
-                habits=habits,
+                habits=habits, pending=pending,
+                warning_terms=[*doctor_terms, *document_terms] if pending is not None else (),
             )
         except LLMError as exc:
             if not terms:
@@ -191,10 +281,20 @@ async def ask(
                 ) from exc
             result = emergency_result()
 
+        if pending is not None and result.kind == "close" and not terms:
+            # The server, not the model, decides whether a close is delivered (4.4).
+            lexicon = get_lexicon()
+            blocker = HABITS_UNAVAILABLE if habits_failed else close_blocker(
+                pending.question, body.question, terms, doctor_terms, document_terms,
+                result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
+                lexicon)
+
         threshold = request.app.state.clone_threshold
         # The gate never runs when the backstop saw an emergency term: that
-        # answer must not wait on another model call.
-        if threshold is not None and result.kind == "answer" and not terms:
+        # answer must not wait on another model call. A clarify delivers no
+        # medical fact and is not scored; a close is scored like an answer.
+        if (threshold is not None and result.kind in ("answer", "close") and not terms
+                and blocker is None):
             try:
                 confidence = await score_answer(llm, body.question, result.answer, result.sources,
                                                 result.seen)
@@ -202,13 +302,42 @@ async def ask(
                 log.warning("Answer verifier failed, escalating: %s", exc)
                 confidence = None  # fail closed
             gate_score = confidence
-            if confidence is None or confidence < threshold:
-                result = AgentResult(
-                    kind="not_covered", answer=fallback_answer(name), sources=[], flagged=True,
-                    care_team_question=body.question, care_team_reason=LOW_CONFIDENCE_REASON,
-                )
+            gate_passed = confidence is not None and confidence >= threshold
+
+    settle: Optional[Settle] = None
+    if pending is not None:
+        result, settle = settle_reply(result, terms, blocker, gate_passed, name)
+        if settle.status == "open" and settle.reason == NOT_ANSWERED and not gate_passed:
+            result = low_confidence_result(body.question, name)  # the new question's gate
+    elif not gate_passed:
+        result = low_confidence_result(body.question, name)
+    if result.kind == "clarify":
+        # The waiting question is the clone's only question this turn.
+        result = replace(result, care_team_question=None, flagged=False)
 
     payload = answer_payload(result, terms, doctor_id, name, gate_score)
+    if result.kind == "clarify":
+        waiting_row = await add_question(
+            session, user_id, doc_id, question=body.question, reason="", source="agent",
+            doctor_id=doctor_id, status=WAITING, asked=strip_markers(result.answer))
+        payload["pending"] = True
+        payload["waiting_question_id"] = waiting_row.id
+    if clarify_id is not None:
+        # Any reply turn ends the clarify; a new dict so the JSON change is saved.
+        message = await session.get(ChatMessage, clarify_id)
+        if message is not None:
+            message.payload = {**(message.payload or {}), "pending": False}
+    if waiting_id is not None and settle is not None:
+        row = await session.get(CareTeamQuestion, waiting_id)
+        # A question the doctor already picked up is left alone.
+        if row is not None and row.status == WAITING:
+            row.status = settle.status
+            row.patient_reply = body.question
+            if settle.reason is not None:
+                row.reason = settle.reason
+            row.stopped_by = settle.stopped_by
+            if settle.answer is not None:
+                row.answer = settle.answer
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",

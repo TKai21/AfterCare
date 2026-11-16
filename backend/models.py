@@ -148,9 +148,15 @@ class CareTeamQuestion(Base):
     reason: Mapped[str] = mapped_column(Text)
     # agent | rejected_item | validation_fallback
     source: Mapped[str] = mapped_column(String(30))
-    # open | answered | resolved
+    # open | answered | resolved | waiting_on_patient (the clone asked the
+    # patient its questions and waits for the reply; not yet the doctor's work)
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
     answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # The clone's clarify: the questions it asked, the patient's reply, and the
+    # condition that stopped the clone from closing (a handoff's summary).
+    asked: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    patient_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stopped_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     answered_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

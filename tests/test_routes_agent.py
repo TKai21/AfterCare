@@ -877,3 +877,257 @@ async def test_habit_load_failure_does_not_break_the_turn(client, fake_llm, monk
     resp = await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
     assert resp.status_code == 200, resp.text
     assert "How I usually respond" not in first_user_message(fake_llm)
+
+
+# ---------- ask-first turns: the waiting question (Task 11) ----------
+
+ASK_QUESTIONS = "Do you have a fever? Have you thrown up?"
+CLOSE_TEXT = "Keep your follow-up visit and call me if it changes."
+NEEDS_DOCTOR = "Needs doctor after questions"
+NOT_ANSWERED = "Patient did not answer the clone's questions"
+ORIGINAL = "My incision is a bit red."
+REPLY_MARK = "The patient is replying to my questions"
+
+
+def final(kind, text, citations, **extra):
+    body = {"kind": kind, "answer": text, "citations": citations, "care_team_question": None}
+    body.update(extra)
+    return {"content": json.dumps(body)}
+
+
+def reply_final(kind, text, citations, replies=True, signs=()):
+    return final(kind, text, citations, replies_to_questions=replies, warning_signs=list(signs))
+
+
+def absent(*terms):
+    return [{"term": t, "status": "absent"} for t in terms]
+
+
+def gate_on(client, fake_llm, score=92):
+    import confidence
+    client.app.state.clone_threshold = 0.8
+    fake_llm.route(confidence.VERIFY_PROMPT,
+                   lambda m: {"content": json.dumps({"score": score, "unsupported": []})})
+
+
+def gate_calls(fake_llm) -> int:
+    import confidence
+    return sum(1 for c in fake_llm.routed_calls if c[0][0]["content"] == confidence.VERIFY_PROMPT)
+
+
+async def ask_first_doctor(client, fake_llm, username="dr.ting", display_name="Dr. Ting Kai"):
+    """A doctor with one ask, one close and one warning habit. Evidence numbers:
+    the document's paragraphs are [1]-[3], then ask [4], close [5], warning [6]."""
+    doctor_id = await make_doctor(client, username, display_name)
+    entry = await seed_guidance(client, fake_llm, doctor_id)
+    await seed_habit(client, entry, "Asks about fever and vomiting", ASK_QUESTIONS)
+    await seed_habit(client, entry, "Closes with the follow-up visit", CLOSE_TEXT, "close")
+    await seed_habit(client, entry, "Wants to hear about fever or vomiting",
+                     "Tell me about any fever or if you threw up.", "warning",
+                     warning_terms=["fever", "threw up"])
+    return doctor_id
+
+
+async def start_clarify(client, fake_llm, h, doctor_id):
+    fake_llm.script(final("clarify", ASK_QUESTIONS + " [4]", [4]))
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify", body
+    return body
+
+
+async def all_questions(client):
+    from models import CareTeamQuestion
+    async with client.app.state.session_factory() as session:
+        return list(await session.scalars(select(CareTeamQuestion).order_by(CareTeamQuestion.id)))
+
+
+async def clarify_message(client, doctor_id):
+    async with client.app.state.session_factory() as session:
+        return [m for m in await session.scalars(
+            select(ChatMessage).where(ChatMessage.doctor_id == doctor_id).order_by(ChatMessage.id))
+            if (m.payload or {}).get("kind") == "clarify"][-1]
+
+
+async def test_clarify_creates_a_waiting_question(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)
+    assert body["pending"] is True and body["flagged"] is False
+    (q,) = await all_questions(client)
+    assert body["waiting_question_id"] == q.id
+    assert (q.status, q.question, q.asked, q.doctor_id, q.source) == (
+        "waiting_on_patient", ORIGINAL, ASK_QUESTIONS, doctor_id, "agent")
+    assert q.patient_reply is None and q.stopped_by is None
+    assert gate_calls(fake_llm) == 0  # the confidence gate never scores a clarify
+    # Not yet the care team's: the patient's own list leaves it out.
+    assert await care_team(client, h) == []
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is True
+
+
+async def test_clarify_with_a_flag_adds_no_second_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    fake_llm.script(
+        tool("add_care_team_question", {"question": "Red incision", "reason": "Symptom"}),
+        final("clarify", ASK_QUESTIONS + " [4]", [4]),
+    )
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify" and body["flagged"] is False
+    assert [q.status for q in await all_questions(client)] == ["waiting_on_patient"]
+
+
+async def test_benign_reply_closes_and_resolves(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    reply = "No fever, never threw up."
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]", body
+    assert REPLY_MARK in first_user_message(fake_llm)
+    assert gate_calls(fake_llm) == 1  # a close is scored like an answer
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer, q.patient_reply) == ("resolved", CLOSE_TEXT, reply)
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_warning_reply_hands_off_with_summary(client, fake_llm):
+    # Review Focus 1: the denied fever does not hide the vomiting.
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    reply = "no fever, but I threw up twice"
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=[{"term": "fever", "status": "absent"},
+                                       {"term": "threw up", "status": "absent"}]))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["flagged"] is True
+    assert body["answer"] == fallback_answer("Dr. Ting Kai") and body["sources"] == []
+    assert gate_calls(fake_llm) == 0  # blocked before any scoring
+    (q,) = await all_questions(client)  # never a second question
+    assert (q.status, q.reason, q.question, q.asked, q.patient_reply, q.stopped_by) == (
+        "open", NEEDS_DOCTOR, ORIGINAL, ASK_QUESTIONS, reply, "Warning sign: threw up")
+    (seen,) = await care_team(client, h)
+    assert (seen["asked"], seen["patient_reply"], seen["stopped_by"]) == (
+        ASK_QUESTIONS, reply, "Warning sign: threw up")
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_low_confidence_close_hands_off(client, fake_llm):
+    gate_on(client, fake_llm, score=30)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Low confidence")
+
+
+async def test_not_covered_reply_hands_off(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("not_covered", "I can't say.", [],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "Nope, neither.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Clone could not answer")
+
+
+async def test_reply_answer_resolves_the_waiting_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    text = "Take amoxicillin 500 mg three times daily [2]."
+    fake_llm.script(reply_final("answer", text, [2], signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("resolved", "Take amoxicillin 500 mg three times daily.")
+
+
+async def test_new_question_hands_off_the_symptom(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    text = "Take amoxicillin 500 mg three times daily [2]."
+    fake_llm.script(reply_final("answer", text, [2], replies=False))
+    body = (await post_ask(client, h, "How often do I take amoxicillin?",
+                           doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text  # the new question is answered
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
+        "open", NOT_ANSWERED, NOT_ANSWERED, "How often do I take amoxicillin?")
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_other_doctors_tab_is_not_the_reply(client, fake_llm):
+    # Review Focus 4: the clarify belongs to one patient-doctor conversation.
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    other_id = await make_doctor(client, "dr.other", "Dr. Other")
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(answer("I could not find this.", [], kind="not_covered"))
+    await post_ask(client, h, "No fever, never threw up.", doctor_id=other_id)
+    assert REPLY_MARK not in first_user_message(fake_llm)
+    waiting, other = await all_questions(client)
+    assert (waiting.status, waiting.patient_reply) == ("waiting_on_patient", None)
+    assert (other.doctor_id, other.status) == (other_id, "open")
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is True
+    # The next message in the first doctor's tab is still the reply.
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and REPLY_MARK in first_user_message(fake_llm)
+
+
+async def test_emergency_in_reply_gives_emergency_answer_and_opens_question(client, fake_llm):
+    # Review Focus 5.
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    reply = "No fever, but now I have chest pain"
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=absent("fever")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY
+    assert body["emergency"]["banner"] is True
+    assert gate_calls(fake_llm) == 0
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
+        "open", NEEDS_DOCTOR, "Emergency terms", reply)
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_emergency_reply_without_a_model_still_opens_the_question(app_and_client, fake_llm):
+    app, client = app_and_client
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    app.state.llm = None  # the model is not configured
+    body = (await post_ask(client, h, "I have chest pain", doctor_id=doctor_id)).json()
+    assert_emergency_payload(body, ["chest pain"])
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+
+
+async def test_new_question_keeps_its_own_gate(client, fake_llm):
+    gate_on(client, fake_llm, score=30)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("answer", "Take amoxicillin 500 mg three times daily [2].", [2],
+                                replies=False))
+    body = (await post_ask(client, h, "How often do I take it?", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    waiting, new = await all_questions(client)
+    assert (waiting.status, waiting.stopped_by) == ("open", NOT_ANSWERED)
+    assert (new.question, new.status) == ("How often do I take it?", "open")

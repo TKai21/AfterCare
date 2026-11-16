@@ -52,6 +52,9 @@ ADDED_COLUMNS = (
     # Nullable: MySQL has no portable NOT NULL JSON default; the ORM reads NULL as [].
     ("guidance_rules", "warning_terms", "JSON NULL"),
     ("guidance_rules", "suppressed", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("care_team_questions", "asked", "TEXT NULL"),
+    ("care_team_questions", "patient_reply", "TEXT NULL"),
+    ("care_team_questions", "stopped_by", "VARCHAR(100) NULL"),
 )
 
 

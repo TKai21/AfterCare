@@ -108,8 +108,11 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   question TEXT NOT NULL,
   reason TEXT NOT NULL,
   source VARCHAR(30) NOT NULL,                            -- agent | rejected_item | validation_fallback
-  status VARCHAR(20) NOT NULL DEFAULT 'open',             -- open | answered | resolved
+  status VARCHAR(20) NOT NULL DEFAULT 'open',             -- open | answered | resolved | waiting_on_patient
   answer TEXT NULL,
+  asked TEXT NULL,                                        -- the clone's clarify questions
+  patient_reply TEXT NULL,                                -- the patient's reply to them
+  stopped_by VARCHAR(100) NULL,                           -- why the clone did not close
   answered_by INT NULL,
   answered_at DATETIME NULL,
   doctor_id INT NULL,

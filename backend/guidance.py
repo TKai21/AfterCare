@@ -6,7 +6,7 @@ conditions as whole words. Anything unclear fails closed.
 """
 import re
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 from sqlalchemy import select
@@ -202,12 +202,16 @@ def unit_entry(unit: Unit) -> DoctorGuidance:
     return unit.entry if isinstance(unit, RuleHit) else unit
 
 
-async def doctor_habits(session: AsyncSession, doctor_id: int, limit: int = 30) -> list[GuidanceRule]:
+HABITS_IN_CONTEXT = 30
+
+
+async def doctor_habits(session: AsyncSession, doctor_id: int,
+                        limit: Optional[int] = HABITS_IN_CONTEXT) -> list[GuidanceRule]:
     """The doctor's live habits, given to the clone on every turn (a habit is
     never retrieved by similarity). Only habits of this doctor's active entries
     that the doctor has not suppressed; a habit written more than once (same
     normalised statement) is kept once, from the most recently updated entry,
-    and the list runs newest entry first."""
+    and the list runs newest entry first. limit=None returns every habit."""
     rows = await session.execute(
         select(GuidanceRule)
         .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)

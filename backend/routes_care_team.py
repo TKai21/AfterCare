@@ -26,6 +26,9 @@ def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = Non
         "source": q.source,
         "status": q.status,
         "answer": q.answer,
+        "asked": q.asked,
+        "patient_reply": q.patient_reply,
+        "stopped_by": q.stopped_by,
         "answered_by_name": (doctor_names or {}).get(q.answered_by) if q.answered_by else None,
         "doctor_id": q.doctor_id,
         "doctor_name": (doctor_names or {}).get(q.doctor_id) if q.doctor_id else None,
@@ -47,6 +50,8 @@ async def add_question(
     source: str,
     dedupe: bool = False,
     doctor_id: int | None = None,
+    status: str = "open",
+    asked: str | None = None,
 ) -> CareTeamQuestion | None:
     """Add a question to the user's care-team list. The caller commits.
 
@@ -72,6 +77,8 @@ async def add_question(
         reason=reason,
         source=source,
         doctor_id=doctor_id,
+        status=status,
+        asked=asked,
     )
     session.add(row)
     await session.flush()
@@ -129,7 +136,10 @@ async def list_questions(
 ):
     rows = list(await session.scalars(
         select(CareTeamQuestion)
-        .where(CareTeamQuestion.user_id == user.id)
+        # A question the clone is still asking the patient about is not yet
+        # the care team's: the patient sees the clone's questions on Ask.
+        .where(CareTeamQuestion.user_id == user.id,
+               CareTeamQuestion.status != "waiting_on_patient")
         .order_by(CareTeamQuestion.id.desc())
     ))
     names = await doctor_labels(
