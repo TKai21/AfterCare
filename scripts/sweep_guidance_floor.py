@@ -184,7 +184,8 @@ async def run(out: Path) -> int:
               "escalate_cap": cap,
               "note": ("Single run: the rules are read by the chat model once per world build. Linking of "
                        "questions to entries: facts matched to entry answers (see the script docstring). "
-                       "'old' is the fixed 0.45 floor, no margin."),
+                       "'old' is the fixed 0.45 floor, no margin. The cases section comes from a separate "
+                       "world build (rules re-read), so it compares the two pairs within that world only."),
               "chosen": {"floor": chosen["floor"], "margin": chosen["margin"]},
               "calibration": {**split_summary(by_split["calibration"], chosen), "table": table},
               "test": {**split_summary(by_split["test"], chosen), "table": sweep(by_split["test"])}}
@@ -193,6 +194,7 @@ async def run(out: Path) -> int:
         print(f"{split}: chosen {s['chosen']['kept']}/{s['chosen']['answerable']} kept, "
               f"{s['chosen']['escalate_rules']} escalate rules; old floor 0.45: "
               f"{s['old']['kept']}/{s['old']['answerable']}, {s['old']['escalate_rules']}")
+    print("\nThe cases below use a separate world build (rules re-read): compare the pairs within it only.")
     cases = {}
     for name, floor, margin in (("chosen", chosen["floor"], chosen["margin"]), ("old", OLD_FLOOR, None)):
         # The calibration world's temporary library index is gone by now: the check

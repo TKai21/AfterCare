@@ -4,7 +4,7 @@
   "embedding_model": "text-embedding-3-small",
   "top_k": 6,
   "escalate_cap": 1.812,
-  "note": "Single run: the rules are read by the chat model once per world build. Linking of questions to entries: facts matched to entry answers (see the script docstring). 'old' is the fixed 0.45 floor, no margin.",
+  "note": "Single run: the rules are read by the chat model once per world build. Linking of questions to entries: facts matched to entry answers (see the script docstring). 'old' is the fixed 0.45 floor, no margin. The cases section comes from a separate world build (rules re-read), so it compares the two pairs within that world only.",
   "chosen": {
     "floor": 0.4,
     "margin": 0.05

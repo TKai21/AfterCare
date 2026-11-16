@@ -108,7 +108,7 @@ def rules_usable(entry: DoctorGuidance, rules: list[GuidanceRule], model: str) -
 def select_hits(scored: list[tuple[Unit, float]], floor: float, margin: float,
                 limit: int) -> list[tuple[Unit, float]]:
     """Best first, at most `limit`, keeping a hit only when its score is at
-    least `floor` and at least `margin` below the best score at most."""
+    least `floor` and within `margin` of the best score."""
     ranked = sorted(scored, key=lambda pair: pair[1], reverse=True)
     if not ranked:
         return []

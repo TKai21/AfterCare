@@ -271,7 +271,7 @@ The defaults come from `scripts/sweep_guidance_floor.py`, which scores every flo
 | Fixed floor 0.45 (before) | calibration 11/14, test 9/10 | 1.812 / 1.857 | 32/63 |
 | Floor 0.40, margin 0.05 (now) | calibration 12/14, test 8/10 | 1.562 / 1.286 | 36/63 |
 
-The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. A looser pair (floor 0.30, margin 0.25) retrieved more of the needed rules (57 of 63 case-doctor pairs) but returned 3.6 rules per question to escalate and made the clone cite unrelated advice, so it was rejected.
+The calibration and test columns come from one world build; the preference-case column comes from a separate world build (the chat model re-reads the rules), so it compares the two pairs within that world only. The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. A looser pair (floor 0.30, margin 0.25) retrieved more of the needed rules (57 of 63 case-doctor pairs) but returned 3.6 rules per question to escalate and made the clone cite unrelated advice, so it was rejected.
 
 ### Rules and conflicts
 
