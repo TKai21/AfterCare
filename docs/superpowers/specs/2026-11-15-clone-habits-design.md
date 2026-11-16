@@ -120,6 +120,8 @@ A **handoff** adds a care-team question for this doctor with reason "Needs docto
 
 Emergency terms in the reply still produce the fixed emergency answer first, as today.
 
+**Negation on reply turns (team decision, review item M4).** Only on a reply turn (a pending clarify exists in this patient-doctor conversation), the backstop drops a matched term, static pattern or document warning term, that `safety.negated_terms` finds plainly denied (a negator, at most 2 allowed fillers, the term, an optional allowed tail, nothing else in the clause), so "No fever and no chest pain." to "Do you have a fever?" is not an emergency. A term that is not negated, or any doubt, still gives the emergency answer; every other message uses the backstop unchanged. A denied term still counts for condition 2: the model must also list it as "absent" in every entry.
+
 ### 4.5 Strict drug names
 
 A **drug lexicon** file `data/drug_names.json`, committed, built once by a script from RxNav (`/REST/Prescribe/allconcepts.json?tty=IN+BN`: about 5,900 ingredients and 4,100 brands, public, no key), with each name's RxCUI and, for brands, ingredient RxCUIs (builder: one related-concepts call per brand, cached; or the Prescribe RXNCONSO release if simpler). Names are normalised like guidance tags. **Excluded** from the lexicon: every nutrient name in the food table, and a reviewed list of common words and diet terms that RxNorm also lists (measured: water, calcium, potassium, sodium, caffeine, oxygen, vitamin D, iron, magnesium, glucose, zinc, plus brand collisions such as "Today" and "Alli"). The exclusion list is a committed file with a test that every food-table nutrient is in it.
@@ -190,6 +192,7 @@ Source: `PortalPal-AI/Patient-Message-Response-Drafting` (Seegmiller et al., 202
 - After the clone's questions: close when every safety condition holds, otherwise hand off with a summary (c).
 - Drug names: prescribed, cited document paragraphs, and drugs the patient named in this turn.
 - Negated warning terms: a term counts as absent only when the negation check and the model both say absent.
+- The emergency backstop reads negation on reply turns only: a plainly denied term in a reply to the clone's questions is not an emergency; everywhere else the backstop is unchanged (4.4).
 
 ## 9. Calls made by Claude (not explicitly decided by the team)
 

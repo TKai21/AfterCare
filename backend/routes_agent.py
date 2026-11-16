@@ -25,7 +25,7 @@ from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
-from safety import detect_emergency, warning_terms
+from safety import detect_emergency, detect_emergency_in_reply, warning_terms
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -234,10 +234,9 @@ async def ask(
         return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
-    if llm is None and not terms:
-        raise HTTPException(status_code=503, detail="The language model is not configured.")
-    # A cheap read, also on an emergency turn: the waiting question must reach
-    # the doctor. The pending clarify is this conversation's only (Focus 4).
+    # A cheap read (no model call), also on an emergency turn: the waiting
+    # question must reach the doctor, and on a reply the backstop reads negation.
+    # The pending clarify is this conversation's only (Focus 4).
     try:
         # A savepoint: a failed lookup rolls back only itself, so the user,
         # document and items read above stay loaded.
@@ -249,6 +248,13 @@ async def ask(
         # The emergency answer never fails on the waiting question's lookup.
         log.exception("Looking up the pending clarify failed")
         found = None
+    if found is not None:
+        # A reply to the clone's questions: a plainly denied term ("no chest
+        # pain") is not an emergency. Any doubt keeps it. If the lookup failed,
+        # the backstop above stands unchanged.
+        terms = detect_emergency_in_reply(body.question, warning_terms(items))
+    if llm is None and not terms:
+        raise HTTPException(status_code=503, detail="The language model is not configured.")
     pending: Optional[PendingClarify] = None
     clarify_id = waiting_id = None
     if found is not None:

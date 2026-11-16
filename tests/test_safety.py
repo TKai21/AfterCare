@@ -323,3 +323,18 @@ def test_whitelist_rejects_qualified_negations(msg):
 ])
 def test_whitelist_accepts_plain_negations(msg, want):
     assert negated_terms(msg, TERMS) == want
+
+
+# ---------- M4: negation on reply turns only ----------
+
+def test_reply_backstop_drops_plainly_denied_terms():
+    from safety import detect_emergency, detect_emergency_in_reply
+    assert "chest pain" in detect_emergency("No fever and no chest pain.", [])
+    assert detect_emergency_in_reply("No fever and no chest pain.", []) == []
+    assert detect_emergency_in_reply("No fever but I have chest pain now", []) == ["chest pain"]
+    assert "chest pain" in detect_emergency_in_reply("Not sure if I have chest pain", [])
+    # Document warning terms too.
+    terms = ["redness around the incision"]
+    assert detect_emergency_in_reply("No redness around the incision.", terms) == []
+    assert detect_emergency_in_reply("Some redness around the incision.", terms) == [
+        "redness around the incision"]
