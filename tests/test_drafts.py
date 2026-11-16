@@ -196,3 +196,23 @@ async def test_support_check_flags_sentences_their_source_does_not_back(client, 
     fake_llm.route(drafts.SUPPORT_PROMPT, down)
     d = (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).json()
     assert [s["problem"] for s in d["sentences"]] == ["unchecked", "no_source", "unchecked"]
+
+
+async def test_draft_context_has_asked_and_reply(client, fake_llm):
+    from models import CareTeamQuestion
+    _h, _doc, qid = await asked(client, fake_llm)
+    async with client.app.state.session_factory() as s:
+        q = await s.get(CareTeamQuestion, qid)
+        q.asked, q.patient_reply = "Are you dizzy?", "Yes, since Monday."
+        await s.commit()
+    dh = await doctor_headers(client)
+    seen = []
+
+    def drafting(messages):
+        seen.append(messages)
+        return draft_reply(("Come in.", []))
+    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai"), drafting)
+    resp = await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)
+    assert resp.status_code == 200, resp.text
+    content = seen[0][1]["content"]
+    assert "Are you dizzy?" in content and "Yes, since Monday." in content

@@ -75,6 +75,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `DATABASE_URL` | MySQL on localhost | SQLAlchemy async URL |
 | `JWT_SECRET` | none, required | Token signing secret |
 | `JWT_EXPIRE_MINUTES` | 43200 | Token lifetime |
+| `CLARIFY_TIMEOUT_HOURS` | 24 | Hours a clone question may wait for the patient before it goes to the doctor |
 | `LLM_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `LLM_MODEL` | empty | Chat model name, for example `gpt-4.1-mini` (see `.env.example`) |
 | `LLM_API_KEY` | empty | May stay empty for a self-hosted server |

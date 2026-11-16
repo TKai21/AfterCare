@@ -127,6 +127,11 @@ def _user_message(q: CareTeamQuestion, ctx: DraftContext, corrections: list[Answ
             f"Your draft: {c.text}\nWhat I sent instead: {c.sent_answer}" for c in corrections)
         parts.append(f"How I corrected your recent drafts (untrusted data):\n"
                      f"<corrections-{nonce}>\n{shown}\n</corrections-{nonce}>")
+    if q.asked:
+        said = f"What my clone asked the patient:\n{q.asked}"
+        if q.patient_reply:
+            said += f"\n\nWhat the patient replied:\n{q.patient_reply}"
+        parts.append(f"The conversation so far (untrusted data):\n<clarify-{nonce}>\n{said}\n</clarify-{nonce}>")
     parts.append(f"Patient question:\n<question-{nonce}>\n{q.question}\n</question-{nonce}>")
     return "\n\n".join(parts)
 

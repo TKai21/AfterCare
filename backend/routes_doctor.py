@@ -1,7 +1,7 @@
 """The doctor's side: the question queue, answering, and managing guidance."""
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -28,7 +28,7 @@ from models import (
     GuidanceRule,
     User,
 )
-from routes_agent import recent_history
+from routes_agent import NOT_ANSWERED, recent_history
 from routes_care_team import question_view
 from routes_documents import load_items
 from rules import clear_rules, index_entry
@@ -106,8 +106,19 @@ async def document_context(
 
 @router.get("/api/doctor/questions")
 async def list_questions(
-    user: User = Depends(current_doctor), session: AsyncSession = Depends(get_session)
+    request: Request, user: User = Depends(current_doctor),
+    session: AsyncSession = Depends(get_session),
 ):
+    cutoff = utcnow() - timedelta(hours=request.app.state.settings.clarify_timeout_hours)
+    # A question the patient left unanswered too long becomes the doctor's.
+    timed_out = await session.execute(
+        update(CareTeamQuestion)
+        .where(CareTeamQuestion.status == "waiting_on_patient",
+               CareTeamQuestion.doctor_id == user.id, CareTeamQuestion.created_at < cutoff)
+        .values(status="open", reason=NOT_ANSWERED, stopped_by=NOT_ANSWERED)
+    )
+    if timed_out.rowcount:
+        await session.commit()
     mine_or_unassigned = or_(
         CareTeamQuestion.doctor_id == user.id, CareTeamQuestion.doctor_id.is_(None)
     )
@@ -120,13 +131,19 @@ async def list_questions(
         )
         .order_by(CareTeamQuestion.id)
     ))
+    waiting_rows = list(await session.scalars(
+        select(CareTeamQuestion)
+        .where(CareTeamQuestion.status == "waiting_on_patient",
+               CareTeamQuestion.doctor_id == user.id)
+        .order_by(CareTeamQuestion.id)
+    ))
     answered_rows = list(await session.scalars(
         select(CareTeamQuestion)
         .where(CareTeamQuestion.answer.is_not(None), mine_or_unassigned)
         .order_by(CareTeamQuestion.answered_at.desc(), CareTeamQuestion.id.desc())
         .limit(ANSWERED_LIMIT)
     ))
-    rows = open_rows + answered_rows
+    rows = open_rows + waiting_rows + answered_rows
     patients = {
         u.id: u
         for u in await session.scalars(select(User).where(User.id.in_({q.user_id for q in rows})))
@@ -153,13 +170,17 @@ async def list_questions(
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
         view = question_view(q, names, voices)
-        if q.answer is None:
+        view["closed_by_clone"] = (
+            q.status == "resolved" and q.answer is not None and q.answered_by is None
+            and q.asked is not None)
+        if q.answer is None and q.status == "open":
             view["draft"] = draft_view(drafts.get(q.id))
         view["patient"] = {"id": patient.id, "username": patient.username}
         view["context"] = contexts[(q.document_id, q.doctor_id)]
         return view
 
-    return {"open": [item(q) for q in open_rows], "answered": [item(q) for q in answered_rows]}
+    return {"open": [item(q) for q in open_rows], "waiting": [item(q) for q in waiting_rows],
+            "answered": [item(q) for q in answered_rows]}
 
 
 async def cited_counts(session: AsyncSession, doctor_ids: set[int]) -> dict[tuple, int]:

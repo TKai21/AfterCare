@@ -44,6 +44,8 @@ class Settings:
     clone_min_confidence: Optional[float] = None
     clone_calibration_path: str = "eval/clone_calibration.json"
     voice_storage_path: str = "private/voice"
+    # A clone question the patient has not answered in this many hours goes to the doctor.
+    clarify_timeout_hours: float = 24
 
     def __post_init__(self):
         # Embedding settings fall back to the chat settings when unset.
@@ -91,4 +93,6 @@ def get_settings() -> Settings:
         ),
         clone_calibration_path=env.get("CLONE_CALIBRATION_PATH", defaults.clone_calibration_path),
         voice_storage_path=env.get("VOICE_STORAGE_PATH", defaults.voice_storage_path),
+        clarify_timeout_hours=float(
+            env.get("CLARIFY_TIMEOUT_HOURS") or defaults.clarify_timeout_hours),
     )

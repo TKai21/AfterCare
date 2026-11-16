@@ -11,7 +11,8 @@ const NO_TAGS_HINT = 'Without tags, only your habits from this answer will be us
 const SUGGEST_FAILED = 'Could not suggest tags. Add them yourself.';
 
 const state = {
-  open: [], answered: [], guidance: null,
+  open: [], waiting: [], answered: [], guidance: null,
+  waitingOpen: false,
   habits: null,         // {ask, close, warning}: the habits the clone learned
   habitBusy: new Set(), // habit ids being deleted
   habitError: '',
@@ -43,6 +44,16 @@ function formatDate(iso) {
   const d = new Date(stamp);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const stamp = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z';
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(stamp).getTime()) / 60000));
+  if (Number.isNaN(minutes)) return '';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
 }
 
 const uniqueTags = tags => {
@@ -189,14 +200,38 @@ function cloneDraftHtml(q, d) {
     </section>${error}`;
 }
 
+// The clone's questions to a patient: what the patient asked, what the clone
+// asked back, what the patient replied, and why the clone did not close it.
+function threadHtml(q, {reply = true, note = true} = {}) {
+  const block = (label, text) => `
+    <div class="doctor-thread-block"><p class="doctor-thread-label">${label}</p>
+      <p class="doctor-thread-text">${esc(text)}</p></div>`;
+  return `
+    <div class="doctor-thread">
+      ${block('Patient asked', q.question)}
+      ${block('My clone asked', q.asked)}
+      ${reply && q.patient_reply ? block('Patient replied', q.patient_reply) : ''}
+    </div>
+    ${note && q.stopped_by ? `<p class="doctor-stop-note">${esc(q.stopped_by)}</p>` : ''}`;
+}
+
+function waitingCardHtml(q) {
+  return `
+    <li class="card doctor-card doctor-card-waiting" data-id="${q.id}">
+      <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(timeAgo(q.created_at))}</p>
+      ${threadHtml(q)}
+    </li>`;
+}
+
 function openCardHtml(q) {
   const d = draftFor(q);
+  const handoff = !!q.asked;
   return `
     <li class="card doctor-card" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
-      <p class="doctor-question">${esc(q.question)}</p>
+      ${handoff ? threadHtml(q) : `<p class="doctor-question">${esc(q.question)}</p>`}
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
-      ${q.reason && q.source !== 'patient' ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
+      ${q.reason && q.source !== 'patient' && !handoff ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
       ${q.source === 'patient_voice' ? '' : `<div class="clone-draft-slot">${cloneDraftHtml(q, d)}</div>
       <div class="field">
@@ -221,9 +256,9 @@ function answeredCardHtml(q) {
   return `
     <li class="card doctor-card doctor-card-answered">
       <p class="doctor-meta"><strong>${esc(q.patient ? q.patient.username : '')}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
-      <p class="doctor-question">${esc(q.question)}</p>
+      ${q.asked ? threadHtml(q, {note: false}) : `<p class="doctor-question">${esc(q.question)}</p>`}
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
-      <p class="doctor-reason"><span class="doctor-reason-label">${esc(q.answered_by_name || 'Doctor')} answered ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
+      <p class="doctor-reason"><span class="doctor-reason-label">${q.closed_by_clone ? 'Closed by your clone' : esc(q.answered_by_name || 'Doctor') + ' answered'} ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
       ${voicePlayerHtml(q.voice?.answer, 'your reply')}
     </li>`;
 }
@@ -260,6 +295,11 @@ function renderQuestions() {
     <p class="doctor-notice" role="status">${esc(state.notice)}</p>
     ${state.queueError ? `<p class="form-error" role="alert">${esc(state.queueError)}</p>` : ''}
     ${cards}
+    ${state.waiting.length ? `
+      <details class="doctor-waiting" ${state.waitingOpen ? 'open' : ''}>
+        <summary class="resolved-summary">Clone is asking <span class="count">(${state.waiting.length})</span></summary>
+        <ul class="item-list doctor-list">${state.waiting.map(waitingCardHtml).join('')}</ul>
+      </details>` : ''}
     ${state.answered.length ? `
       <details class="doctor-answered" ${state.answeredOpen ? 'open' : ''}>
         <summary class="resolved-summary">Answered <span class="count">${state.answered.length}</span></summary>
@@ -517,6 +557,7 @@ function bindQuestions() {
   });
   main.addEventListener('toggle', event => {
     if (event.target.classList.contains('doctor-answered')) state.answeredOpen = event.target.open;
+    if (event.target.classList.contains('doctor-waiting')) state.waitingOpen = event.target.open;
     const key = event.target.dataset && event.target.dataset.key;
     if (key && event.target.classList.contains('doctor-context')) {
       if (event.target.open) state.openPanels.add(key); else state.openPanels.delete(key);
@@ -961,6 +1002,7 @@ async function loadQueue() {
   try {
     const data = await api('/api/doctor/questions');
     state.open = data.open;
+    state.waiting = data.waiting;
     state.answered = data.answered;
     state.queueError = '';
   } catch (error) {

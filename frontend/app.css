@@ -2667,8 +2667,12 @@ textarea.composer-input:focus { box-shadow: none; }
 .doctor-tag-add { display: inline-flex; gap: 6px; align-items: center; }
 input.doctor-tag-input:not([type="file"]):not([type="checkbox"]):not([type="radio"]) { width: 150px; min-height: 36px; padding: 4px 12px; font-size: 14px; border-radius: 999px; }
 .doctor-hint { color: var(--text-muted); font-size: 13.5px; }
-.doctor-answered { margin-top: var(--space-4); }
-.doctor-answered > .doctor-list { margin-top: var(--space-1); }
+.doctor-answered, .doctor-waiting { margin-top: var(--space-4); }
+.doctor-answered > .doctor-list, .doctor-waiting > .doctor-list { margin-top: var(--space-1); }
+.doctor-thread { display: flex; flex-direction: column; gap: 12px; padding-left: 14px; border-left: 2px solid var(--border); }
+.doctor-thread-label { color: var(--text-subtle); font-size: 11.5px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
+.doctor-thread-text { color: var(--text); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.doctor-stop-note { color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
 .doctor-filters {
   display: flex;
   flex-wrap: wrap;

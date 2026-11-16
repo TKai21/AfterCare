@@ -604,3 +604,77 @@ async def test_reread_rules_reads_every_active_entry(client, fake_llm):
     with __import__("pytest").raises(ValueError):
         await reread_rules.reread(client.app.state.session_factory, fake_llm,
                                   client.app.state.store, "alice")
+
+
+async def add_clarify(client, doctor_username="dr.ting", created_at=None, **kw):
+    """A waiting_on_patient question the clone asked, assigned to the doctor."""
+    import routes_doctor
+    from models import CareTeamQuestion
+    async with client.app.state.session_factory() as s:
+        doctor_id = await s.scalar(select(User.id).where(User.username == doctor_username))
+        alice_id = (await s.scalar(select(User).where(User.username == "alice"))).id
+        q = CareTeamQuestion(
+            user_id=alice_id, doctor_id=doctor_id, question="Can I drive?", reason="Clone asked",
+            source="agent", status="waiting_on_patient", asked="Are you dizzy? Any new pills?",
+            created_at=created_at or routes_doctor.utcnow(), **kw)
+        s.add(q)
+        await s.commit()
+        return q.id
+
+
+async def test_waiting_questions_are_listed_apart(client, fake_llm):
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    await doctor_headers(client, "dr.b", "Dr. B")
+    mine = await add_clarify(client)
+    await add_clarify(client, "dr.b")
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert [q["id"] for q in data["waiting"]] == [mine]
+    assert data["waiting"][0]["asked"] == "Are you dizzy? Any new pills?"
+    assert data["open"] == [] and data["answered"] == []
+
+
+async def test_waiting_question_times_out_on_read(client, fake_llm, monkeypatch):
+    from datetime import datetime, timedelta
+    import routes_doctor
+    from models import CareTeamQuestion
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    now = datetime(2026, 1, 10, 12, 0)
+    monkeypatch.setattr(routes_doctor, "utcnow", lambda: now)
+    old = await add_clarify(client, created_at=now - timedelta(hours=25))
+    fresh = await add_clarify(client, created_at=now - timedelta(hours=23))
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert [q["id"] for q in data["waiting"]] == [fresh]
+    (item,) = data["open"]
+    assert item["id"] == old
+    assert item["status"] == "open"
+    assert item["reason"] == "Patient did not answer the clone's questions"
+    assert item["stopped_by"] == "Patient did not answer the clone's questions"
+    async with client.app.state.session_factory() as s:
+        assert (await s.get(CareTeamQuestion, old)).status == "open"
+        assert (await s.get(CareTeamQuestion, fresh)).status == "waiting_on_patient"
+
+
+async def test_open_count_excludes_waiting(client, fake_llm):
+    h, _doc, _qid = await asked(client, fake_llm)
+    dh = await doctor_headers(client)
+    await add_clarify(client)
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert len(data["open"]) == 1 and len(data["waiting"]) == 1
+
+
+async def test_clone_closed_question_is_answered_and_labelled(client, fake_llm):
+    import routes_doctor
+    from models import CareTeamQuestion
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    qid = await add_clarify(client)
+    async with client.app.state.session_factory() as s:
+        q = await s.get(CareTeamQuestion, qid)
+        q.status, q.answer, q.answered_at = "resolved", "Rest and call if worse.", routes_doctor.utcnow()
+        await s.commit()
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    (item,) = data["answered"]
+    assert item["id"] == qid and item["closed_by_clone"] is True
+    assert data["waiting"] == [] and data["open"] == []
