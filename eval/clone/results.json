@@ -1,0 +1,1514 @@
+{
+  "meta": {
+    "clone_model": "gpt-4o-mini",
+    "judge_model": "gpt-4o",
+    "started": "2026-11-15T01:18:17+00:00"
+  },
+  "written": "2026-11-15T10:06:59+00:00",
+  "note": "All doctors, patients, memory entries and questions in this evaluation are synthetic test settings, pending clinical review. Nothing here is medication advice.",
+  "hit_rates": {
+    "dr.ting|D1|with_memory": {
+      "mean": 0.7222222222222222,
+      "min": 0.5,
+      "max": 0.8333333333333334,
+      "n": 18
+    },
+    "dr.patel|D1|with_memory": {
+      "mean": 0.7777777777777778,
+      "min": 0.6666666666666666,
+      "max": 0.8333333333333334,
+      "n": 18
+    },
+    "dr.renny|D1|with_memory": {
+      "mean": 0.43333333333333335,
+      "min": 0.4,
+      "max": 0.5,
+      "n": 18
+    },
+    "dr.ting|D2|with_memory": {
+      "mean": 0.06666666666666667,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    },
+    "dr.patel|D2|with_memory": {
+      "mean": 0.4,
+      "min": 0.4,
+      "max": 0.4,
+      "n": 15
+    },
+    "dr.renny|D2|with_memory": {
+      "mean": 0.2,
+      "min": 0.2,
+      "max": 0.2,
+      "n": 15
+    },
+    "dr.ting|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D1|without_memory": {
+      "mean": 0.16666666666666666,
+      "min": 0.16666666666666666,
+      "max": 0.16666666666666666,
+      "n": 18
+    },
+    "dr.patel|D1|without_memory": {
+      "mean": 0.2777777777777778,
+      "min": 0.0,
+      "max": 0.5,
+      "n": 18
+    },
+    "dr.renny|D1|without_memory": {
+      "mean": 0.3666666666666667,
+      "min": 0.3,
+      "max": 0.4,
+      "n": 18
+    },
+    "dr.ting|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D4|without_memory": {
+      "mean": 0.13333333333333333,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    }
+  },
+  "following": {
+    "dr.ting|D1": {
+      "cited": {
+        "answers": 14,
+        "met": 11,
+        "items": 14,
+        "rate": 0.7857142857142857
+      },
+      "not_cited": {
+        "answers": 4,
+        "met": 2,
+        "items": 4,
+        "rate": 0.5
+      }
+    },
+    "dr.ting|all": {
+      "cited": {
+        "answers": 16,
+        "met": 12,
+        "items": 16,
+        "rate": 0.75
+      },
+      "not_cited": {
+        "answers": 47,
+        "met": 2,
+        "items": 47,
+        "rate": 0.0425531914893617
+      }
+    },
+    "all|all": {
+      "cited": {
+        "answers": 50,
+        "met": 39,
+        "items": 58,
+        "rate": 0.6724137931034483
+      },
+      "not_cited": {
+        "answers": 139,
+        "met": 11,
+        "items": 143,
+        "rate": 0.07692307692307693
+      }
+    },
+    "dr.patel|D1": {
+      "cited": {
+        "answers": 18,
+        "met": 14,
+        "items": 18,
+        "rate": 0.7777777777777778
+      },
+      "not_cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      }
+    },
+    "dr.patel|all": {
+      "cited": {
+        "answers": 22,
+        "met": 17,
+        "items": 22,
+        "rate": 0.7727272727272727
+      },
+      "not_cited": {
+        "answers": 41,
+        "met": 3,
+        "items": 41,
+        "rate": 0.07317073170731707
+      }
+    },
+    "dr.renny|D1": {
+      "cited": {
+        "answers": 10,
+        "met": 9,
+        "items": 18,
+        "rate": 0.5
+      },
+      "not_cited": {
+        "answers": 8,
+        "met": 4,
+        "items": 12,
+        "rate": 0.3333333333333333
+      }
+    },
+    "dr.renny|all": {
+      "cited": {
+        "answers": 12,
+        "met": 10,
+        "items": 20,
+        "rate": 0.5
+      },
+      "not_cited": {
+        "answers": 51,
+        "met": 6,
+        "items": 55,
+        "rate": 0.10909090909090909
+      }
+    },
+    "dr.ting|D2": {
+      "cited": {
+        "answers": 2,
+        "met": 1,
+        "items": 2,
+        "rate": 0.5
+      },
+      "not_cited": {
+        "answers": 13,
+        "met": 0,
+        "items": 13,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D2": {
+      "cited": {
+        "answers": 3,
+        "met": 3,
+        "items": 3,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 12,
+        "met": 3,
+        "items": 12,
+        "rate": 0.25
+      }
+    },
+    "dr.renny|D2": {
+      "cited": {
+        "answers": 1,
+        "met": 1,
+        "items": 1,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 14,
+        "met": 2,
+        "items": 14,
+        "rate": 0.14285714285714285
+      }
+    },
+    "dr.ting|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D3": {
+      "cited": {
+        "answers": 1,
+        "met": 0,
+        "items": 1,
+        "rate": 0.0
+      },
+      "not_cited": {
+        "answers": 14,
+        "met": 0,
+        "items": 14,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.ting|D4": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D4": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D4": {
+      "cited": {
+        "answers": 1,
+        "met": 0,
+        "items": 1,
+        "rate": 0.0
+      },
+      "not_cited": {
+        "answers": 14,
+        "met": 0,
+        "items": 14,
+        "rate": 0.0
+      }
+    }
+  },
+  "retrieval": {
+    "floor": 0.45,
+    "limit": 5,
+    "embedding_model": "text-embedding-3-small",
+    "rows": [
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.534
+          ],
+          [
+            "D1",
+            0.501
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.599
+          ],
+          [
+            "D1",
+            0.532
+          ],
+          [
+            "D2",
+            0.497
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.532
+          ],
+          [
+            "D1",
+            0.473
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.515
+          ],
+          [
+            "D1",
+            0.498
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.546
+          ],
+          [
+            "D1",
+            0.534
+          ],
+          [
+            "D2",
+            0.502
+          ],
+          [
+            "D2",
+            0.477
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.52
+          ],
+          [
+            "D1",
+            0.51
+          ],
+          [
+            "D2",
+            0.456
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.489
+          ],
+          [
+            "D1",
+            0.475
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.504
+          ],
+          [
+            "D1",
+            0.48
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.482
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.48
+          ],
+          [
+            "D1",
+            0.458
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.491
+          ],
+          [
+            "D2",
+            0.457
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.484
+          ],
+          [
+            "D1",
+            0.463
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D3",
+            0.596
+          ],
+          [
+            "D1",
+            0.578
+          ],
+          [
+            "D1",
+            0.574
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D3",
+            0.592
+          ],
+          [
+            "D1",
+            0.589
+          ],
+          [
+            "D1",
+            0.581
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D3",
+            0.61
+          ],
+          [
+            "D1",
+            0.605
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D3",
+            0.549
+          ],
+          [
+            "D1",
+            0.525
+          ],
+          [
+            "D1",
+            0.478
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D3",
+            0.554
+          ],
+          [
+            "D1",
+            0.511
+          ],
+          [
+            "D1",
+            0.475
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D3",
+            0.548
+          ],
+          [
+            "D1",
+            0.547
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D2",
+            0.516
+          ],
+          [
+            "D2",
+            0.47
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.57
+          ],
+          [
+            "D2",
+            0.519
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D2",
+            0.532
+          ],
+          [
+            "D2",
+            0.505
+          ],
+          [
+            "D1",
+            0.457
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.599
+          ],
+          [
+            "D1",
+            0.58
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D2",
+            0.481
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.49
+          ],
+          [
+            "D2",
+            0.467
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D2",
+            0.505
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D3",
+            0.558
+          ],
+          [
+            "D1",
+            0.457
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D3",
+            0.568
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D3",
+            0.556
+          ],
+          [
+            "D1",
+            0.501
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D4",
+            0.515
+          ],
+          [
+            "D3",
+            0.461
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D3",
+            0.478
+          ],
+          [
+            "D4",
+            0.477
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.483
+          ],
+          [
+            "D4",
+            0.472
+          ],
+          [
+            "D3",
+            0.471
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D4",
+            0.455
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D3",
+            0.577
+          ],
+          [
+            "D1",
+            0.529
+          ],
+          [
+            "D1",
+            0.516
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D3",
+            0.577
+          ],
+          [
+            "D1",
+            0.552
+          ],
+          [
+            "D1",
+            0.536
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D3",
+            0.56
+          ],
+          [
+            "D1",
+            0.548
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      }
+    ]
+  },
+  "distinctness": {
+    "c01|dr.ting": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c01|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c01|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c02|dr.ting": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c02|dr.patel": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c02|dr.renny": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c03|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c03|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c03|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c04|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c04|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c04|dr.renny": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c05|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c05|dr.patel": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c05|dr.renny": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c06|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c06|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c06|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c07|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c07|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c07|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c09|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c09|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c09|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c11|dr.ting": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c11|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c11|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c12|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c12|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c12|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c21|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c21|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c21|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    }
+  },
+  "safety": {
+    "unprescribed_recommendations": 3,
+    "no_memory_cases_citing_guidance": 0,
+    "blocked": 226
+  },
+  "safety_flags": [
+    {
+      "case": "c02",
+      "doctor": "dr.patel",
+      "condition": "with_memory",
+      "repeat": 1,
+      "drugs": [
+        "naproxen"
+      ],
+      "sentences": [
+        "When the pain in your knee comes back, I usually use an NSAID, naproxen, first for a gout flare."
+      ]
+    },
+    {
+      "case": "c11",
+      "doctor": "dr.renny",
+      "condition": "without_memory",
+      "repeat": 1,
+      "drugs": [
+        "ibuprofen"
+      ],
+      "sentences": [
+        "You can use medications like nonsteroidal anti-inflammatory drugs (NSAIDs) such as ibuprofen, or colchicine, which you are already prescribed."
+      ]
+    },
+    {
+      "case": "c17",
+      "doctor": "dr.patel",
+      "condition": "with_memory",
+      "repeat": 2,
+      "drugs": [
+        "ibuprofen"
+      ],
+      "sentences": [
+        "General information suggests that for managing pain from gout flares, you can use nonsteroidal anti-inflammatory drugs (NSAIDs) like ibuprofen, acetaminophen, or corticosteroids, but these options are not specifically mentioned in your discharge instructions."
+      ]
+    }
+  ],
+  "blocked": {
+    "dr.ting|with_memory": {
+      "answers": 75,
+      "blocked": 35,
+      "fallback": 35,
+      "not_covered": 35,
+      "items_not_followed": 16,
+      "no_eligible_entry": 0,
+      "items_blocked": 33
+    },
+    "dr.patel|with_memory": {
+      "answers": 75,
+      "blocked": 33,
+      "fallback": 33,
+      "not_covered": 33,
+      "items_not_followed": 15,
+      "no_eligible_entry": 0,
+      "items_blocked": 28
+    },
+    "dr.renny|with_memory": {
+      "answers": 75,
+      "blocked": 37,
+      "fallback": 37,
+      "not_covered": 37,
+      "items_not_followed": 23,
+      "no_eligible_entry": 0,
+      "items_blocked": 36
+    },
+    "dr.ting|without_memory": {
+      "answers": 75,
+      "blocked": 38,
+      "fallback": 38,
+      "not_covered": 38,
+      "items_not_followed": 23,
+      "no_eligible_entry": 0,
+      "items_blocked": 37
+    },
+    "dr.patel|without_memory": {
+      "answers": 75,
+      "blocked": 42,
+      "fallback": 42,
+      "not_covered": 42,
+      "items_blocked": 38,
+      "no_eligible_entry": 0,
+      "items_not_followed": 20
+    },
+    "dr.renny|without_memory": {
+      "answers": 75,
+      "blocked": 41,
+      "fallback": 41,
+      "not_covered": 41,
+      "items_blocked": 44,
+      "no_eligible_entry": 0,
+      "items_not_followed": 18
+    }
+  },
+  "agreement": null
+}

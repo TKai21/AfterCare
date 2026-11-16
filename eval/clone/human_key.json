@@ -1,0 +1,222 @@
+{
+  "1": {
+    "case": "c14",
+    "doctor": "dr.ting",
+    "condition": "without_memory",
+    "repeat": 1,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "timing",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask any clarifying questions about the timing between the symptom and the doses."
+  },
+  "2": {
+    "case": "c13",
+    "doctor": "dr.renny",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "past_reaction",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask if the reaction happened before."
+  },
+  "3": {
+    "case": "c03",
+    "doctor": "dr.ting",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "refer_to_clinic",
+    "expected": "true",
+    "judge_met": true,
+    "judge_reason": "The answer does not choose a drug and provides general information instead."
+  },
+  "4": {
+    "case": "c04",
+    "doctor": "dr.renny",
+    "condition": "without_memory",
+    "repeat": 1,
+    "check": "c1",
+    "kind": "first_choice",
+    "expected": "prednisone",
+    "judge_met": true,
+    "judge_reason": "The answer clearly states to take prednisone for the flare."
+  },
+  "5": {
+    "case": "c06",
+    "doctor": "dr.renny",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c2",
+    "kind": "first_ask",
+    "expected": "current_plan",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask a clarifying question about the patient's current treatment plan."
+  },
+  "6": {
+    "case": "c04",
+    "doctor": "dr.ting",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "refer_to_clinic",
+    "expected": "true",
+    "judge_met": false,
+    "judge_reason": "The answer directly advises the patient to take prednisone without sending them to the clinic for the decision."
+  },
+  "7": {
+    "case": "c10",
+    "doctor": "dr.patel",
+    "condition": "without_memory",
+    "repeat": 1,
+    "check": "c1",
+    "kind": "plan_behavior",
+    "expected": "follow_plan",
+    "judge_met": false,
+    "judge_reason": "The answer does not mention following the written flare plan."
+  },
+  "8": {
+    "case": "c17",
+    "doctor": "dr.ting",
+    "condition": "with_memory",
+    "repeat": 2,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "past_experience",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask about the patient's past experience with the drug."
+  },
+  "9": {
+    "case": "c14",
+    "doctor": "dr.patel",
+    "condition": "with_memory",
+    "repeat": 1,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "medication_list",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask about the patient's full medication list or recent changes."
+  },
+  "10": {
+    "case": "c18",
+    "doctor": "dr.patel",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "other_conditions",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask any clarifying questions."
+  },
+  "11": {
+    "case": "c03",
+    "doctor": "dr.ting",
+    "condition": "with_memory",
+    "repeat": 1,
+    "check": "c1",
+    "kind": "refer_to_clinic",
+    "expected": "true",
+    "judge_met": true,
+    "judge_reason": "The answer advises contacting the clinic before taking anything new."
+  },
+  "12": {
+    "case": "c10",
+    "doctor": "dr.ting",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "plan_behavior",
+    "expected": "follow_plan",
+    "judge_met": false,
+    "judge_reason": "The answer does not mention following the written flare plan."
+  },
+  "13": {
+    "case": "c01",
+    "doctor": "dr.patel",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "first_choice",
+    "expected": "naproxen",
+    "judge_met": true,
+    "judge_reason": "The answer clearly states to reach for naproxen first."
+  },
+  "14": {
+    "case": "c13",
+    "doctor": "dr.patel",
+    "condition": "without_memory",
+    "repeat": 2,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "medication_list",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask about the patient's full medication list or recent changes."
+  },
+  "15": {
+    "case": "c04",
+    "doctor": "dr.renny",
+    "condition": "without_memory",
+    "repeat": 2,
+    "check": "c1",
+    "kind": "first_choice",
+    "expected": "prednisone",
+    "judge_met": true,
+    "judge_reason": "The answer clearly states to take prednisone for the flare."
+  },
+  "16": {
+    "case": "c06",
+    "doctor": "dr.renny",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "refer_to_clinic",
+    "expected": "true",
+    "judge_met": true,
+    "judge_reason": "The answer states it will ask the care team for clarification."
+  },
+  "17": {
+    "case": "c01",
+    "doctor": "dr.renny",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c2",
+    "kind": "first_ask",
+    "expected": "current_plan",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask any clarifying questions."
+  },
+  "18": {
+    "case": "c05",
+    "doctor": "dr.patel",
+    "condition": "without_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "refer_to_clinic",
+    "expected": "true",
+    "judge_met": true,
+    "judge_reason": "The answer refers the question to the care team for further guidance."
+  },
+  "19": {
+    "case": "c12",
+    "doctor": "dr.ting",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c1",
+    "kind": "first_ask",
+    "expected": "timing",
+    "judge_met": false,
+    "judge_reason": "The answer does not ask any clarifying questions."
+  },
+  "20": {
+    "case": "c02",
+    "doctor": "dr.renny",
+    "condition": "with_memory",
+    "repeat": 0,
+    "check": "c2",
+    "kind": "first_ask",
+    "expected": "current_plan",
+    "judge_met": true,
+    "judge_reason": "The answer first suggests confirming the current prescription and plan with the patient."
+  }
+}
