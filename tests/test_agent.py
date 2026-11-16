@@ -2410,3 +2410,54 @@ def test_grounding_blocks_cross_unit_mixing(paragraphs, answer):
 def test_grounding_still_passes_one_unit_statements(paragraphs, answer):
     ev = evidence(*paragraphs)
     assert check(answer, sorted(set(map(int, re.findall(r"\[(\d+)\]", answer)))), ev)[0] == "answer"
+
+
+# Grounding fix 2, round 2: correct answers pass, and the remaining bypasses block.
+
+def cited_by_markers(answer):
+    return sorted(set(map(int, re.findall(r"\[(\d+)\]", answer))))
+
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    # C1: only a threshold, a duration or a follow-up time: no drug inherited
+    ((DOSE_A, "Call if your fever is above 101."),
+     "Take metformin 500 mg once daily with food [1]. Call if your fever is above 101 [2]."),
+    ((DOSE_A, "Follow up in 2 weeks."),
+     "Take metformin 500 mg once daily with food [1]. Follow up in 2 weeks [2]."),
+    ((DOSE_A, "Retest in 7 days."),
+     "Take metformin 500 mg once daily with food [1]. Retest in 7 days [2]."),
+    ((DOSE_A + " Call your doctor if your fever is above 101.",),
+     "Take metformin 500 mg once daily with food [1]. Call if your fever is above 101 [1]."),
+    ((DOSE_A + " Follow up in 2 weeks.",),
+     "Take metformin 500 mg once daily with food [1]. Follow up in 2 weeks [1]."),
+    # C2: an evidence sentence naming no drug is about the drug before it
+    (("Metformin helps. Take 500 mg once daily.",), "Take metformin 500 mg once daily [1]."),
+    (("Metformin is a medicine. Take it 500 mg once daily with food.",),
+     "Take metformin 500 mg once daily [1]."),
+    (("Metformin: take 500 mg once daily. Do not exceed 2000 mg per day.",),
+     "Take metformin 500 mg once daily [1]. Do not exceed 2000 mg per day [1]."),
+    # I-1: a parenthetical between the number and its comparator
+    (("Call for temp 101 F (38.3 C) or higher.",), "Call if temp is above 101 [1]."),
+])
+def test_round2_correct_answers_pass(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    assert check(answer, cited_by_markers(answer), ev)[0] == "answer"
+
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    ((DOSE_A, DOSE_B), "Take lisinopril [2]. 500 mg twice daily [1][2]."),
+    # I-2: numbers continued by a statement that names a drug
+    ((DOSE_A, DOSE_B), "Take 500 mg once daily [1] of lisinopril [2]."),
+    # I-3: the threshold number must sit next to its comparator
+    (("Fever above 101 means call. Wait 7 days then call.",), "Call if fever above 7 [1]."),
+    (("Wait 3 days and call if fever above 101.",), "Call if fever above 3 [1]."),
+    # direction must match
+    (("Call if fever is above 101.",), "Call if fever is below 101 [1]."),
+    # C2 does not let another drug's sentence lend its numbers
+    (("Metformin 500 mg once daily. Lisinopril 10 mg twice daily. Take it with food.",),
+     "Take metformin 500 mg once daily with food [1]. Take lisinopril 500 mg [1]."),
+])
+def test_round2_bypasses_block(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    with pytest.raises(ValueError):
+        check(answer, cited_by_markers(answer), ev)

@@ -710,19 +710,48 @@ def _unsupported_numbers_error(unsupported: set[tuple], evidence: dict[int, Evid
 class _GroundingUnit(NamedTuple):
     tokens: frozenset  # the number tokens it grounds
     drugs: frozenset  # the drugs it names, with their lexicon equivalents
-    comparator: bool = False  # whether it holds a threshold word ("above", "or more")
+    thresholds: frozenset = frozenset()  # its (direction, number token) thresholds
 
 
-# A threshold word before a number in an answer ("above 7"), and anywhere in
-# evidence ("above 101", "7 or more"): a stated threshold needs a unit that
-# holds one, so a bare "7 days" never grounds "above 7".
-_COMPARATOR = (r"(?:above|over|more than|greater than|exceed(?:s|ing)?|below|under|less than|"
-               r"fewer than|at least|at most|up to|higher than|lower than|beyond|>=?|<=?)")
-_THRESHOLD_IN_ANSWER = re.compile(rf"(?<![A-Za-z]){_COMPARATOR}\s*(?:about\s+)?[0-9.]",
-                                  re.IGNORECASE)
-_THRESHOLD_IN_EVIDENCE = re.compile(
-    rf"(?<![A-Za-z]){_COMPARATOR}(?![A-Za-z])|[0-9]\s*(?:\+|or\s+(?:more|less|higher|lower|"
-    r"above|below|greater|fewer)|and\s+(?:above|up|over|below))", re.IGNORECASE)
+# A threshold: a number with a comparator before it ("above 101") or after it
+# ("101 F (38.3 C) or higher"), as (direction, number token), direction "hi"
+# (above, at least, or more) or "lo" (below, at most, or less). A statement's
+# thresholds must all be held, same number and same direction, by the unit it
+# takes them from, so a bare "7 days" never grounds "above 7".
+_NUMBER = r"(?:[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?|\.[0-9]+)"
+_THRESHOLD_BEFORE = re.compile(
+    r"(?<![A-Za-z])(?:(?P<lo>(?:no|not) more than|no greater than|(?:do not |not |never )?"
+    r"exceed(?:s|ing)? no|below|under|less than|lower than|fewer than|at most|up to|<=?)"
+    r"|(?P<hi>(?:do not |not |never )exceed(?:s|ing)?|above|over|more than|higher than|"
+    r"greater than|at least|exceed(?:s|ing)?|beyond|>=?))"
+    rf"\s*(?:about\s+|approximately\s+|around\s+)?(?P<n>{_NUMBER})", re.IGNORECASE)
+_THRESHOLD_AFTER = re.compile(
+    rf"(?<![0-9.,])(?P<n>{_NUMBER})\s*(?:[A-Za-z%]{{1,5}}\.?)?\s*(?:\([^)]*\)\s*)?"
+    r"(?:(?P<hi>\+|or\s+(?:higher|more|greater|above|over)|and\s+(?:above|up|over))"
+    r"|(?P<lo>or\s+(?:lower|less|below|under|fewer)|and\s+(?:below|under)))(?![A-Za-z])",
+    re.IGNORECASE)
+
+
+def _thresholds(text: str) -> set[tuple]:
+    found = set()
+    for pattern in (_THRESHOLD_BEFORE, _THRESHOLD_AFTER):
+        for m in pattern.finditer(text):
+            direction = "hi" if m.group("hi") else "lo"
+            found.update((direction, token) for token in number_tokens(m.group("n")))
+    return found
+
+
+# A drug-free statement inherits the drug of the one before it only when it
+# states a dose (a dose unit or a frequency) or says "take it".
+_DOSING = re.compile(
+    r"(?<![A-Za-z])(?:mg|mcg|ml|units?|tablets?|pills?|capsules?|puffs?|drops?|tsp|tbsp)"
+    r"(?![A-Za-z])|(?<=[0-9])\s*g(?![A-Za-z])"
+    r"|\b(?:daily|once|twice|(?:[a-z0-9]+) times|a day|per day|each day|every (?:other )?day"
+    r"|every [a-z0-9]+(?: to [a-z0-9]+)? hours?|hourly|weekly)\b"
+    r"|\b(?:take|takes|taking|use|using|have|continue)\s+(?:it|this|that|them|these|those)\b",
+    re.IGNORECASE)
+# A statement of numbers continued by a drug: "500 mg once daily [1] of lisinopril [2]".
+_DRUG_TAIL = re.compile(r"[\s,]*(?:of|for|from)\b", re.IGNORECASE)
 _CLAUSE_BREAK = re.compile(r"\s+and\s+|;|,(?=\s)", re.IGNORECASE)
 
 
@@ -750,7 +779,7 @@ def _unit(raw: str, text: str, lexicon: Optional[DrugLexicon],
         frozenset(number_tokens(cleaned) | erased_numerals(raw)),
         _with_equivalents(lexicon.find(clean_text(drug_text or text)), lexicon) if lexicon
         else frozenset(),
-        bool(_THRESHOLD_IN_EVIDENCE.search(cleaned)))
+        frozenset(_thresholds(cleaned)))
 
 
 def _grounding_units(e: Evidence, lexicon: Optional[DrugLexicon]) -> list[_GroundingUnit]:
@@ -786,11 +815,14 @@ def _drug_units(e: Evidence, lexicon: DrugLexicon) -> list[_GroundingUnit]:
     never lends its numbers to a statement about another."""
     units = []
     for text in _grounding_texts(e):
+        last: frozenset = frozenset()  # a clause naming no drug is about the one before
         heading, _, body = text.rpartition("\n")
         prefix = f"{heading}\n" if heading else ""
         for sentence in _grounding_sentences(clean_text(body)):
             for clause in _clauses(sentence, lexicon):
-                units.append(_unit(text, prefix + clause, lexicon))
+                unit = _unit(text, prefix + clause, lexicon)
+                last = unit.drugs or last
+                units.append(unit._replace(drugs=last))
     return units
 
 
@@ -839,19 +871,28 @@ def _check_statements(text: str, cited: dict[int, Evidence], evidence: dict[int,
     coarse = [u for e in cited.values() for u in _grounding_units(e, lexicon)]
     fine = [u for e in cited.values() for u in _drug_units(e, lexicon)] if lexicon else []
     recent: list[str] = []
-    statements = [part for sentence in _grounding_sentences(_MARKER_RUN.sub(_CUT, text))
-                  for part in sentence.split(_CUT) if part.strip()]
-    for sentence in statements:
+    statements = []
+    for sentence in _grounding_sentences(_MARKER_RUN.sub(_CUT, text)):
+        for part in (p for p in sentence.split(_CUT) if p.strip()):
+            tail = (lexicon and statements and _DRUG_TAIL.match(part) and lexicon.find(part)
+                    and not number_tokens(part) - ALWAYS_ALLOWED_NUMBERS
+                    and number_tokens(statements[-1][0]) - ALWAYS_ALLOWED_NUMBERS
+                    and not lexicon.find(statements[-1][0]) and statements[-1][1] is sentence)
+            if tail:
+                statements[-1] = (f"{statements[-1][0]} {part}", sentence)
+            else:
+                statements.append((part, sentence))
+    for sentence, _ in statements:
         found = sorted(lexicon.find(sentence)) if lexicon else []
-        drugs = found or recent
-        recent = found or recent
         need = frozenset(number_tokens(sentence)) - ALWAYS_ALLOWED_NUMBERS
+        drugs = found or (recent if need and _DOSING.search(sentence) else [])
+        recent = found or recent
         if not need:
             continue
-        threshold = bool(_THRESHOLD_IN_ANSWER.search(sentence))
+        wanted = _thresholds(sentence)
 
         def usable(units):
-            return [u for u in units if u.comparator or not threshold]
+            return [u for u in units if wanted <= u.thresholds]
 
         if drugs:
             groups = [[u.tokens for u in usable(fine) if u.drugs & _with_equivalents({d}, lexicon)]
@@ -865,7 +906,7 @@ def _check_statements(text: str, cited: dict[int, Evidence], evidence: dict[int,
                 f"In \"{sentence.strip()}\", the numbers {_and(_shown(need))} do not come from "
                 f"one list item or one statement of one evidence ([{', '.join(map(str, where))}]). "
                 "Each statement may use the numbers of only one list item and its heading (or one "
-                "evidence statement), and a threshold needs its own wording of one: give each "
+                "evidence statement), and a threshold needs the same wording of one: give each "
                 "item its own sentence or list line, with only that item's numbers.")
 
 
