@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Awaitable, Callable, NamedTuple, Optional, Sequence
 
-from documents import paragraphs
+from documents import evidence_paragraphs
 from drugnames import DrugLexicon, get_lexicon
 from guidance import RuleHit, Unit
 from knowledge import KnowledgeError
@@ -887,7 +887,9 @@ def _document_context(document_paragraphs: list[str], items: list[ExtractedItem]
     """The tags carry a per-request nonce, so a "</document>" inside the untrusted
     text cannot close them."""
     nonce = secrets.token_hex(6)
-    numbered = "\n".join(f"[{n}] {p}" for n, p in enumerate(document_paragraphs, start=1))
+    # The lines of a heading's list are indented under its number.
+    numbered = "\n".join(f"[{n}] {p}".replace("\n", "\n    ")
+                         for n, p in enumerate(document_paragraphs, start=1))
     confirmed = "\n".join(
         f"- {i.category}: {i.text}" for i in items if i.status != "rejected"
     ) or "- (none)"
@@ -1006,7 +1008,7 @@ class _Turn:
         self.foods = foods
         self.guidance_search = guidance_search
         self.doctor_name = doctor_name
-        self.paragraphs = paragraphs(document.text)
+        self.paragraphs = evidence_paragraphs(document.text)
         self.evidence: dict[int, Evidence] = {
             n: Evidence(n, "document", DOCUMENT_TITLE, None, p, check_text=p)
             for n, p in enumerate(self.paragraphs, start=1)

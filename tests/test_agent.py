@@ -2123,3 +2123,32 @@ async def test_prompt_says_habits_never_disagree_and_disagreement_still_answers(
             "higher source, say the sources differ, and also call add_care_team_question with "
             "reason \"Sources disagree\". Sources that disagree never make the kind "
             "\"not_covered\".") in prompt
+
+
+LIST_DOC_TEXT = (
+    "Call 911 or return to the ER if:\n"
+    "- a fever of 101 F (38.3 C) or higher with chills\n"
+    "- you cannot keep fluids down\n\n"
+    "Call the clinic if you:\n"
+    "- cannot urinate"
+)
+
+
+async def test_a_heading_and_its_list_items_are_one_evidence_paragraph(store, foods, items):
+    document = DischargeDocument(id=1, user_id=1, status="confirmed", text=LIST_DOC_TEXT)
+    llm = FakeLLM()
+    # Citing only the heading grounds the numbers of its items.
+    llm.script(final("Call 911 for a fever of 101 F (38.3 C) or higher with chills [1].", [1]))
+    result = await ask(llm, store, foods, document, items, question="When should I call the doctor?")
+    assert result.kind == "answer" and not result.flagged
+    assert len(llm.calls) == 1  # grounded without a repair round
+    assert [s.content for s in result.sources] == [
+        "Call 911 or return to the ER if:\n"
+        "- a fever of 101 F (38.3 C) or higher with chills\n"
+        "- you cannot keep fluids down",
+    ]
+    context = llm.calls[0][0][-1]["content"]
+    assert ("[1] Call 911 or return to the ER if:\n"
+            "    - a fever of 101 F (38.3 C) or higher with chills\n"
+            "    - you cannot keep fluids down\n"
+            "[2] Call the clinic if you:\n    - cannot urinate\n") in context

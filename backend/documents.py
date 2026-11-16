@@ -52,6 +52,8 @@ def read_upload(data: bytes, filename: str) -> str:
 # "Label: value" line such as "Diet:" or "Discharge date: May 1, 2026".
 _BULLET = re.compile(r"^(?:[-*\u2022\u25aa\u25e6\u2023\u2043]|\d{1,2}[.)])\s")
 _LABEL = re.compile(r"^[A-Z][A-Za-z0-9 ,()'/&-]{0,60}:(?:\s|$)")
+# A list item under a heading: a bullet, or a number or letter with "." or ")".
+_LIST_ITEM = re.compile(r"^(?:[-*\u2022\u25aa\u25e6\u2023\u2043]|\d{1,2}[.)]|[A-Za-z][.)])\s")
 _ENDS_UNIT = re.compile(r"[.!?:;][\"')\]]*$")
 _STARTS_CAPITAL = re.compile(r"^[\"'(]?[A-Z0-9]")
 # A period after these does not end a sentence.
@@ -75,10 +77,12 @@ def _new_unit(prev: str, line: str, width: int) -> bool:
     return bool(_ENDS_UNIT.search(prev)) or len(prev) < _SHORT_LINE * width
 
 
-def _merge_lines(block: str) -> list[str]:
+def _merge_lines(block: str, lists: bool = False) -> list[str]:
     """Visual lines -> units. A line continues the previous one unless it is a
     bullet or a label, or it starts with a capital after a line that ended a
-    sentence (or after a short line)."""
+    sentence (or after a short line). With `lists`, a list item (_LIST_ITEM, so
+    also "a)" or "B.") also starts a unit right after a unit ending with ":" or
+    after another list item."""
     lines = [" ".join(line.split()) for line in block.splitlines()]
     lines = [line for line in lines if line]
     if not lines:
@@ -86,7 +90,9 @@ def _merge_lines(block: str) -> list[str]:
     width = max(len(line) for line in lines)
     units = [lines[0]]
     for prev, line in zip(lines, lines[1:]):
-        if _new_unit(prev, line, width):
+        in_list = lists and _LIST_ITEM.match(line) and (
+            units[-1].endswith(":") or _LIST_ITEM.match(units[-1]))
+        if in_list or _new_unit(prev, line, width):
             units.append(line)
         else:
             units[-1] += " " + line
@@ -140,4 +146,29 @@ def paragraphs(text: str) -> list[str]:
     for block in re.split(r"\n\s*\n", text):
         for unit in _merge_lines(block):
             result.extend(_cap(unit))
+    return result
+
+
+MAX_LIST_ITEMS = 15
+
+
+def evidence_paragraphs(text: str) -> list[str]:
+    """The clone's evidence units: paragraphs(), except that a unit ending with ":"
+    and the list items directly under it (in the same block, so until a blank
+    line) are one paragraph with each item on its own line, at most
+    MAX_LIST_ITEMS items; later items stay paragraphs of their own. Citing
+    "Call 911 if:" then grounds the numbers of its items. The review page, PDF
+    highlighting and extraction keep paragraphs()."""
+    result: list[str] = []
+    for block in re.split(r"\n\s*\n", text):
+        units = [part for unit in _merge_lines(block, lists=True) for part in _cap(unit)]
+        i = 0
+        while i < len(units):
+            end = i + 1
+            if units[i].endswith(":"):
+                while (end < len(units) and end - i <= MAX_LIST_ITEMS
+                       and _LIST_ITEM.match(units[end])):
+                    end += 1
+            result.append("\n".join(units[i:end]))
+            i = end
     return result

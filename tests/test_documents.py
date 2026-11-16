@@ -1,7 +1,7 @@
 import pytest
 from fpdf import FPDF
 
-from documents import MAX_PARAGRAPH, paragraphs, read_upload
+from documents import MAX_LIST_ITEMS, MAX_PARAGRAPH, evidence_paragraphs, paragraphs, read_upload
 
 
 def make_pdf(text: str | None) -> bytes:
@@ -173,3 +173,51 @@ def test_read_upload_malformed_pdf_any_error_is_a_clean_value_error(monkeypatch)
     monkeypatch.setattr(documents, "PdfReader", Broken)
     with pytest.raises(ValueError, match="The PDF could not be read."):
         read_upload(b"%PDF-1.4 junk", "d.pdf")
+
+
+LIST_DOC = (
+    "Diet:\n"
+    "Drink at least 2 liters of water a day.\n"
+    "Avoid nuts.\n\n"
+    "Call 911 or return to the ER if:\n"
+    "- a fever of 101 F (38.3 C) or higher\n"
+    "  with chills\n"
+    "- you cannot keep fluids down\n\n"
+    "Call the clinic if you:\n"
+    "1. cannot urinate\n"
+    "2) see heavy bleeding\n"
+    "B. have new pain\n"
+    "\u2022 feel dizzy\n\n"
+    "Follow-up:\n\n"
+    "- See the clinic on May 2."
+)
+
+
+def test_evidence_paragraphs_merge_a_heading_with_its_list_items():
+    assert evidence_paragraphs(LIST_DOC) == [
+        "Diet:",
+        "Drink at least 2 liters of water a day.",
+        "Avoid nuts.",
+        "Call 911 or return to the ER if:\n"
+        "- a fever of 101 F (38.3 C) or higher with chills\n"
+        "- you cannot keep fluids down",
+        "Call the clinic if you:\n1. cannot urinate\n2) see heavy bleeding\n"
+        "B. have new pain\n\u2022 feel dizzy",
+        # A blank line ends the heading's list.
+        "Follow-up:",
+        "- See the clinic on May 2.",
+    ]
+    # The review page, highlighting and extraction keep one unit per line.
+    assert "- you cannot keep fluids down" in paragraphs(LIST_DOC)
+
+
+def test_evidence_paragraphs_without_lists_equal_paragraphs():
+    text = "Diet:\nDrink water.\nAvoid nuts.\n\nTake 2 tablets.\n- a stray bullet\n\nDone:"
+    assert evidence_paragraphs(text) == paragraphs(text)
+
+
+def test_evidence_paragraphs_cap_the_items_of_one_heading():
+    items = [f"- item {n}" for n in range(1, MAX_LIST_ITEMS + 3)]
+    parts = evidence_paragraphs("Watch for:\n" + "\n".join(items))
+    assert parts[0] == "\n".join(["Watch for:", *items[:MAX_LIST_ITEMS]])
+    assert parts[1:] == items[MAX_LIST_ITEMS:]
