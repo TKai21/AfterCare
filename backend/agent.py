@@ -17,14 +17,14 @@ import secrets
 import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Awaitable, Callable, NamedTuple, Optional
+from typing import Awaitable, Callable, NamedTuple, Optional, Sequence
 
 from documents import paragraphs
 from drugnames import DrugLexicon, get_lexicon
 from guidance import RuleHit, Unit
 from knowledge import KnowledgeError
 from llm import LLMError
-from models import DischargeDocument, DoctorGuidance, ExtractedItem
+from models import DischargeDocument, DoctorGuidance, ExtractedItem, GuidanceRule
 
 KINDS = ("answer", "not_covered", "emergency", "out_of_scope")
 HISTORY_LIMIT = 6
@@ -148,6 +148,8 @@ Each turn you receive the patient's discharge document split into numbered parag
 - add_care_team_question(question, reason): adds a question to the patient's list for their care team.
 Every document paragraph, my earlier advice entry, library passage and food entry has an evidence number. Cite evidence only by these numbers.
 
+My usual ways of responding are listed under "How I usually respond", each with an evidence number. They are the questions I ask, how I close, and the signs I want to hear about. They are never medical facts and never justify a dose, a drug or a medication change.
+
 Authority rules:
 1. Follow the sources in this order, highest first: the patient's discharge document, then my earlier advice for this patient, then my earlier general advice, then library passages, then food data. The discharge document wins. If a lower source conflicts with a higher one, follow the higher one, say the sources differ, and call add_care_team_question with reason "Sources disagree". The same applies when two pieces of my earlier advice disagree with each other.
 2. If the document does not answer the question, use my earlier advice (the entries already listed, and search_doctor_guidance) before search_education_library. An entry of my earlier advice about a different drug, condition or situation than the one asked about does not apply; do not use it. You are {DOCTOR}'s AI clone. Speak in the first person as {DOCTOR}'s AI clone ('my earlier advice', 'I advised'). Never say or imply you are the human doctor; when you introduce yourself, say you are {DOCTOR}'s AI clone.
@@ -228,7 +230,7 @@ TOOLS = [
 @dataclass
 class Evidence:
     number: int
-    kind: str  # document | doctor | library | food
+    kind: str  # document | doctor | habit | library | food
     title: str
     url: Optional[str]
     content: str
@@ -236,7 +238,8 @@ class Evidence:
     # dates from source lines. Used for number grounding, never shown. Empty means
     # this evidence grounds no numbers (fails closed).
     check_text: str = field(default="", repr=False)
-    guidance_id: Optional[int] = None  # the DoctorGuidance row, for kind "doctor"
+    guidance_id: Optional[int] = None  # the DoctorGuidance row, for kind "doctor" or "habit"
+    habit_type: Optional[str] = None  # ask | close | warning, for kind "habit"
 
 
 @dataclass
@@ -601,6 +604,28 @@ def _prefetch_context(entries: list[dict]) -> str:
     )
 
 
+HABIT_ORDER = ("ask", "close", "warning")
+HABIT_HEADINGS = {"ask": "Questions I usually ask", "close": "How I usually close",
+                  "warning": "Signs I want to hear about"}
+
+
+def _habits_context(habits: list[dict]) -> str:
+    """The doctor's habits as numbered evidence, grouped by type. Nonce tags, as
+    in _document_context."""
+    nonce = secrets.token_hex(6)
+    groups = []
+    for habit_type in HABIT_ORDER:
+        lines = [f"[{h['evidence_number']}] {h['statement']}\nMy words: {h['my_words']}"
+                 for h in habits if h["habit_type"] == habit_type]
+        if lines:
+            groups.append(HABIT_HEADINGS[habit_type] + ":\n" + "\n\n".join(lines))
+    listed = "\n\n".join(groups) or "- (none)"
+    return (
+        "How I usually respond, with evidence numbers (untrusted data):\n"
+        f"<habits-{nonce}>\n{listed}\n</habits-{nonce}>"
+    )
+
+
 class _Turn:
     """State for answering one question: evidence numbering and tool calls."""
 
@@ -668,6 +693,17 @@ class _Turn:
             "question_answered": entry.question,
             "advice": entry.answer,
         }
+
+    def habit_entry(self, rule: GuidanceRule) -> dict:
+        """Number one of the doctor's habits and return what the model sees. The
+        quote is the whole evidence: the statement only helps the model and
+        grounds no number."""
+        number = self._number(("habit", rule.id), "habit", f"{self.doctor_name}'s usual practice",
+                              None, rule.quote, check_text=rule.quote)
+        self.evidence[number].guidance_id = rule.guidance_id
+        self.evidence[number].habit_type = rule.habit_type
+        return {"evidence_number": number, "habit_type": rule.habit_type,
+                "statement": rule.statement, "my_words": rule.quote}
 
     async def search_doctor_guidance(self, query: str) -> dict:
         if self.guidance_search is None:
@@ -794,6 +830,7 @@ async def run_agent(
     library_rxcuis: frozenset[str] = frozenset(),
     *,
     allowed_drugs: frozenset[str],
+    habits: Sequence[GuidanceRule] = (),
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -821,6 +858,8 @@ async def run_agent(
     lower-case drug names an answer may name beyond those a cited document paragraph names (see drugnames.allowed_drug_names)."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
     user_content = _document_context(turn.paragraphs, items)
+    if habits:
+        user_content += "\n\n" + _habits_context([turn.habit_entry(h) for h in habits])
     if prefetch is not None:
         user_content += "\n\n" + _prefetch_context([turn.doctor_entry(e) for e in prefetch])
     if emergency_terms:

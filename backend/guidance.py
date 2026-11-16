@@ -200,3 +200,33 @@ async def retrieve(
 
 def unit_entry(unit: Unit) -> DoctorGuidance:
     return unit.entry if isinstance(unit, RuleHit) else unit
+
+
+async def doctor_habits(session: AsyncSession, doctor_id: int, limit: int = 30) -> list[GuidanceRule]:
+    """The doctor's live habits, given to the clone on every turn (a habit is
+    never retrieved by similarity). Only habits of this doctor's active entries
+    that the doctor has not suppressed; a habit written more than once (same
+    normalised statement) is kept once, from the most recently updated entry,
+    and the list runs newest entry first."""
+    rows = await session.execute(
+        select(GuidanceRule)
+        .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)
+        .where(
+            DoctorGuidance.doctor_id == doctor_id,
+            DoctorGuidance.active.is_(True),
+            GuidanceRule.doctor_id == doctor_id,
+            GuidanceRule.kind == "habit",
+            GuidanceRule.suppressed.is_(False),
+        )
+        .order_by(DoctorGuidance.updated_at.desc(), DoctorGuidance.id.desc(),
+                  GuidanceRule.position, GuidanceRule.id)
+    )
+    seen: set[str] = set()
+    habits: list[GuidanceRule] = []
+    for rule in rows.scalars():
+        key = normalize(rule.statement)
+        if key in seen:
+            continue
+        seen.add(key)
+        habits.append(rule)
+    return habits[:limit]

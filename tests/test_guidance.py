@@ -7,7 +7,7 @@ from sqlalchemy import text
 from config import Settings, get_settings
 from db import init_db, make_engine, make_session_factory
 from fake_llm import FakeLLM
-from guidance import embed_entry, eligible, patient_text, retrieve, tag_names
+from guidance import doctor_habits, embed_entry, eligible, patient_text, retrieve, tag_names
 from llm import LLMError
 from models import DischargeDocument, DoctorGuidance, ExtractedItem, User
 
@@ -349,3 +349,34 @@ async def test_stale_live_advice_still_falls_back_to_whole_entry(session):
     doc, a, d1 = await _ready_entry(session, [{"embedding_model": "old"}])
     got = await retrieve(session, VectorLLM(), a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
     assert len(got) == 1 and got[0][0].id is not None and not hasattr(got[0][0], "rule")
+
+
+async def add_habit(session, e, statement, **kw):
+    from models import GuidanceRule
+    fields = dict(guidance_id=e.id, doctor_id=e.doctor_id, position=0, statement=statement,
+                  quote=statement, kind="habit", habit_type="ask")
+    fields.update(kw)
+    rule = GuidanceRule(**fields)
+    session.add(rule)
+    await session.flush()
+    return rule
+
+
+async def test_doctor_habits_are_live_deduplicated_and_per_doctor(session):
+    from datetime import datetime, timedelta
+    (doc, a, b), _ = await seed(session)
+    now = datetime(2026, 11, 1)
+    old = entry(doctor_id=doc.id, scope="patient", patient_id=a.id, updated_at=now)
+    new = entry(doctor_id=doc.id, scope="patient", patient_id=b.id, updated_at=now + timedelta(days=1))
+    inactive = entry(doctor_id=doc.id, active=False, updated_at=now + timedelta(days=2))
+    other = entry(doctor_id=a.id, updated_at=now)
+    session.add_all([old, new, inactive, other])
+    await session.flush()
+    await add_habit(session, old, "Asks about pain")
+    keep = await add_habit(session, new, "asks  about PAIN", quote="newer quote")
+    await add_habit(session, new, "Hidden", position=1, suppressed=True)
+    await add_habit(session, new, "Advice", position=2, kind="advice", habit_type=None)
+    await add_habit(session, inactive, "From a deleted entry")
+    await add_habit(session, other, "Another doctor")
+    assert [r.id for r in await doctor_habits(session, doc.id)] == [keep.id]
+    assert await doctor_habits(session, doc.id, limit=0) == []

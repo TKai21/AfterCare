@@ -1232,3 +1232,75 @@ def test_document_named_drug_allows_its_equivalents():
 async def test_run_agent_requires_allowed_drugs(store, foods, document, items):
     with pytest.raises(TypeError, match="allowed_drugs"):
         await run_agent(FakeLLM(), store, foods, document, items, [], "Q?", [])
+
+
+# ---- habits in the clone's context (Task 7)
+
+def habit_rule(id, statement, quote, habit_type="ask", guidance_id=1):
+    from models import GuidanceRule
+    return GuidanceRule(id=id, guidance_id=guidance_id, doctor_id=1, position=id,
+                        statement=statement, quote=quote, kind="habit",
+                        habit_type=habit_type, warning_terms=[], suppressed=False)
+
+
+def first_user(llm):
+    return [m for m in llm.calls[0][0] if m["role"] == "user"][-1]["content"]
+
+
+async def test_habits_are_listed_with_quote_only(store, foods, document, items):
+    habit = habit_rule(1, "Asks whether the patient has eaten today",
+                       "Have you eaten today?")
+    llm = FakeLLM()
+    llm.script(final("I do not know.", [], kind="not_covered", care_team_question="q"))
+    await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai", habits=[habit])
+    text = first_user(llm)
+    assert "How I usually respond" in text
+    assert "Have you eaten today?" in text
+    assert "Asks whether the patient has eaten today" in text
+    assert "500 mg" not in text  # the rest of the entry's answer is not shown
+    # numbered after the 4 document paragraphs
+    assert "[5]" in text.split("How I usually respond", 1)[1]
+    assert "Dr. Ting Kai" in llm.calls[0][0][0]["content"]
+    assert "never medical facts" in llm.calls[0][0][0]["content"]
+
+
+async def test_habit_evidence_shape_and_citation(store, foods, document, items):
+    habit = habit_rule(7, "Closes by asking about questions", "Anything else I can help with?",
+                       habit_type="close", guidance_id=42)
+    llm = FakeLLM()
+    llm.script(final("Anything else I can help with? [5]", [5]))
+    result = await ask(llm, store, foods, document, items, doctor_name="Dr. Ting Kai",
+                       habits=[habit])
+    (source,) = result.sources
+    assert (source.kind, source.title, source.url) == ("habit", "Dr. Ting Kai's usual practice", None)
+    assert source.content == source.check_text == "Anything else I can help with?"
+    assert (source.guidance_id, source.habit_type) == (42, "close")
+
+
+async def test_habits_grouped_by_type(store, foods, document, items):
+    habits = [habit_rule(1, "w", "Call me if it bleeds", "warning"),
+              habit_rule(2, "a", "How is the pain?", "ask"),
+              habit_rule(3, "c", "Any questions?", "close")]
+    llm = FakeLLM()
+    llm.script(final("x", [], kind="not_covered", care_team_question="q"))
+    await ask(llm, store, foods, document, items, habits=habits)
+    text = first_user(llm)
+    assert text.index("How is the pain?") < text.index("Any questions?") < text.index("Call me if it bleeds")
+
+
+async def test_habit_evidence_grounds_no_numbers(store, foods, document, items):
+    habit = habit_rule(1, "Reminds about days", "Come back and see me", habit_type="close")
+    llm = FakeLLM()
+    llm.script(final("Come back in 2 days [5].", [5]))
+    llm.script(final("Come back in 2 days [5].", [5]))
+    result = await ask(llm, store, foods, document, items, habits=[habit])
+    assert_fallback(result)
+
+
+def test_habit_evidence_is_not_doctor_evidence_for_a_medication_change():
+    habit = Evidence(1, "habit", "t", None, "Stop it", check_text="Stop it")
+    out = raw(kind="answer", answer="Stop it [1].", citations=[1])
+    with pytest.raises(ValueError, match="medication change"):
+        validate(out, {1: habit})
+    doctor = Evidence(1, "doctor", "t", None, "Stop it", check_text="Stop it")
+    validate(out, {1: doctor})

@@ -15,7 +15,7 @@ from db import get_session
 from doctors import doctor_label, require_doctor
 from druglabels import patient_rxcuis
 from drugnames import allowed_drug_names, get_lexicon
-from guidance import Unit, retrieve
+from guidance import Unit, doctor_habits, retrieve
 from llm import LLMError
 from models import ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
@@ -125,6 +125,20 @@ async def ask(
         # stay loaded (the prefetch can fail before the agent has read them).
         for loaded in (user, doc, *items):
             session.expunge(loaded)
+        habits = []
+        if not terms:  # an emergency answer does not wait on memory
+            try:
+                habits = await doctor_habits(session, doctor_id)
+                for habit in habits:
+                    session.expunge(habit)  # stays loaded after any later rollback
+                await session.commit()
+            except Exception:
+                log.exception("Loading the doctor's habits failed")
+                habits = []
+                try:
+                    await session.rollback()
+                except Exception:
+                    log.exception("Rollback after failing to load habits failed")
         settings = request.app.state.settings
         memory_failed = False
 
@@ -166,6 +180,7 @@ async def ask(
                 doc, items, history, body.question, terms,
                 guidance_search=search, doctor_name=name, prefetch=prefetch,
                 library_rxcuis=library_rxcuis, allowed_drugs=allowed_drugs,
+                habits=habits,
             )
         except LLMError as exc:
             if not terms:

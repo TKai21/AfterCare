@@ -810,3 +810,69 @@ async def test_ask_uses_active_document_rxcuis(client, fake_llm):
         )
         assert (await post_ask(client, h2, "What is colchicine?")).status_code == 200
         assert stub.calls == [unlocked], status
+
+
+async def seed_habit(client, entry, statement, quote, habit_type="ask", **kw):
+    from models import GuidanceRule
+    async with client.app.state.session_factory() as session:
+        session.add(GuidanceRule(guidance_id=entry.id, doctor_id=entry.doctor_id, position=0,
+                                 statement=statement, quote=quote, kind="habit",
+                                 habit_type=habit_type, **kw))
+        await session.commit()
+
+
+def first_user_message(fake_llm, call_index=-1):
+    return [m for m in fake_llm.calls[call_index][0] if m["role"] == "user"][-1]["content"]
+
+
+async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await make_doctor(client)
+    other = await seed_guidance(client, fake_llm, doctor_id, scope="patient", patient_id=None,
+                                question="Q", answer="Take 500 mg twice a day.")
+    await seed_habit(client, other, "Asks how the pain is", "How is the pain today?")
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
+    await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
+    text = first_user_message(fake_llm)
+    assert "How I usually respond" in text and "How is the pain today?" in text
+    assert "500 mg twice" not in text
+
+
+async def test_inactive_entry_habits_are_left_out(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await make_doctor(client)
+    gone = await seed_guidance(client, fake_llm, doctor_id, active=False)
+    await seed_habit(client, gone, "Asks about sleep", "How did you sleep?")
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
+    await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
+    assert "How did you sleep?" not in first_user_message(fake_llm)
+
+
+async def test_emergency_loads_no_habits(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await make_doctor(client)
+    loaded = []
+
+    async def spy(*args, **kwargs):
+        loaded.append(args)
+        return []
+
+    monkeypatch.setattr("routes_agent.doctor_habits", spy)
+    fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
+    resp = await post_ask(client, h, "I have chest pain", doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    assert loaded == []
+
+
+async def test_habit_load_failure_does_not_break_the_turn(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await make_doctor(client)
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("routes_agent.doctor_habits", broken)
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
+    resp = await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    assert "How I usually respond" not in first_user_message(fake_llm)
