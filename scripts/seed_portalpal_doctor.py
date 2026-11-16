@@ -4,7 +4,7 @@ DATABASE_URL, for trying the clone by hand.
     DATABASE_URL=sqlite+aiosqlite:////path/to/db.sqlite3 \\
         .venv/bin/python scripts/seed_portalpal_doctor.py
 
-Creates the doctor `dr.portal` / `doctor-password-1` ("Portal physician",
+Creates the doctor `dr.portal` / `doctor-password-1` ("Dr. Helen Okafor",
 Primary care). The 60 memory rows of eval/portalpal/split.json become that
 doctor's answered questions, saved through the doctor answer route, so they are
 embedded and read into rules and habits exactly as a real doctor's answers are
@@ -34,6 +34,9 @@ from models import User  # noqa: E402
 
 USERNAME = "dr.portal"
 DOCTOR_PASSWORD = "doctor-password-1"
+# The demo patient demo2's gout document (demo/cases/gout.json) names this
+# attending, so the demo shows one doctor throughout.
+DISPLAY_NAME = "Dr. Helen Okafor"
 
 
 async def main() -> int:
@@ -46,7 +49,7 @@ async def main() -> int:
     llm = LLMClient(settings)
     rows = load_rows()
     split = load_split()
-    eval_portalpal.DOCTOR = (USERNAME, "Portal physician", "Primary care")
+    eval_portalpal.DOCTOR = (USERNAME, DISPLAY_NAME, "Primary care")
     async with open_app(settings, llm, open_store(settings, llm)) as (client, session):
         if await session.scalar(select(User).where(User.username == USERNAME)) is not None:
             print(f"{USERNAME} already exists in this database; nothing changed.")
