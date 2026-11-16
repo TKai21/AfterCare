@@ -294,46 +294,48 @@ def match_terms(message: str, terms: list[str]) -> list[str]:
 
 _CLAUSE_SPLIT = re.compile(r"[.;,!?:\n]|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b", re.IGNORECASE)
 _NEGATOR_STEMS = frozenset({"not", "deny", "without", "non"})  # no/n't/never fold to "not"
-_HEDGE_STEMS = frozenset(_stem(w) for w in (
-    "sure", "idea", "think", "know", "certain", "clue", "wonder", "whether", "if",
-    "unsure", "doubt", "suppose", "guess", "believe", "maybe", "perhaps", "possibly",
-    "might", "may", "could", "seem", "almost", "barely", "hardly",
-    "question", "but", "except", "only", "also", "still",
-))
-_NEGATION_REACH = 2  # at most 2 words between a negator and the term's word
+_NEGATION_PREFIX = frozenset(_stem(w) for w in (
+    "i", "we", "he", "she", "they", "patient", "have", "has", "had", "do", "did", "am",
+    "is", "was"))
+_NEGATION_FILLERS = frozenset(_stem(w) for w in (
+    "any", "a", "an", "the", "have", "has", "had", "having", "got", "get", "getting",
+    "experienced", "experiencing", "noticed", "seen", "felt", "feel", "feeling",
+    "sign", "signs", "of"))
+_MAX_FILLERS = 2
+_NEGATION_TAILS = ((), ("at", "all"), ("though",), ("either",), ("today",))
 
 
-def _negated_in_clause(words: list[str], content: frozenset[str]) -> bool:
-    """True only if every occurrence of the term's words in this clause follows a
-    plain negator closely and nothing in the clause hedges. Doubt means False."""
-    hits = [i for i, w in enumerate(words) if w in content]
-    if not hits:
+def _negated_in_clause(words: list[str], content: frozenset[str],
+                       term_words: frozenset[str]) -> bool:
+    """A clause that mentions the term denies it only when it is exactly
+    [I/have/do...] + negator + up to 2 filler words + the term's own words +
+    optionally "at all"/"though"/"either"/"today". Any other word ("until",
+    "just", "more", "since", "sure", "think", ...) means not negated."""
+    if not any(w in content for w in words):
         return True
-    if any(w in _HEDGE_STEMS for w in words):
+    n = next((i for i, w in enumerate(words) if w in _NEGATOR_STEMS), None)
+    if n is None or not all(w in _NEGATION_PREFIX for w in words[:n]):
         return False
-    negators = [i for i, w in enumerate(words) if w in _NEGATOR_STEMS]
-    covered: set[int] = set()
-    for i in hits:
-        near = [j for j in negators if 0 < i - j <= _NEGATION_REACH + 1]
-        if near:
-            j = max(near)
-            # a second negator right before the first is a double negative
-            if any(0 < j - k <= _NEGATION_REACH + 1 for k in negators):
-                return False
-            covered.add(i)
-        elif i - 1 in covered and words[i - 1] != words[i]:
-            covered.add(i)  # "no chest pain": "pain" follows the covered "chest"
-        else:
-            return False
-    return True
+    rest = words[n + 1:]
+    for k in range(_MAX_FILLERS + 1):
+        if not all(w in _NEGATION_FILLERS for w in rest[:k]):
+            break
+        for tail in _NEGATION_TAILS:
+            end = len(rest) - len(tail)
+            if tuple(rest[end:]) != tail or end <= k:
+                continue
+            if all(w in term_words for w in rest[k:end]):
+                return True
+    return False
 
 
 def negated_terms(message: str, terms: list[str]) -> set[str]:
     """The matched terms (labels from match_terms) the patient plainly denies.
 
-    A term is negated only when every occurrence of its content words sits in a
-    clause (split on . ; , and "but", "and", "or", "nor") where a negator comes at most 2 words
-    before it, with no hedge ("not sure", "don't think") and no double negative.
+    A term is negated only when every clause (split on . ; , ! ? : and the words
+    but/and/or/nor/however/although) that mentions its words is a plain denial,
+    see _negated_in_clause: a negator, at most 2 filler words, the term, nothing
+    else. Hedges, double negatives and qualifiers ("until", "just", "more") fail.
     It errs toward not negated: a missed negation only sends a case to the
     doctor, a false one could let a warning sign through."""
     matched = set(match_terms(message, terms))
@@ -344,6 +346,7 @@ def negated_terms(message: str, terms: list[str]) -> set[str]:
         if label not in matched or label in out:
             continue
         content = _content(term) - {"not"}
-        if content and all(_negated_in_clause(c, content) for c in clauses):
+        term_words = frozenset(_words(term)) - {"not"}
+        if content and all(_negated_in_clause(c, content, term_words) for c in clauses):
             out.add(label)
     return out

@@ -251,7 +251,6 @@ def test_match_terms_subset_and_detect_emergency_unchanged():
     ("without chest pain", "chest pain"),
     ("I never had a fever", "fever"),
     ("She denies fever", "fever"),
-    ("no severe chest pain", "chest pain"),
 ])
 def test_simple_negations(msg, term):
     assert negated_terms(msg, TERMS) == {term}
@@ -290,3 +289,37 @@ def test_negated_is_subset_of_matched():
 ])
 def test_and_or_end_the_negation_clause(msg, want):
     assert negated_terms(msg, TERMS + ["chills"]) == want
+
+
+@pytest.mark.parametrize("msg", [
+    "no fever until last night when it hit 102",
+    "not just fever",
+    "not much fever",
+    "no more vomiting",
+    "no fever since yesterday",
+    "no fever now",
+    "No. I have a fever now",
+    "nope, fever since yesterday",
+    "fever? no",
+    "no severe chest pain and a fever",
+    "no signs of any fever",
+    "no fever yet",
+])
+def test_whitelist_rejects_qualified_negations(msg):
+    assert negated_terms(msg, TERMS) == set()
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("I don't have any fever", {"fever"}),
+    ("No fever", {"fever"}),
+    ("no fever at all", {"fever"}),
+    ("no fever though", {"fever"}),
+    ("I have not had any vomiting", {"vomiting"}),
+    ("without chest pain", {"chest pain"}),
+    ("no fever, no vomiting", {"fever", "vomiting"}),
+    ("no fever and vomiting", {"fever"}),
+    ("haven't had fever but chest pain is worse", {"fever"}),
+    ("I have had no burning urination", {"burning urination"}),
+])
+def test_whitelist_accepts_plain_negations(msg, want):
+    assert negated_terms(msg, TERMS) == want
