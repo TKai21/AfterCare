@@ -1,7 +1,7 @@
 .superpowers/
 graft/
 .env
-.venv/
+.venv
 __pycache__/
 *.sqlite3-journal
 .pytest_cache/
