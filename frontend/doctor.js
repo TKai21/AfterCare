@@ -7,10 +7,14 @@ import {attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} fro
 
 const esc = escapeHtml;
 const SUGGEST_DELAY_MS = 800;
+const NO_TAGS_HINT = 'Without tags, only your habits from this answer will be used.';
 const SUGGEST_FAILED = 'Could not suggest tags. Add them yourself.';
 
 const state = {
   open: [], answered: [], guidance: null,
+  habits: null,         // {ask, close, warning}: the habits the clone learned
+  habitBusy: new Set(), // habit ids being deleted
+  habitError: '',
   labelCount: 0,        // drug labels waiting for review
   labelCountFromTab: false,
   tab: 'questions',
@@ -118,6 +122,10 @@ function suggestStatusHtml(d) {
   return d.tagError ? `<p class="doctor-hint">${esc(d.tagError)}</p>` : '';
 }
 
+function noTagsHintHtml(d) {
+  return d.drugs.length || d.conditions.length ? '' : `<p class="doctor-hint">${NO_TAGS_HINT}</p>`;
+}
+
 function generalHtml(q, d) {
   if (!d.general) return '';
   return `
@@ -129,6 +137,7 @@ function generalHtml(q, d) {
       </div>
       ${chipsHtml('drugs', d.drugs, 'Drugs', d.pending.drugs)}
       ${chipsHtml('conditions', d.conditions, 'Conditions', d.pending.conditions)}
+      <div class="doctor-notag-slot">${noTagsHintHtml(d)}</div>
       <div class="doctor-suggest-status" role="status">${suggestStatusHtml(d)}</div>
     </div>`;
 }
@@ -303,9 +312,8 @@ function updateSend(id) {
   const card = cardEl(id);
   const d = state.drafts.get(id);
   if (!card || !d) return;
-  const noTags = d.general && !d.drugs.length && !d.conditions.length;
   const button = card.querySelector('.doctor-send');
-  if (button) button.disabled = card.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim() || noTags;
+  if (button) button.disabled = card.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim();
 }
 
 function rerenderGeneral(id) {
@@ -324,6 +332,7 @@ function rerenderGeneral(id) {
       const kind = row.dataset.kind;
       row.querySelector('.doctor-chips').innerHTML = chipItemsHtml(kind, d[kind]);
     });
+    fields.querySelector('.doctor-notag-slot').innerHTML = noTagsHintHtml(d);
     fields.querySelector('.doctor-suggest-status').innerHTML = suggestStatusHtml(d);
   }
   updateSend(id);
@@ -570,6 +579,40 @@ function rulesHtml(e) {
     </details>`;
 }
 
+const HABIT_GROUPS = [
+  ['ask', 'Questions I ask'],
+  ['close', 'How I close'],
+  ['warning', 'Signs I want to hear about'],
+];
+
+function habitsHtml() {
+  if (!state.habits) return '';
+  const groups = HABIT_GROUPS.filter(([type]) => state.habits[type].length);
+  const err = state.habitError ? `<p class="form-error" role="alert">${esc(state.habitError)}</p>` : '';
+  if (!groups.length) {
+    return `<section class="card habits" aria-labelledby="habitsTitle">
+      <h2 class="section-title" id="habitsTitle">How I respond</h2>
+      <p class="section-text">Your clone learns how you ask, close and what you want to hear about from your answers. Nothing yet.</p>${err}</section>`;
+  }
+  return `<section class="card habits" aria-labelledby="habitsTitle">
+    <h2 class="section-title" id="habitsTitle">How I respond</h2>
+    ${err}
+    ${groups.map(([type, title]) => `
+      <div class="habit-group">
+        <h3 class="habit-group-title">${title}</h3>
+        <ul class="habit-list">${state.habits[type].map(h => `
+          <li class="habit" data-hid="${h.id}">
+            <div class="habit-body">
+              <p class="habit-statement">${esc(h.statement)}</p>
+              ${h.quote !== h.statement ? `<p class="rule-quote"><span class="rule-quote-label">Your words</span> ${esc(h.quote)}</p>` : ''}
+            </div>
+            <button type="button" class="btn btn-secondary btn-small habit-delete" data-action="delete-habit" data-hid="${h.id}" aria-label="Delete: ${esc(h.statement)}" ${state.habitBusy.has(h.id) ? 'disabled' : ''}>Delete</button>
+          </li>`).join('')}
+        </ul>
+      </div>`).join('')}
+  </section>`;
+}
+
 function tagsLine(e) {
   const chips = [...e.drug_tags.map(t => `<li class="doctor-chip">${esc(t)}</li>`),
     ...e.condition_tags.map(t => `<li class="doctor-chip doctor-chip-cond">${esc(t)}</li>`)];
@@ -652,6 +695,7 @@ function renderGuidance() {
     </div>
     <div class="split-main">
     ${state.guidanceError && state.guidance ? `<p class="form-error" role="alert">${esc(state.guidanceError)}</p>` : ''}
+    ${habitsHtml()}
     ${body}
     </div>
     </div>`;
@@ -659,7 +703,9 @@ function renderGuidance() {
 
 async function loadGuidance() {
   try {
-    state.guidance = (await api('/api/doctor/guidance')).entries;
+    const data = await api('/api/doctor/guidance');
+    state.guidance = data.entries;
+    state.habits = data.habits_by_type;
     state.guidanceError = '';
   } catch (error) {
     state.guidanceError = error.message;
@@ -727,6 +773,31 @@ async function rowAction(action, id, cid) {
     state.busyRows.delete(id);
     renderGuidance();
   }
+}
+
+async function deleteHabit(hid) {
+  const habit = HABIT_GROUPS.flatMap(([type]) => state.habits[type]).find(h => h.id === hid);
+  if (!habit) return;
+  const ok = await confirmDialog({
+    title: 'Delete this habit?',
+    body: 'Your AI clone will stop doing this. Editing the answer it came from will not bring it back.',
+    confirmLabel: 'Delete', danger: true,
+  });
+  if (!ok) return;
+  state.habitBusy.add(hid);
+  state.habitError = '';
+  renderGuidance();
+  try {
+    await api(`/api/doctor/guidance/rules/${hid}`, {method: 'DELETE'});
+    // The same habit written in several answers is deleted everywhere: reload.
+    const data = await api('/api/doctor/guidance');
+    state.guidance = data.entries;
+    state.habits = data.habits_by_type;
+  } catch (error) {
+    state.habitError = error.message;
+  }
+  state.habitBusy.delete(hid);
+  renderGuidance();
 }
 
 async function dismissConflict(id, cid) {
@@ -818,6 +889,8 @@ function bindShared() {
       } else {
         rowAction(action, id, button.dataset.cid);
       }
+    } else if (action === 'delete-habit') {
+      deleteHabit(Number(button.dataset.hid));
     } else if (action === 'show-conflicts') {
       state.filters.status = 'conflicts';
       renderGuidance();

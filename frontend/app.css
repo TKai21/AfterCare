@@ -2812,3 +2812,28 @@ input.doctor-tag-input:not([type="file"]):not([type="checkbox"]):not([type="radi
   }
   .spinner, .dots i { animation-duration: 2400ms !important; animation-iteration-count: infinite !important; }
 }
+
+/* How I respond: the habits the clone learned from the doctor's answers */
+.habits { margin-bottom: var(--space-3); padding: 22px 24px; min-width: 0; }
+.habits .section-text { margin-top: 6px; }
+.habit-group { margin-top: var(--space-3); }
+.habit-group-title {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.habit-list { margin-top: 6px; list-style: none; padding: 0; }
+.habit {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 12px 0;
+}
+.habit + .habit { border-top: 1px solid var(--border); }
+.habit-body { min-width: 0; flex: 1 1 auto; }
+.habit-statement { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.habit-delete { flex: 0 0 auto; }
+.doctor-notag-slot:empty { display: none; }

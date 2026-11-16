@@ -133,16 +133,119 @@ async def test_general_answer_uses_saved_question_and_tags(client, fake_llm):
     assert row.patient_id is None and row.document_id is None
 
 
-async def test_general_answer_without_tags_is_422_and_saves_nothing(client, fake_llm):
+async def test_general_answer_without_tags_is_saved(client, fake_llm):
+    from guidance import retrieve
+    from models import GuidanceRule
     h, doc, qid = await asked(client, fake_llm)
     dh = await doctor_headers(client)
     resp = await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh,
                              json=answer_body(general=True, drug_tags=["  "]))
+    assert resp.status_code == 200
+    g = resp.json()["guidance"]
+    assert g["scope"] == "general" and g["drug_tags"] == [] and g["condition_tags"] == []
+    (row,) = await entries(client)
+    assert row.answer == "Take it with food."
+    # Its advice never reaches a patient: the gate refuses an untagged general entry.
+    async with client.app.state.session_factory() as s:
+        patient = await s.scalar(select(User).where(User.username == "alice"))
+        document = await s.get(DischargeDocument, doc["id"])
+        assert await s.scalar(select(GuidanceRule).where(GuidanceRule.guidance_id == row.id))
+        hits = await retrieve(s, fake_llm, patient, document, [], "Take it with food.",
+                              doctor_id=row.doctor_id, floor=0.0, margin=1.0)
+    assert hits == []
+
+
+async def add_rule(client, guidance_id, doctor_id, kind="habit", habit_type="ask",
+                   statement="Asks about fever.", quote="Any fever?", suppressed=False, position=9):
+    from models import GuidanceRule
+    async with client.app.state.session_factory() as s:
+        rule = GuidanceRule(guidance_id=guidance_id, doctor_id=doctor_id, position=position,
+                            statement=statement, quote=quote, kind=kind,
+                            habit_type=habit_type if kind == "habit" else None,
+                            warning_terms=["fever"] if habit_type == "warning" else [],
+                            suppressed=suppressed)
+        s.add(rule)
+        await s.commit()
+        return rule.id
+
+
+async def answered_entry(client, fake_llm, username="alice"):
+    h, doc, qid = await asked(client, fake_llm, username)
+    dh = await doctor_headers(client)
+    g = (await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh,
+                           json=answer_body())).json()["guidance"]
+    (row,) = [e for e in await entries(client) if e.id == g["id"]]
+    return dh, g, row
+
+
+async def test_doctor_suppresses_own_habit(client, fake_llm):
+    from models import GuidanceRule
+    dh, g, row = await answered_entry(client, fake_llm)
+    hid = await add_rule(client, g["id"], row.doctor_id)
+    other = await doctor_headers(client, "dr.renny", "Dr. Renny")
+    assert (await client.delete(f"/api/doctor/guidance/rules/{hid}", headers=other)).status_code == 404
+    assert (await client.delete("/api/doctor/guidance/rules/99999", headers=dh)).status_code == 404
+    resp = await client.delete(f"/api/doctor/guidance/rules/{hid}", headers=dh)
+    assert resp.status_code == 204 and resp.content == b""
+    async with client.app.state.session_factory() as s:
+        rule = await s.get(GuidanceRule, hid)
+        assert rule is not None and rule.suppressed is True
+    data = (await client.get("/api/doctor/guidance", headers=dh)).json()
+    assert data["habits_by_type"] == {"ask": [], "close": [], "warning": []}
+    assert all(h["id"] != hid for e in data["entries"] for h in e["habits"])
+
+
+async def test_deleting_a_habit_also_removes_its_duplicates(client, fake_llm):
+    dh, g, row = await answered_entry(client, fake_llm)
+    a = await add_rule(client, g["id"], row.doctor_id, statement="Asks about fever.")
+    b = await add_rule(client, g["id"], row.doctor_id, statement="asks about  Fever.", position=10)
+    assert (await client.delete(f"/api/doctor/guidance/rules/{a}", headers=dh)).status_code == 204
+    data = (await client.get("/api/doctor/guidance", headers=dh)).json()
+    assert data["habits_by_type"]["ask"] == []
+    assert all(h["id"] != b for e in data["entries"] for h in e["habits"])
+
+
+async def test_deleting_an_advice_rule_is_422(client, fake_llm):
+    from models import GuidanceRule
+    dh, g, row = await answered_entry(client, fake_llm)
+    rid = g["rules"][0]["id"]
+    resp = await client.delete(f"/api/doctor/guidance/rules/{rid}", headers=dh)
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "General advice needs at least one drug or condition tag."
-    assert await entries(client) == []
-    q = (await client.get("/api/care-team", headers=h)).json()["questions"][0]
-    assert q["status"] == "open" and q["answer"] is None
+    async with client.app.state.session_factory() as s:
+        assert (await s.get(GuidanceRule, rid)).suppressed is False
+
+
+async def test_guidance_list_groups_habits_by_type(client, fake_llm):
+    dh, g, row = await answered_entry(client, fake_llm)
+    ask = await add_rule(client, g["id"], row.doctor_id, "habit", "ask", "Asks about fever.", "Any fever?")
+    close = await add_rule(client, g["id"], row.doctor_id, "habit", "close", "Closes with a call offer.", "Call me.")
+    warn = await add_rule(client, g["id"], row.doctor_id, "habit", "warning", "Wants to hear about fever.", "Tell me about fever.")
+    await add_rule(client, g["id"], row.doctor_id, "habit", "ask", "Asks about pain.", "Any pain?", suppressed=True)
+    data = (await client.get("/api/doctor/guidance", headers=dh)).json()
+    by = data["habits_by_type"]
+    assert [h["id"] for h in by["ask"]] == [ask]
+    assert [h["id"] for h in by["close"]] == [close]
+    assert [h["id"] for h in by["warning"]] == [warn]
+    assert by["warning"][0] == {"id": warn, "habit_type": "warning",
+                                "statement": "Wants to hear about fever.",
+                                "quote": "Tell me about fever.", "warning_terms": ["fever"]}
+    (e,) = data["entries"]
+    # Advice rules are listed apart from habits; suppressed rows are hidden.
+    assert {r["id"] for r in e["rules"]} == {r["id"] for r in g["rules"]}
+    assert {h["id"] for h in e["habits"]} == {ask, close, warn}
+
+
+async def test_conflicts_on_a_suppressed_rule_are_hidden(client, fake_llm):
+    from models import GuidanceConflict, GuidanceRule
+    dh, g, row = await answered_entry(client, fake_llm)
+    hid = await add_rule(client, g["id"], row.doctor_id, suppressed=True)
+    rid = g["rules"][0]["id"]
+    async with client.app.state.session_factory() as s:
+        s.add(GuidanceConflict(doctor_id=row.doctor_id, rule_id=hid,
+                               other_rule_id=rid, explanation="x", status="open"))
+        await s.commit()
+    (e,) = (await client.get("/api/doctor/guidance", headers=dh)).json()["entries"]
+    assert e["conflicts"] == []
 
 
 async def test_second_answer_is_409(client, fake_llm):
@@ -265,14 +368,13 @@ async def test_searchable_false_without_model(client, fake_llm):
     assert (await client.post(f"/api/doctor/guidance/{e['id']}/embed", headers=dh)).status_code == 503
 
 
-async def test_patch_to_general_without_tags_is_422(client, fake_llm):
+async def test_patch_to_general_without_tags_is_saved(client, fake_llm):
     h, doc, qid = await asked(client, fake_llm)
     dh = await doctor_headers(client)
     gid = (await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh,
                              json=answer_body())).json()["guidance"]["id"]
     resp = await client.patch(f"/api/doctor/guidance/{gid}", headers=dh, json={"scope": "general"})
-    assert resp.status_code == 422
-    assert resp.json()["detail"] == "General advice needs at least one drug or condition tag."
+    assert resp.status_code == 200 and resp.json()["scope"] == "general"
     resp = await client.patch(f"/api/doctor/guidance/{gid}", headers=dh,
                               json={"scope": "general", "drug_tags": ["amoxicillin"]})
     assert resp.status_code == 200 and resp.json()["scope"] == "general"
@@ -457,3 +559,48 @@ async def test_guidance_of_another_doctor_is_404(client, fake_llm):
     assert (await client.post(f"/api/doctor/guidance/{gid}/embed", headers=hb)).status_code == 404
     async with client.app.state.session_factory() as s:
         assert (await s.get(DoctorGuidance, gid)).answer == "Take it with food."
+
+
+async def test_reread_rules_reads_every_active_entry(client, fake_llm):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import reread_rules
+    from models import GuidanceRule
+    from rules import RULES_PROMPT
+    dh, g, row = await answered_entry(client, fake_llm)
+    h2, doc2, qid2 = await asked(client, fake_llm, "bob")
+    second = (await client.post(f"/api/doctor/questions/{qid2}/answer", headers=dh,
+                                json=answer_body(answer="Any fever? Rest."))).json()["guidance"]["id"]
+    retired = (await client.patch(f"/api/doctor/guidance/{second}", headers=dh,
+                                  json={"active": False})).json()["id"]
+    h3, doc3, qid3 = await asked(client, fake_llm, "carol")
+    third = (await client.post(f"/api/doctor/questions/{qid3}/answer", headers=dh,
+                               json=answer_body(answer="Any chills? Drink water."))).json()["guidance"]["id"]
+
+    def reader(messages):
+        text = messages[-1]["content"]
+        found = {"kind": "habit", "habit_type": "ask", "statement": "Asks about chills.",
+                 "quote": "Any chills?", "warning_terms": []}
+        return {"content": json.dumps({"rules": [found] if "Any chills?" in text else []})}
+
+    fake_llm.route(RULES_PROMPT, reader)
+    before = len(fake_llm.routed_calls)
+    async with client.app.state.session_factory() as s:
+        retired_rules = list(await s.scalars(select(GuidanceRule).where(GuidanceRule.guidance_id == retired)))
+        snapshot = [(r.id, r.statement) for r in retired_rules]
+    lines = await reread_rules.reread(client.app.state.session_factory, fake_llm,
+                                      client.app.state.store, "dr.ting")
+    reads = [c for c in fake_llm.routed_calls[before:] if c[0][0]["content"] == RULES_PROMPT]
+    assert len(reads) == 2
+    assert lines[-1] == "Read 2 active entries."
+    assert any("[habit ask] Asks about chills." in line for line in lines)
+    async with client.app.state.session_factory() as s:
+        assert [(r.id, r.statement) for r in await s.scalars(
+            select(GuidanceRule).where(GuidanceRule.guidance_id == retired))] == snapshot
+        habits = list(await s.scalars(select(GuidanceRule).where(
+            GuidanceRule.kind == "habit", GuidanceRule.guidance_id == third)))
+        assert [h.statement for h in habits] == ["Asks about chills."]
+    with __import__("pytest").raises(ValueError):
+        await reread_rules.reread(client.app.state.session_factory, fake_llm,
+                                  client.app.state.store, "alice")

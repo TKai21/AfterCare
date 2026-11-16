@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from documents import paragraphs
 from drafts import build_context, draft_view, record_send, stats, write_draft
 from druglabels import patient_rxcuis
 from extraction import normalize
+from guidance import doctor_habits
 from llm import LLMError
 from models import (
     AnswerDraft,
@@ -36,7 +37,6 @@ from voice import voice_views
 router = APIRouter()
 
 ANSWERED_LIMIT = 50
-GENERAL_TAG_ERROR = "General advice needs at least one drug or condition tag."
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
@@ -181,24 +181,32 @@ async def cited_counts(session: AsyncSession, doctor_ids: set[int]) -> dict[tupl
     return counts
 
 
+def habit_view(rule: GuidanceRule) -> dict:
+    return {"id": rule.id, "habit_type": rule.habit_type, "statement": rule.statement,
+            "quote": rule.quote, "warning_terms": list(rule.warning_terms or [])}
+
+
 async def rules_and_conflicts(
     session: AsyncSession, entries: list[DoctorGuidance]
-) -> tuple[dict[int, list[GuidanceRule]], dict[int, list[dict]]]:
-    """Each entry's rules, and the open conflicts on either side of them, as the
-    doctor sees them from that entry. A conflict whose other entry is retired
-    is not shown: retired advice reaches no patient."""
+) -> tuple[dict[int, list[GuidanceRule]], dict[int, list[GuidanceRule]], dict[int, list[dict]]]:
+    """Each entry's advice rules, its habits (suppressed rows are in neither),
+    and the open conflicts on either side of its rules, as the doctor sees them
+    from that entry. A conflict whose other entry is retired, or either of
+    whose rules is suppressed, is not shown: retired advice reaches no patient."""
     ids = [e.id for e in entries]
     rules: dict[int, list[GuidanceRule]] = {}
+    habits: dict[int, list[GuidanceRule]] = {}
     if not ids:
-        return rules, {}
+        return rules, habits, {}
     for r in await session.scalars(
-        select(GuidanceRule).where(GuidanceRule.guidance_id.in_(ids))
-        .order_by(GuidanceRule.guidance_id, GuidanceRule.position)
+        select(GuidanceRule)
+        .where(GuidanceRule.guidance_id.in_(ids), GuidanceRule.suppressed.is_(False))
+        .order_by(GuidanceRule.guidance_id, GuidanceRule.position, GuidanceRule.id)
     ):
-        rules.setdefault(r.guidance_id, []).append(r)
+        (habits if r.kind == "habit" else rules).setdefault(r.guidance_id, []).append(r)
     rule_ids = [r.id for rs in rules.values() for r in rs]
     if not rule_ids:
-        return rules, {}
+        return rules, habits, {}
     found = list(await session.scalars(
         select(GuidanceConflict).where(
             GuidanceConflict.status == "open",
@@ -211,7 +219,7 @@ async def rules_and_conflicts(
         r.id: (r, e) for r, e in (await session.execute(
             select(GuidanceRule, DoctorGuidance)
             .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)
-            .where(GuidanceRule.id.in_(side_ids))
+            .where(GuidanceRule.id.in_(side_ids), GuidanceRule.suppressed.is_(False))
         )).all()
     } if side_ids else {}
     mine = set(ids)
@@ -243,7 +251,7 @@ async def rules_and_conflicts(
                 "rule": {"statement": own_rule.statement, "quote": own_rule.quote},
                 "other": other,
             })
-    return rules, out
+    return rules, habits, out
 
 
 async def guidance_views(
@@ -266,7 +274,7 @@ async def guidance_views(
             )).all()
         }
     cited = await cited_counts(session, {e.doctor_id for e in entries})
-    rules, conflicts = await rules_and_conflicts(session, entries)
+    rules, habits, conflicts = await rules_and_conflicts(session, entries)
     model = getattr(llm, "embedding_model", None) if llm is not None else None
     return [
         {
@@ -290,6 +298,7 @@ async def guidance_views(
             "rules_status": e.rules_status,
             "rules": [{"id": r.id, "statement": r.statement, "quote": r.quote}
                       for r in rules.get(e.id, [])],
+            "habits": [habit_view(h) for h in habits.get(e.id, [])],
             "conflicts": conflicts.get(e.id, []),
             "created_at": e.created_at.isoformat() if e.created_at else None,
             "updated_at": e.updated_at.isoformat() if e.updated_at else None,
@@ -317,8 +326,6 @@ async def answer_question(
     if q.source == "patient_voice":
         raise HTTPException(status_code=409, detail="Reply to this voice question with a voice clip.")
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
-    if body.general and not drug_tags and not condition_tags:
-        raise HTTPException(status_code=422, detail=GENERAL_TAG_ERROR)
     # Only one concurrent answer can match "answer IS NULL" and win.
     result = await session.execute(
         update(CareTeamQuestion)
@@ -429,7 +436,42 @@ async def list_guidance(
         .where(DoctorGuidance.doctor_id == doctor.id)
         .order_by(DoctorGuidance.id.desc())
     ))
-    return {"entries": await guidance_views(session, _llm(request), entries)}
+    habits_by_type: dict[str, list[dict]] = {"ask": [], "close": [], "warning": []}
+    for habit in await doctor_habits(session, doctor.id):
+        if habit.habit_type in habits_by_type:
+            habits_by_type[habit.habit_type].append(habit_view(habit))
+    return {
+        "entries": await guidance_views(session, _llm(request), entries),
+        "habits_by_type": habits_by_type,
+    }
+
+
+@router.delete("/api/doctor/guidance/rules/{rule_id}", status_code=204)
+async def suppress_habit(
+    rule_id: int,
+    doctor: User = Depends(current_doctor),
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove a habit the clone learned. The row is kept `suppressed` so a
+    re-read of the answer does not bring it back. Advice is changed by editing
+    the answer, not here."""
+    rule = await session.get(GuidanceRule, rule_id)
+    if rule is None or rule.doctor_id != doctor.id:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    if rule.kind != "habit":
+        raise HTTPException(
+            status_code=422, detail="Advice is changed by editing the answer, not deleted here."
+        )
+    # The same habit written in several answers is shown once, so it goes everywhere.
+    key = normalize(rule.statement)
+    for twin in await session.scalars(select(GuidanceRule).where(
+        GuidanceRule.doctor_id == doctor.id, GuidanceRule.kind == "habit",
+        GuidanceRule.suppressed.is_(False),
+    )):
+        if twin.id == rule.id or normalize(twin.statement) == key:
+            twin.suppressed = True
+    await session.commit()
+    return Response(status_code=204)
 
 
 async def get_entry(
@@ -458,8 +500,6 @@ async def patch_guidance(
         clean_tags(body.condition_tags) if body.condition_tags is not None
         else list(entry.condition_tags or [])
     )
-    if scope == "general" and not drug_tags and not condition_tags:
-        raise HTTPException(status_code=422, detail=GENERAL_TAG_ERROR)
     if scope == "patient" and entry.patient_id is None:
         raise HTTPException(
             status_code=422, detail="This advice was not written for one patient."
