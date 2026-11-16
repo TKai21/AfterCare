@@ -20,8 +20,10 @@ A tie, such as the fact "call the clinic", accepts a rule of any tied entry.
 
 For a question that should be escalated, the cost is the mean number of rules
 retrieved: advice the clone would be tempted to act on. The chosen pair keeps
-a rule of the needed entry for every answerable question with the fewest such
-rules; ties go to the higher floor, then the smaller margin. The same numbers
+a rule of the needed entry for as many answerable questions as possible among the
+pairs returning no more rules per escalate question than the old fixed 0.45
+floor does on the same world (a recall-only rule let unrelated advice through);
+ties go to the higher floor, then the smaller margin. The same numbers
 are reported on the test split and on the preference cases (eval/clone/cases.json:
 whether a rule of the case's own dimension is returned, per case and doctor),
 next to the fixed 0.45 floor this replaces. The API key is never printed.
@@ -102,11 +104,15 @@ def sweep(rows: list[dict]) -> list[dict]:
     return [evaluate(rows, floor, margin) for floor in FLOORS for margin in MARGINS]
 
 
-def choose(table: list[dict]) -> dict:
-    """The pair keeping the most answerable questions' rules (all of them when
-    any pair can), then the fewest escalate rules, then the higher floor, then
-    the smaller margin."""
-    return min(table, key=lambda r: (-r["kept"], r["escalate_rules"], -r["floor"], r["margin"]))
+def choose(table: list[dict], cap: float) -> dict:
+    """Among the pairs returning no more than `cap` rules per escalate question
+    (what the old fixed floor returns on the same world), the one keeping the
+    most answerable questions' rules; ties go to the higher floor, then the
+    smaller margin. Raises ValueError when no pair is within the cap."""
+    allowed = [r for r in table if r["escalate_rules"] <= cap + 1e-9]
+    if not allowed:
+        raise ValueError(f"no (floor, margin) pair returns {cap} rules or fewer per escalate question")
+    return min(allowed, key=lambda r: (-r["kept"], -r["floor"], r["margin"]))
 
 
 async def score_questions(session, llm, questions: list[dict], entries: list[dict],
@@ -167,13 +173,15 @@ async def run(out: Path) -> int:
                                                      entries, users, docs)
                         for split in ("calibration", "test")}
     table = sweep(by_split["calibration"])
-    chosen = choose(table)
+    cap = evaluate(by_split["calibration"], OLD_FLOOR, None)["escalate_rules"]
+    chosen = choose(table, cap)
     print(format_table(table, chosen))
     print(f"\nChosen on the calibration split: floor {chosen['floor']}, margin {chosen['margin']} "
           f"({chosen['kept']}/{chosen['answerable']} answerable kept, "
           f"{chosen['escalate_rules']} escalate rules)")
     result = {"date": datetime.now(timezone.utc).date().isoformat(), "chat_model": settings.llm_model,
               "embedding_model": settings.embedding_model, "top_k": TOP_K,
+              "escalate_cap": cap,
               "note": ("Single run: the rules are read by the chat model once per world build. Linking of "
                        "questions to entries: facts matched to entry answers (see the script docstring). "
                        "'old' is the fixed 0.45 floor, no margin."),

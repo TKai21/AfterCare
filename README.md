@@ -84,7 +84,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
 | `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
-| `GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`, `GUIDANCE_TOP_K` | 0.30, 0.25, 6 | Doctor guidance retrieval, see [Doctor clone](#doctor-clone). `GUIDANCE_MIN_SIMILARITY` is the floor's old name and is read when `GUIDANCE_FLOOR` is unset |
+| `GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`, `GUIDANCE_TOP_K` | 0.40, 0.05, 6 | Doctor guidance retrieval, see [Doctor clone](#doctor-clone). `GUIDANCE_MIN_SIMILARITY` is the floor's old name and is read when `GUIDANCE_FLOOR` is unset |
 | `FOODS_PATH` | `data/foods.json` | Food table |
 | `LABEL_FIXTURES` | empty | Dev only: `1` answers RxNav and DailyMed from the recorded `demo/labels` fixtures (offline). Leave it unset in production |
 
@@ -262,16 +262,16 @@ Demo walkthrough:
 
 The gate: a general entry only reaches a patient whose discharge document or confirmed instructions mention every drug tag and at least one condition tag as whole words (alternative names such as "colchicine / Colcrys" match), and an untagged general answer is refused. Anything unclear fails closed, and a patient-specific entry is only ever used for that patient and document.
 
-Retrieval keeps the top `GUIDANCE_TOP_K` rules (default 6) whose cosine score is at least `GUIDANCE_FLOOR` (default 0.30) and within `GUIDANCE_MARGIN` (default 0.25) of the best score. The floor stays low because a correctly ranked rule often scores only 0.23 to 0.44 against a patient's own wording; the margin is what drops the weak hits behind a strong one. `GUIDANCE_MIN_SIMILARITY`, the floor's old name, is still read when `GUIDANCE_FLOOR` is unset.
+Retrieval keeps the top `GUIDANCE_TOP_K` rules (default 6) whose cosine score is at least `GUIDANCE_FLOOR` (default 0.40) and within `GUIDANCE_MARGIN` (default 0.05) of the best score. A correctly ranked rule often scores only 0.23 to 0.44 against a patient's own wording, so a fixed 0.45 floor drops it; the margin keeps the weak hits behind a strong one out. `GUIDANCE_MIN_SIMILARITY`, the floor's old name, is still read when `GUIDANCE_FLOOR` is unset.
 
-The defaults come from `scripts/sweep_guidance_floor.py`, which scores every floor (0.10 to 0.45) and margin (0.05 to 0.30) on the calibration questions only, in one calibration world, and writes `eval/calibration/floor-sweep.json`. Which entry an answerable question needs is not recorded, so it is derived by matching the question's key facts to the doctor's entry answers (questions whose facts come from the discharge document are left out). It chooses the pair that keeps a rule of the needed entry for every answerable question with the fewest rules returned for questions that should be escalated (ties: higher floor, then smaller margin). Single run (the chat model reads the rules once per world build, so numbers move a little run to run):
+The defaults come from `scripts/sweep_guidance_floor.py`, which scores every floor (0.10 to 0.45) and margin (0.05 to 0.30) on the calibration questions only, in one calibration world, and writes `eval/calibration/floor-sweep.json`. Which entry an answerable question needs is not recorded, so it is derived by matching the question's key facts to the doctor's entry answers (questions whose facts come from the discharge document are left out). Only pairs that return no more rules for a question to escalate than the old fixed 0.45 floor does on the same world are eligible, so unrelated advice is not applied; among them it picks the pair that keeps a rule of the needed entry for the most answerable questions (ties: higher floor, then smaller margin). Single run (the chat model reads the rules once per world build, so numbers move a little run to run):
 
 | | Answerable questions with the needed rule returned | Rules returned per escalate question | Case-doctor pairs with an own-dimension rule |
 |---|---|---|---|
-| Fixed floor 0.45 (before) | calibration 11/14, test 8/10 | 1.812 / 1.786 | 33/63 |
-| Floor 0.30, margin 0.25 (now) | calibration 14/14, test 10/10 | 3.625 / 2.857 | 57/63 |
+| Fixed floor 0.45 (before) | calibration 11/14, test 9/10 | 1.812 / 1.857 | 32/63 |
+| Floor 0.40, margin 0.05 (now) | calibration 12/14, test 8/10 | 1.562 / 1.286 | 36/63 |
 
-The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. The retrieval returns more rules for a question to escalate than the fixed floor did; the clone's own rules and the confidence gate still decide whether to answer.
+The pair was chosen on the calibration split; the test split and the preference cases (`eval/clone/cases.json`) were only measured with it. A looser pair (floor 0.30, margin 0.25) retrieved more of the needed rules (57 of 63 case-doctor pairs) but returned 3.6 rules per question to escalate and made the clone cite unrelated advice, so it was rejected.
 
 ### Rules and conflicts
 

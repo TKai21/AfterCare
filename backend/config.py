@@ -26,8 +26,8 @@ class Settings:
     # Doctor guidance retrieval keeps the top `guidance_top_k` rules scoring at
     # least `guidance_floor` and within `guidance_margin` of the best score.
     # Chosen by scripts/sweep_guidance_floor.py on the calibration split.
-    guidance_floor: float = 0.30
-    guidance_margin: float = 0.25
+    guidance_floor: float = 0.40
+    guidance_margin: float = 0.05
     guidance_top_k: int = 6
     foods_path: str = "data/foods.json"
     # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.

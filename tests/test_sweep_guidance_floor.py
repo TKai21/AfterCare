@@ -56,14 +56,18 @@ def test_evaluate_counts_kept_rules_and_escalate_rules():
     assert (old["kept"], old["escalate_rules"]) == (0, 0.0)
 
 
-def test_choose_keeps_every_answerable_rule_with_the_fewest_escalate_rules():
+def test_choose_never_exceeds_the_escalate_cap_even_when_recall_is_higher():
     table = sweep.sweep(rows_fixture())
-    chosen = sweep.choose(table)
-    assert chosen["kept"] == 2
-    # a1 needs margin 0.20 (0.40 - 0.20) and floor <= 0.20; the escalate question then returns p, q, r at floor 0.20
-    # (0.22 and above) and fewer cannot be had: the highest such floor and smallest such margin win.
-    assert (chosen["floor"], chosen["margin"]) == (0.20, 0.20)
-    assert chosen["escalate_rules"] == 3.0
+    recall_max = max(table, key=lambda r: (r["kept"], -r["escalate_rules"]))
+    assert recall_max["kept"] == 2 and recall_max["escalate_rules"] >= 3.0
+    chosen = sweep.choose(table, cap=2.0)
+    assert chosen["escalate_rules"] <= 2.0 and chosen["kept"] < 2
+    assert sweep.choose(table, cap=4.0)["kept"] == 2
+
+
+def test_choose_with_no_pair_within_the_cap_raises():
+    with pytest.raises(ValueError):
+        sweep.choose([{"floor": 0.1, "margin": 0.1, "kept": 2, "escalate_rules": 3.0}], cap=1.0)
 
 
 def test_choose_prefers_the_higher_floor_then_the_smaller_margin_on_a_tie():
@@ -73,7 +77,7 @@ def test_choose_prefers_the_higher_floor_then_the_smaller_margin_on_a_tie():
         {"floor": 0.30, "margin": 0.10, "kept": 2, "escalate_rules": 1.0},
         {"floor": 0.40, "margin": 0.05, "kept": 1, "escalate_rules": 0.0},
     ]
-    assert sweep.choose(table) == table[2]
+    assert sweep.choose(table, cap=1.0) == table[2]
 
 
 @pytest_asyncio.fixture
