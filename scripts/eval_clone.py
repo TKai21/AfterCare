@@ -80,7 +80,7 @@ from knowledge import open_store  # noqa: E402
 from llm import LLMError  # noqa: E402
 from rules import build_rules  # noqa: E402
 from models import (  # noqa: E402
-    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, User,
+    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, GuidanceRule, User,
 )
 
 CONDITIONS = ("with_memory", "without_memory")
@@ -105,6 +105,10 @@ class World:
     dimensions: dict[int, str]  # memory entry id -> its dimension (D1-D4)
     labels: list[dict]  # the approved label records, for the library copy
     tokens: dict[str, str] = field(default_factory=dict)  # patient id -> bearer token
+    # username -> the habits the rules reading produced (rule_id, guidance_id,
+    # habit_type, statement, dimension), in rule id order
+    habits: dict[str, list[dict]] = field(default_factory=dict)
+    rule_dimensions: dict[int, str] = field(default_factory=dict)  # habit rule id -> its entry's dimension
 
 
 def _label_row(record: dict) -> DrugLabel:
@@ -166,6 +170,7 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
     await session.flush()
     guidance: dict[str, list[int]] = {}
     dimensions: dict[int, str] = {}
+    habits: dict[str, list[dict]] = {}
     for username, _, _ in DOCTORS:
         entries, dims = [], []
         for raw in memory.get(username, []):
@@ -190,10 +195,17 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
                                    f"{entry.question!r}")
         guidance[username] = sorted(e.id for e in entries)
         dimensions.update({e.id: d for e, d in zip(entries, dims)})
+        rows = await session.scalars(
+            select(GuidanceRule).where(GuidanceRule.guidance_id.in_(guidance[username]),
+                                       GuidanceRule.kind == "habit", GuidanceRule.suppressed.is_(False))
+            .order_by(GuidanceRule.id))
+        habits[username] = [{"rule_id": r.id, "guidance_id": r.guidance_id, "habit_type": r.habit_type,
+                             "statement": r.statement, "dimension": dimensions[r.guidance_id]} for r in rows]
     await session.commit()
     return World(doctors={u: d.id for u, d in doctors.items()},
                  names={u: n for u, n, _ in DOCTORS}, patients=users, documents=documents,
-                 guidance=guidance, dimensions=dimensions, labels=labels)
+                 guidance=guidance, dimensions=dimensions, labels=labels, habits=habits,
+                 rule_dimensions={h["rule_id"]: h["dimension"] for hs in habits.values() for h in hs})
 
 
 async def set_memory(session, world: World, username: str, active: bool) -> None:
@@ -243,7 +255,7 @@ async def ask_turn(client, session, world: World, case: dict, username: str) -> 
     body = resp.json()
     return {
         "case": case["id"], "doctor": username, "kind": body["kind"], "answer": body["answer"],
-        "guidance_ids": body["guidance_ids"],
+        "guidance_ids": body["guidance_ids"], "habit_rule_ids": body.get("habit_rule_ids", []),
         "fallback": body["answer"] == fallback_answer(world.names[username]),
         "eligible_guidance_ids": await _eligible_ids(session, world, patient_id, username),
     }
@@ -258,7 +270,9 @@ def _reasons(raw: str) -> dict:
 
 async def judge_turn(judge_llm, case: dict, patient: dict, turn: dict) -> dict:
     """The scored fields of a record: items, conflicts_met, blocked, judge.
-    A blocked answer (fallback or not_covered) is never sent to the judge."""
+    A blocked answer (fallback or not_covered) is never sent to the judge. A
+    clarify is not blocked: its text, the doctor's own questions, is the answer
+    under test for every judged item."""
     doctor = turn["doctor"]
     items = case["expected"][doctor]
     checks, owner = checks_for(case, doctor)
@@ -385,10 +399,12 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
     planned = {(c["id"], u, cond, r) for c, u, cond, r in plan}
     records = [r for r in existing if _key(r) in planned]
     done = {_key(r) for r in records}
+    habits_path = results_path.with_name("habits.json")
     if len(done) == len(plan):
         return records
 
     async with temporary_world(settings, llm, patients, memory) as (client, session, world):
+        habits_path.write_text(json.dumps(world.habits, indent=2) + "\n", encoding="utf-8")
         memory_on: dict[str, bool] = {}
         for number, (case, username, condition, repeat) in enumerate(plan, 1):
             if (case["id"], username, condition, repeat) in done:
@@ -406,6 +422,7 @@ async def run_eval(settings, llm, judge_llm, *, repeats: int, results_path: Path
             record.update({k: v for k, v in turn.items() if k not in ("case", "doctor")})
             # Which dimension each cited entry answers: retrieval against following.
             record["cited_dimensions"] = [world.dimensions[i] for i in turn["guidance_ids"]]
+            record["cited_habit_dimensions"] = [world.rule_dimensions[i] for i in turn["habit_rule_ids"]]
             record.update(await judge_turn(judge_llm, case, patient, turn))
             _append(results_path, record)
             records.append(record)
@@ -452,6 +469,29 @@ def blocked_counts(records: list[dict]) -> dict:
         c["items_blocked" if r["blocked"] else "items_not_followed"] += missed
         c["no_eligible_entry"] += r["condition"] == "with_memory" and not r["eligible_guidance_ids"]
     return {k: dict(v) for k, v in out.items()}
+
+
+def kind_counts(records: list[dict]) -> dict:
+    """Per "doctor|dimension": answers by kind, over both conditions: answer,
+    clarify, not_covered, and other (emergency, out_of_scope, close, ...)."""
+    out: dict[str, Counter] = defaultdict(Counter)
+    for r in records:
+        kind = r["kind"] if r["kind"] in ("answer", "clarify", "not_covered") else "other"
+        out[f"{r['doctor']}|{r['dimension']}"][kind] += 1
+    return {k: {kind: c[kind] for kind in ("answer", "clarify", "not_covered", "other")}
+            for k, c in out.items()}
+
+
+def _habits_section(habits: dict | None) -> list[str]:
+    md = ["", "## Habits read", "",
+          "The habits the rules reading took from each doctor's generated memory (ask, close, warning)."]
+    if habits is None:
+        return md + ["", "Not recorded: run the evaluation to list them."]
+    for username, _, _ in DOCTORS:
+        got = habits.get(username, [])
+        md += ["", f"{username}: " + ("none" if not got else "")]
+        md += [f"- {h['habit_type']}: {h['statement']} ({h['dimension']})" for h in got]
+    return md
 
 
 def _rate(entry: dict | None) -> str:
@@ -510,9 +550,11 @@ def _following_section(following: dict, retrieval: dict | None) -> list[str]:
 
 
 def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dict | None = None,
-                 agreement: dict | None = None, retrieval: dict | None = None) -> None:
+                 agreement: dict | None = None, retrieval: dict | None = None,
+                 habits: dict | None = None) -> None:
     """results.md and results.json. `retrieval` is a saved --retrieval-check
-    (retrieval.json: floor, limit, rows), or None."""
+    (retrieval.json: floor, limit, rows), or None; `habits` is habits.json
+    (username -> habits read), or None."""
     meta = meta or {}
     rates = hit_rates(records)
     following = following_split(records)
@@ -520,6 +562,7 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
     safe = safety(records)
     flags = safety_flags(records)
     blocked = blocked_counts(records)
+    kinds = kind_counts(records)
     written = datetime.now(timezone.utc).isoformat(timespec="seconds")
     repeats = sorted({r["repeat"] for r in records})
     cited: dict[tuple, list[bool]] = defaultdict(list)
@@ -584,6 +627,18 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
                           f"{c.get('fallback', 0)} | {c.get('not_covered', 0)} | {c.get('items_blocked', 0)} | "
                           f"{c.get('items_not_followed', 0)} | {c.get('no_eligible_entry', 0)} |")
 
+    md += ["", "## Kinds", "",
+           "Answers by kind per doctor and dimension, both conditions. A clarify is the doctor's own "
+           "questions; other is emergency, out_of_scope, close and the like.", "",
+           "| Doctor | Dimension | Answer | Clarify | not_covered | Other |", "|---|---|---|---|---|---|"]
+    for username, _, _ in DOCTORS:
+        for dim in (*DIMENSIONS, "none"):
+            c = kinds.get(f"{username}|{dim}")
+            if c:
+                md.append(f"| {username} | {dim} | {c['answer']} | {c['clarify']} | {c['not_covered']} | "
+                          f"{c['other']} |")
+    md += _habits_section(habits)
+
     if agreement is not None:
         md += ["", "## Judge-human agreement", "",
                f"- Rows graded: {agreement['rows']}",
@@ -595,7 +650,7 @@ def write_report(records: list[dict], out_md: Path, out_json: Path, *, meta: dic
         "meta": meta, "written": written, "note": SYNTHETIC_NOTE, "hit_rates": rates, "following": following,
         "retrieval": retrieval,
         "distinctness": distinct, "safety": safe, "safety_flags": flags, "blocked": blocked,
-        "agreement": agreement,
+        "kinds": kinds, "habits": habits, "agreement": agreement,
     }, indent=2) + "\n", encoding="utf-8")
 
 
@@ -976,7 +1031,7 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out_dir)
     results, md, js = out / "results.jsonl", out / "results.md", out / "results.json"
     sheet, key, agreed = out / "human_review.csv", out / "human_key.json", out / "agreement.json"
-    retrieved = out / "retrieval.json"
+    retrieved, habits_file = out / "retrieval.json", out / "habits.json"
 
     if args.force and not args.generate:
         return _fail("--force only applies to --generate.")
@@ -1003,7 +1058,8 @@ def main(argv: list[str] | None = None) -> int:
         agreed.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         header, records = read_results(results)
         if records:
-            write_report(records, md, js, meta=header, agreement=result, retrieval=load_saved(retrieved))
+            write_report(records, md, js, meta=header, agreement=result, retrieval=load_saved(retrieved),
+                     habits=load_saved(habits_file))
         print(f"{result['rows']} rows: raw agreement {result['agreement']:.2f}, "
               f"Cohen's kappa {result['kappa']:.2f}")
         return 0
@@ -1023,7 +1079,7 @@ def main(argv: list[str] | None = None) -> int:
                                    results_path=results, judge_model=args.strong_model))
     header, _ = read_results(results)
     write_report(records, md, js, meta=header, retrieval=load_saved(retrieved),
-                 agreement=load_saved(agreed))
+                 agreement=load_saved(agreed), habits=load_saved(habits_file))
     print(_summary(records))
     print(f"Report: {md}")
     return 0

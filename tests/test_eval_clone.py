@@ -169,7 +169,7 @@ async def test_ask_turn_clears_history_and_records_kind(tmp_path):
         second = await eval_clone.ask_turn(client, session, w, CASE_D1, "dr.ting")
         assert first == {"case": "t01", "doctor": "dr.ting", "kind": "answer",
                          "answer": "Follow your discharge document [1].", "guidance_ids": [],
-                         "fallback": False, "eligible_guidance_ids": w.guidance["dr.ting"]}
+                         "habit_rule_ids": [], "fallback": False, "eligible_guidance_ids": w.guidance["dr.ting"]}
         assert second["answer"] == "Your document lists your medicines [1]."
         # The second turn's model call sees no history: only the system prompt and this turn.
         assert [m["role"] for m in llm.calls[-1][0]] == ["system", "user"]
@@ -329,6 +329,112 @@ async def test_records_name_the_dimension_of_each_cited_entry(tmp_path):
     assert by[("dr.patel", "with_memory")]["cited_dimensions"] == ["D1"]  # Dr. Patel has one D1 entry
     assert all(r["cited_dimensions"] == [] and r["guidance_ids"] == []
                for r in records if r["condition"] == "without_memory")
+
+
+ASK_ANSWER = "Do you have a written flare plan? Call the office if it gets worse."
+MEMORY_H = {**MEMORY, "dr.renny": MEMORY["dr.renny"] + [
+    _entry("D2", "How do I handle a new flare?", ASK_ANSWER)]}
+
+
+def habit_rules(messages):
+    """Reads the question as an ask habit and the rest as a close habit."""
+    answer = messages[1]["content"].split("Doctor's answer:\n", 1)[1]
+    if "?" not in answer:
+        return rules_default(messages)
+    ask, close = [s.strip() for s in re.split(r"(?<=\?)\s+", answer, maxsplit=1)]
+    return {"content": json.dumps({"rules": [
+        {"kind": "habit", "habit_type": "ask", "statement": "Asks about a flare plan.", "quote": ask,
+         "warning_terms": []},
+        {"kind": "habit", "habit_type": "close", "statement": "Asks to be called if worse.", "quote": close,
+         "warning_terms": []}]})}
+
+
+def rules_default(messages):
+    from fake_llm import sentence_rules
+    return sentence_rules(messages)
+
+
+class AskingLLM(FakeLLM):
+    """A clone that asks Dr. Renny's ask habit word for word, when it sees one."""
+
+    def __init__(self):
+        super().__init__()
+        self.route(rules.RULES_PROMPT, habit_rules)
+
+    async def chat(self, messages, tools=None, json_mode=False):
+        if messages and messages[0].get("content") in self.routes:
+            return await super().chat(messages, tools, json_mode)
+        self.calls.append((messages, tools, json_mode))
+        found = re.search(r"^\[(\d+)\] Asks about a flare plan", messages[-1]["content"], re.M)
+        if found is None:
+            return reply()
+        n = int(found.group(1))
+        return {"content": json.dumps({"kind": "clarify", "answer": f"Do you have a written flare plan? [{n}]",
+                                       "citations": [n], "care_team_question": None})}
+
+
+async def test_world_reports_habits_read(tmp_path):
+    llm = AskingLLM()
+    store = KnowledgeStore(tmp_path / "index.sqlite3", llm)
+    async with eval_clone.open_world(make_settings(tmp_path), llm, store, PATIENTS, MEMORY_H) as (_c, _s, w):
+        assert w.habits["dr.ting"] == [] and w.habits["dr.patel"] == []
+        got = w.habits["dr.renny"]
+        assert [(h["habit_type"], h["statement"], h["dimension"]) for h in got] == [
+            ("ask", "Asks about a flare plan.", "D2"), ("close", "Asks to be called if worse.", "D2")]
+        assert all(w.dimensions[h["guidance_id"]] == "D2" and h["rule_id"] in w.rule_dimensions
+                   and w.rule_dimensions[h["rule_id"]] == "D2" for h in got)
+
+
+async def test_clarify_is_judged_for_first_ask(tmp_path):
+    settings, _, _ = sentinel_settings(tmp_path)
+    judge = FakeJudge()
+    records = await eval_clone.run_eval(settings, AskingLLM(), judge, repeats=1,
+                                        results_path=tmp_path / "r.jsonl", cases=[CASE_D1],
+                                        patients=PATIENTS, memory=MEMORY_H, judge_model="j")
+    by = {(r["doctor"], r["condition"]): r for r in records}
+    renny = by[("dr.renny", "with_memory")]
+    assert renny["kind"] == "clarify" and renny["blocked"] is False and renny["fallback"] is False
+    assert renny["guidance_ids"] == [] and renny["cited_dimensions"] == []
+    assert len(renny["habit_rule_ids"]) == 1 and renny["cited_habit_dimensions"] == ["D2"]
+    assert renny["judge"]["c1"]["kind"] == "refer_to_clinic" and renny["judge"]["c2"]["kind"] == "first_ask"
+    assert renny["items"]["first_ask"] is True
+    # The judge saw the clarify text as the answer under test.
+    sent = [m for msgs, _ in judge.calls for m in msgs if "Do you have a written flare plan?" in m["content"]]
+    assert sent
+    # Without memory no habit is in play.
+    assert by[("dr.renny", "without_memory")]["kind"] == "answer"
+    assert by[("dr.renny", "without_memory")]["habit_rule_ids"] == []
+    # The habits read are saved beside the results.
+    saved = json.loads((tmp_path / "habits.json").read_text())
+    assert [h["habit_type"] for h in saved["dr.renny"]] == ["ask", "close"]
+
+
+def test_report_has_kinds_table(tmp_path):
+    base = {**sheet_records()[0], "judge": {}, "items": {"first_choice": True}}
+    records = [
+        {**base, "repeat": 0},
+        {**base, "repeat": 1, "kind": "clarify", "answer": "Do you have a plan?"},
+        {**base, "repeat": 2, "kind": "close"},
+        {**sheet_records()[2], "items": {"first_choice": False}},
+    ]
+    habits = {"dr.ting": [{"habit_type": "ask", "statement": "Asks about a flare plan.", "dimension": "D2",
+                           "rule_id": 3, "guidance_id": 1}], "dr.patel": [], "dr.renny": []}
+    md, js = tmp_path / "results.md", tmp_path / "results.json"
+    eval_clone.write_report(records, md, js, habits=habits)
+    text = md.read_text()
+    assert "## Kinds" in text
+    assert "| Doctor | Dimension | Answer | Clarify | not_covered | Other |" in text
+    assert "| dr.ting | D1 | 1 | 1 | 0 | 1 |" in text
+    assert "| dr.patel | D1 | 0 | 0 | 1 | 0 |" in text
+    assert "## Habits read" in text
+    assert "- ask: Asks about a flare plan." in text and "dr.patel: none" in text
+    assert chr(0x2014) not in text
+    data = json.loads(js.read_text())
+    assert data["kinds"]["dr.ting|D1"] == {"answer": 1, "clarify": 1, "not_covered": 0, "other": 1}
+    assert data["habits"] == habits
+    # Without habits the section says so.
+    eval_clone.write_report(records, md, js)
+    assert "## Habits read" in md.read_text() and json.loads(js.read_text())["habits"] is None
 
 
 async def test_run_never_opens_the_dev_database(tmp_path, monkeypatch):
