@@ -2644,3 +2644,98 @@ async def test_failed_clarify_attempt_falls_back_to_the_doctors_own_questions(
     result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits(),
                        emergency_terms=["chest pain"])
     assert result.kind == "emergency" and len(llm.calls) == 1
+
+
+# --- ask first: review fixes ---
+
+def bad_final():
+    return final("Drink water.", [], kind="answer")  # an answer must cite evidence
+
+
+@pytest.mark.parametrize("reason", ["Sources disagree", "The two entries conflict",
+                                    agent.FLAGGED_REASON])
+async def test_queued_conflict_handoff_is_kept_when_the_final_fails_validation(
+        store, foods, document, items, reason):
+    llm = FakeLLM()
+    llm.script(call_msg("add_care_team_question", question="Which advice is right?", reason=reason),
+               bad_final(), bad_final())
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_source == "validation_fallback"
+    assert len(llm.calls) == 3  # tool call, bad final, repaired final: no picker
+
+
+@pytest.mark.parametrize("message", ["my incision is bleeding a bit", "Bleeding since last night."])
+async def test_doctor_warning_term_in_the_message_skips_the_picker(
+        store, foods, document, items, message):
+    terms = ["bleeding"]
+    llm = FakeLLM()
+    bug_shape(llm, None)
+    result = await ask(llm, store, foods, document, items, question=message, habits=ask_habits(),
+                       first_turn_terms=terms)
+    assert result.kind == "not_covered" and len(llm.calls) == 2
+    llm = FakeLLM()  # the fallback path too
+    llm.script(bad_final(), bad_final())
+    result = await ask(llm, store, foods, document, items, question=message, habits=ask_habits(),
+                       first_turn_terms=terms)
+    assert result.kind == "not_covered" and len(llm.calls) == 2
+    # a message without the term still gets the questions
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits(),
+                       first_turn_terms=terms)
+    assert result.kind == "clarify"
+
+
+async def test_warning_terms_that_could_not_load_turn_ask_first_off(store, foods, document, items):
+    llm = FakeLLM()
+    bug_shape(llm, None)
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits(),
+                       first_turn_terms=None)
+    assert result.kind == "not_covered" and len(llm.calls) == 2
+
+
+async def test_fallback_after_a_medication_change_error_skips_the_picker(
+        store, foods, document, items):
+    llm = FakeLLM()
+    bad = final("Stop taking your pills if a flare is bad [8].", [8])  # 5-7 are the habits
+    llm.script(call_msg("search_education_library", query="oxalate"), bad, bad)
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_source == "validation_fallback"
+    assert MEDICATION_CHANGE_ERROR in llm.calls[2][0][-1]["content"]
+    assert len(llm.calls) == 3
+
+
+async def test_fallback_after_a_drug_name_error_skips_the_picker(store, foods, document, items):
+    llm = FakeLLM()
+    bad = final("Take aspirin for the pain [2].", [2])
+    llm.script(bad, bad)
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "not_covered" and result.care_team_source == "validation_fallback"
+    assert "Names a drug" in llm.calls[1][0][-1]["content"]
+    assert len(llm.calls) == 2
+
+
+async def test_a_picked_habit_that_fails_the_clarify_checks_is_dropped(
+        store, foods, document, items):
+    habits = [habit_rule(41, "Asks sick contacts", CONTACTS),
+              habit_rule(42, "Asks about a drug", "Do you take aspirin?")]
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5, 6]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
+    assert result.kind == "clarify" and result.habit_rule_ids == [41]
+    assert "aspirin" not in result.answer
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([6]))  # nothing left: the handoff stays
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
+    assert result.kind == "not_covered" and result.care_team_question is not None
+
+
+async def test_a_non_symptom_message_becomes_a_clarify_when_the_picker_picks(
+        store, foods, document, items):
+    """Accepted behaviour: the picker alone decides whether a message fits; a
+    scripted non-empty pick on a non-symptom message is turned into questions."""
+    llm = FakeLLM()
+    bug_shape(llm, picker_reply([5]))
+    result = await ask(llm, store, foods, document, items, question="What is the weather like?",
+                       habits=ask_habits())
+    assert result.kind == "clarify" and CONTACTS in result.answer

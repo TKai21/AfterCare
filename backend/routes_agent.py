@@ -290,18 +290,18 @@ async def ask(
                     await session.rollback()
                 except Exception:
                     log.exception("Rollback after failing to load habits failed")
-            if pending is not None:
+            try:
+                doctor_terms = await doctor_warning_terms(session, doctor_id)
+                await session.commit()
+            except Exception:
+                # Fail closed: without the doctor's warning signs no close and
+                # no ask-first questions.
+                log.exception("Loading the doctor's warning terms failed")
+                doctor_terms, terms_failed = [], True
                 try:
-                    doctor_terms = await doctor_warning_terms(session, doctor_id)
-                    await session.commit()
+                    await session.rollback()
                 except Exception:
-                    # Fail closed: without the doctor's warning signs no close.
-                    log.exception("Loading the doctor's warning terms failed")
-                    doctor_terms, terms_failed = [], True
-                    try:
-                        await session.rollback()
-                    except Exception:
-                        log.exception("Rollback after failing to load warning terms failed")
+                    log.exception("Rollback after failing to load warning terms failed")
         document_terms = warning_terms(items)
         settings = request.app.state.settings
         memory_failed = False
@@ -346,6 +346,7 @@ async def ask(
                 library_rxcuis=library_rxcuis, allowed_drugs=allowed_drugs,
                 habits=habits, pending=pending,
                 warning_terms=[*doctor_terms, *document_terms] if pending is not None else (),
+                first_turn_terms=(None if terms_failed else [*doctor_terms, *document_terms]),
             )
         except LLMError as exc:
             if not terms:

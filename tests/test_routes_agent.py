@@ -835,10 +835,9 @@ async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake
     other = await seed_guidance(client, fake_llm, doctor_id, scope="patient", patient_id=None,
                                 question="Q", answer="Take 500 mg twice a day.")
     await seed_habit(client, other, "Asks how the pain is", "How is the pain today?")
-    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"),
-                    {"content": json.dumps({"ask": []})})
+    fake_llm.script(answer("I do not know.", [], kind="not_covered", care_team_question="q"))
     await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)
-    text = first_user_message(fake_llm, -2)
+    text = first_user_message(fake_llm)
     assert "How I usually respond" in text and "How is the pain today?" in text
     assert "500 mg twice" not in text
 
@@ -995,6 +994,16 @@ async def test_not_covered_first_turn_with_fitting_ask_habit_asks_instead_of_han
     assert body["kind"] == "clarify" and body["pending"] is True and body["flagged"] is False
     assert ASK_QUESTIONS in body["answer"]
     assert [q.status for q in await all_questions(client)] == ["waiting_on_patient"]
+
+
+async def test_first_turn_with_a_doctor_warning_term_is_handed_off_not_asked(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    fake_llm.script(final("not_covered", "x", []))  # no picker reply is scripted
+    body = (await post_ask(client, h, "My incision is red and I have a fever.",
+                           doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered"
+    assert [q.status for q in await all_questions(client)] == ["open"]
 
 
 async def test_benign_reply_closes_and_resolves(client, fake_llm):
