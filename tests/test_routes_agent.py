@@ -1544,8 +1544,9 @@ async def test_history_leaves_out_fixed_server_answers(client, fake_llm):
     fake_llm.script(answer("Take amoxicillin 500 mg [2].", [2]))
     await post_ask(client, h, "Last question")
     sent = fake_llm.calls[-1][0][1:-1]
+    # The two questions are one user message, so roles keep alternating.
     assert [(m["role"], m["content"]) for m in sent] == [
-        ("user", "Question alpha"), ("user", "Question beta"), ("assistant", "Answer beta.")]
+        ("user", "Question alpha\nQuestion beta"), ("assistant", "Answer beta.")]
     # The patient's own conversation still shows the fixed sentence.
     shown = (await get_conversation(client, h)).json()["messages"]
     assert any(m["content"].startswith("I couldn't answer this") for m in shown)

@@ -1189,6 +1189,19 @@ def is_fixed_answer(text: str) -> bool:
     return text == EMERGENCY_ANSWER or _FALLBACK_TEXT.fullmatch(text) is not None
 
 
+def _merge_user_runs(messages: list[dict]) -> list[dict]:
+    """Adjacent user messages joined into one (newline-joined), so roles keep
+    alternating once fixed answers are left out: many vLLM chat templates
+    reject two user messages in a row."""
+    merged: list[dict] = []
+    for m in messages:
+        if merged and m["role"] == "user" and merged[-1]["role"] == "user":
+            merged[-1] = {"role": "user", "content": f"{merged[-1]['content']}\n{m['content']}"}
+        else:
+            merged.append(m)
+    return merged
+
+
 def _fallback(question: str, emergency: bool = False,
               doctor_name: str = DEFAULT_DOCTOR_NAME) -> AgentResult:
     if emergency:
@@ -1267,15 +1280,18 @@ async def run_agent(
     user_content += f"\n\nPatient question:\n{question}"
     messages = [
         {"role": "system", "content": system_prompt(doctor_name)},
-        # Old [n] markers point at another turn's evidence numbers, so they are dropped.
-        # Fixed server answers are left out: the model did not write them, and a
-        # fallback in the history made it hand later answerable questions to the
-        # doctor too. The patient's messages stay, even two in a row.
-        *({"role": m["role"],
-           "content": strip_markers(m["content"]) if m["role"] == "assistant" else m["content"]}
-          for m in history[-HISTORY_LIMIT:]
-          if not (m["role"] == "assistant" and is_fixed_answer(m["content"]))),
-        {"role": "user", "content": user_content},
+        *_merge_user_runs([
+            # Old [n] markers point at another turn's evidence numbers, so they are dropped.
+            # Fixed server answers are left out: the model did not write them, and a
+            # fallback in the history made it hand later answerable questions to the
+            # doctor too. The patient's messages stay.
+            *({"role": m["role"],
+               "content": strip_markers(m["content"]) if m["role"] == "assistant"
+               else m["content"]}
+              for m in history[-HISTORY_LIMIT:]
+              if not (m["role"] == "assistant" and is_fixed_answer(m["content"]))),
+            {"role": "user", "content": user_content},
+        ]),
     ]
 
     round_number = 0

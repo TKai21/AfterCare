@@ -352,9 +352,8 @@ async def test_context_has_numbered_document_active_items_and_history(store, foo
     await ask(llm, store, foods, document, items, history=history)
     messages = llm.calls[0][0]
     assert messages[0]["role"] == "system"
-    assert [m["content"] for m in messages[1:-1]] == [
-        "q2", "q3", "q4", "q5", "q6", "Drink water and rest."
-    ]
+    # The last 6 history messages; the patient's run of messages is one user message.
+    assert [m["content"] for m in messages[1:-1]] == ["q2\nq3\nq4\nq5\nq6", "Drink water and rest."]
     user_content = messages[-1]["content"]
     assert "[2] Limit high-oxalate foods to help prevent kidney stones." in user_content
     assert "Limit high-oxalate foods." in user_content
@@ -2092,11 +2091,29 @@ async def test_history_leaves_out_fixed_server_answers(store, foods, document, i
     ]
     await ask(llm, store, foods, document, items, history=history, doctor_name="Dr. Ting Kai")
     sent = [(m["role"], m["content"]) for m in llm.calls[0][0][1:-1]]
+    # The patient's two messages are one user message: roles keep alternating.
     assert sent == [
-        ("user", "What warning signs should I watch for?"),
-        ("user", "How much water?"),
+        ("user", "What warning signs should I watch for?\nHow much water?"),
         ("assistant", "Drink at least 2 liters of water every day."),
     ]
+
+
+async def test_history_ending_in_a_fixed_answer_merges_into_the_question(
+        store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(final("Limit high-oxalate foods [2].", [2]))
+    history = [
+        {"role": "user", "content": "Can I eat almonds?"},
+        {"role": "assistant", "content": "Limit high-oxalate foods [2]."},
+        {"role": "user", "content": "What warning signs should I watch for?"},
+        {"role": "assistant", "content": agent.FALLBACK},
+    ]
+    await ask(llm, store, foods, document, items, history=history)
+    sent = llm.calls[0][0]
+    roles = [m["role"] for m in sent]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert sent[-1]["content"].startswith("What warning signs should I watch for?\nDischarge document")
+    assert sent[-1]["content"].rstrip().endswith("Can I eat almonds?")
 
 
 def test_fixed_answer_recognises_only_server_texts():
