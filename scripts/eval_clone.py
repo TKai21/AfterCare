@@ -31,6 +31,7 @@ key is never printed.
 import argparse
 import asyncio
 import csv
+import inspect
 import json
 import random
 import re
@@ -74,9 +75,10 @@ from clone_eval_score import (  # noqa: E402
 )
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport  # noqa: E402
 from eval_library import copy_index, demo_label_records, existing_index_path  # noqa: E402
-from guidance import eligible, embed_entry, patient_text, retrieve  # noqa: E402
+from guidance import RuleHit, eligible, embed_entry, patient_text, retrieve  # noqa: E402
 from knowledge import open_store  # noqa: E402
 from llm import LLMError  # noqa: E402
+from rules import build_rules  # noqa: E402
 from models import (  # noqa: E402
     ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, User,
 )
@@ -123,7 +125,7 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
     """The three doctors with specialties, one user per synthetic patient
     (`eval-<id>`) with a confirmed document, its items and resolved drugs, the
     approved colchicine and naproxen labels, and every doctor's memory entries,
-    embedded and active. `labels` defaults to the demo label records."""
+    embedded, read into rules and active. `labels` defaults to the demo label records."""
     if labels is None:
         labels = await demo_label_records()
     labels = [r for r in labels if _label_row(r).ingredient in LABEL_DRUGS]
@@ -177,8 +179,15 @@ async def build_world(session, llm, patients: list[dict], memory: dict,
         session.add_all(entries)
         await session.flush()
         for entry in entries:
+            # As the product indexes a saved answer: embedded and read into rules.
+            # The conflict check is left out: it is advisory and never changes
+            # what the clone may cite.
             if not await embed_entry(llm, entry):
                 raise RuntimeError(f"Could not embed a memory entry of {username}: {entry.question!r}")
+            if not await build_rules(session, llm, entry):
+                # The product would quietly score the entry whole; a run must measure rules.
+                raise RuntimeError(f"Could not read the rules of a memory entry of {username}: "
+                                   f"{entry.question!r}")
         guidance[username] = sorted(e.id for e in entries)
         dimensions.update({e.id: d for e, d in zip(entries, dims)})
     await session.commit()
@@ -660,17 +669,24 @@ def agreement(sheet: Path, key: Path) -> dict:
 
 # ---------------------------------------------------------------- retrieval check
 
-RETRIEVAL_LIMIT = 5
+# The prefetch calls `retrieve` without a limit; the check uses the same one.
+RETRIEVAL_LIMIT = inspect.signature(retrieve).parameters["limit"].default
+
+
+def unit_entry(unit) -> DoctorGuidance:
+    """The memory entry behind a retrieved unit: a rule's entry, or the entry itself."""
+    return unit.entry if isinstance(unit, RuleHit) else unit
 
 
 async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, patients: list[dict] | None = None,
                           memory: dict | None = None) -> list[dict]:
-    """For every D1-D4 case and every doctor, the entries `guidance.retrieve`
-    returns for the case question (the guidance gate, the configured
-    similarity floor, top RETRIEVAL_LIMIT) in a world built as a run builds it.
-    Each row: case, dimension, doctor, hits [(dimension, score)], and own
-    (whether an entry of the case's dimension was retrieved). Embeddings only:
-    no chat model."""
+    """For every D1-D4 case and every doctor, what `guidance.retrieve` returns
+    for the case question (the guidance gate, the configured similarity floor,
+    the prefetch's limit) in a world built as a run builds it. A hit is a rule
+    or a whole entry, named by its entry's dimension. Each row: case,
+    dimension, doctor, hits [(dimension, score)], and own (whether a hit of the
+    case's dimension was retrieved). The world is built with the chat model
+    (memory entries are read into rules); the check itself uses embeddings."""
     cases = load("cases") if cases is None else cases
     patients = load("patients") if patients is None else patients
     memory = load("memory") if memory is None else memory
@@ -688,8 +704,9 @@ async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, pat
                 found = await retrieve(session, llm, user, doc, items, case["question"],
                                        settings.guidance_min_similarity, doctor_id=world.doctors[username],
                                        limit=RETRIEVAL_LIMIT)
-                hits = [(dimension_of[(username, entry.question, entry.answer)], round(score, 3))
-                        for entry, score in found]
+                hits = [(dimension_of[(username, unit_entry(unit).question, unit_entry(unit).answer)],
+                         round(score, 3))
+                        for unit, score in found]
                 rows.append({"case": case["id"], "dimension": case["dimension"], "doctor": username,
                              "hits": hits, "own": any(d == case["dimension"] for d, _ in hits)})
     return rows

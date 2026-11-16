@@ -23,10 +23,12 @@ from clone_eval_score import checks_for, cohen_kappa  # noqa: E402
 from config import Settings  # noqa: E402
 from druglabels import patient_rxcuis  # noqa: E402
 from fake_llm import FakeLLM  # noqa: E402
-from guidance import retrieve  # noqa: E402
+import rules  # noqa: E402
+from guidance import RuleHit, retrieve  # noqa: E402
 from knowledge import KnowledgeStore  # noqa: E402
 from models import (  # noqa: E402
-    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, User,
+    ChatMessage, DischargeDocument, DoctorGuidance, DocumentDrug, DrugLabel, ExtractedItem, GuidanceRule,
+    User,
 )
 
 USERNAMES = ("dr.ting", "dr.patel", "dr.renny")
@@ -107,9 +109,9 @@ def make_settings(tmp_path, **overrides):
                     jwt_secret="test-secret-not-for-production", llm_model="fake-clone", **overrides)
 
 
-def world(tmp_path, llm):
+def world(tmp_path, llm, **overrides):
     store = KnowledgeStore(tmp_path / "index.sqlite3", llm)
-    return eval_clone.open_world(make_settings(tmp_path), llm, store, PATIENTS, MEMORY)
+    return eval_clone.open_world(make_settings(tmp_path, **overrides), llm, store, PATIENTS, MEMORY)
 
 
 async def test_build_world_memory_reaches_every_patient(tmp_path):
@@ -124,6 +126,10 @@ async def test_build_world_memory_reaches_every_patient(tmp_path):
         rows = (await session.scalars(select(DoctorGuidance))).all()
         assert all(r.active and r.embedding and r.scope == "general" and r.condition_tags == ["gout"]
                    and r.drug_tags == [] for r in rows)
+        # Indexed as the product indexes a saved answer: read into rules.
+        assert all(r.rules_status == "ready" for r in rows)
+        ruled = set(await session.scalars(select(GuidanceRule.guidance_id)))
+        assert ruled == {r.id for r in rows}
         labels = {r.rxcui: r.status for r in await session.scalars(select(DrugLabel))}
         assert labels == {"2683": "approved", "7258": "approved"}
         for patient in PATIENTS:
@@ -142,8 +148,17 @@ async def test_build_world_memory_reaches_every_patient(tmp_path):
             for username in USERNAMES:
                 hits = await retrieve(session, llm, user, doc, items, "gout flare medicine plan", -1.0,
                                       doctor_id=w.doctors[username], limit=100)
-                assert {e.id for e, _ in hits} == set(w.guidance[username])
+                assert all(isinstance(unit, RuleHit) for unit, _ in hits)
+                assert {eval_clone.unit_entry(u).id for u, _ in hits} == set(w.guidance[username])
         await session.commit()
+
+
+async def test_build_world_refuses_memory_whose_rules_cannot_be_read(tmp_path):
+    llm = FakeLLM()
+    llm.route(rules.RULES_PROMPT, lambda messages: {"content": "not json"})
+    with pytest.raises(RuntimeError, match="rules"):
+        async with world(tmp_path, llm):
+            pass
 
 
 async def test_ask_turn_clears_history_and_records_kind(tmp_path):
@@ -170,7 +185,9 @@ async def test_ask_turn_clears_history_and_records_kind(tmp_path):
 
 async def test_without_memory_the_doctor_entries_are_inactive(tmp_path):
     llm = FakeLLM()
-    async with world(tmp_path, llm) as (client, session, w):
+    # Floor 0: the fake bag-of-words embedding scores a one-sentence rule low,
+    # and this test is about the memory switch, not the floor.
+    async with world(tmp_path, llm, guidance_min_similarity=0.0) as (client, session, w):
         await eval_clone.set_memory(session, w, "dr.ting", False)
         rows = {r.id: r for r in await session.scalars(
             select(DoctorGuidance).execution_options(populate_existing=True))}
@@ -289,6 +306,8 @@ class CitingLLM(FakeLLM):
     """A clone that cites the first prefetched entry of its earlier advice, if any."""
 
     async def chat(self, messages, tools=None, json_mode=False):
+        if messages and messages[0].get("content") in self.routes:  # reading rules
+            return await super().chat(messages, tools, json_mode)
         self.calls.append((messages, tools, json_mode))
         found = re.search(r"^\[(\d+)\] My earlier advice", messages[-1]["content"], re.M)
         if found is None:
@@ -709,7 +728,8 @@ async def test_retrieval_check_lists_each_doctors_hits_by_dimension(tmp_path):
     assert by[("t04", "dr.patel")]["own"] is False and by[("t04", "dr.renny")]["own"] is False
 
     text = eval_clone.format_retrieval(rows, 0.0)
-    assert "t01 D1 dr.ting: D1 " in text and "MISS" in text
+    ting_line = next(line for line in text.splitlines() if line.startswith("t01 D1 dr.ting: "))
+    assert "D1 " in ting_line and "MISS" not in ting_line and "MISS" in text
     assert "2 of 6 case-doctor pairs retrieve no entry of their own dimension" in text
 
 
