@@ -348,6 +348,20 @@ Findings (written up, not applied; the evaluation measures the product as it is)
 
 Note on this run: two runs wrote to the same `results.jsonl` at once, so 414 of the 450 case, doctor, condition and repeat keys were answered twice. The committed file keeps the first record of each key in file order (450 records); every record is a complete, independently judged answer.
 
+**Rerun with rules and the confidence gate** (`eval/clone/rules-baseline/`, same models, cases and memory, 450 answers, 2026-11-15). The memory entries are read into rules as the product reads a saved answer, and the calibrated confidence gate is on. Against the run above:
+
+| | Before (whole entries) | With rules and the gate |
+|---|---|---|
+| Habit hit rate, with / without memory | 0.22 / 0.08 | 0.25 / 0.04 |
+| Answers citing an entry of the question's own dimension (hit rate) | 50 (0.67) | 66 (0.69) |
+| Question-doctor pairs retrieving no rule or entry of their own dimension | 35 of 63 | 30 of 63 |
+| Blocked answers | 226 | 248 |
+| Answers recommending a drug that is not prescribed | 3 | 3 |
+
+Rules help most on D2 (Dr. Patel 0.40 to 0.53, Dr. Ting 0.07 to 0.33). D3 and D4 stay at 0. All 3 flagged answers now come from memory: Dr. Patel's naproxen preference told to patients without naproxen (c02 twice; c04, "If you have naproxen prescribed, you can use it as the first-line treatment").
+
+The library index used by this run holds the 49 manifest documents; the calibration runs above (`scripts/calibrate_clone.py`) were made with an empty index in their worktree, so no answer in `eval/clone_runs.json` cites a library passage.
+
 ## Tests
 
 ```bash
