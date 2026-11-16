@@ -1232,7 +1232,8 @@ async def run_agent(
     (FORMAT_NUDGE), and a final message that fails any other check gets one
     repair call that names the error; both are calls without tools and never
     happen for an emergency. So a turn makes at most max_rounds + 3 model calls
-    before the fallback. Every call requests JSON output (json_mode).
+    before the fallback. Every call requests JSON output (json_mode); the client
+    drops it from calls with tools when LLM_JSON_WITH_TOOLS is off.
 
     The model is `doctor_name`'s AI clone. `prefetch` is that doctor's guidance
     found for the question before the first model call (None when the search
@@ -1287,6 +1288,7 @@ async def run_agent(
             messages.append({"role": "user", "content": FINAL_NUDGE})
         # JSON output on every call, tools or not: any reply without tool calls is
         # the final message, and without it the model often answers in prose.
+        # (LLMClient leaves it off calls with tools when LLM_JSON_WITH_TOOLS is off.)
         reply = await llm.chat(list(messages), tools=TOOLS if tools_allowed else None,
                                json_mode=True)
         calls = reply.get("tool_calls") or []

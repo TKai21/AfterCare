@@ -45,7 +45,8 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
-        if json_mode:
+        # With tools, JSON output only where the server supports both together.
+        if json_mode and (not tools or self.settings.llm_json_with_tools):
             payload["response_format"] = {"type": "json_object"}
         data = await self._post(
             self.settings.llm_api_base.rstrip("/") + "/chat/completions",

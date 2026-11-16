@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -18,6 +19,11 @@ class Settings:
     llm_api_base: str = "https://api.openai.com/v1"
     llm_model: str = ""
     llm_api_key: str = ""
+    # Whether a chat call with tools may also request JSON output
+    # (response_format). None means: on for OpenAI's API, off for any other
+    # server (vLLM may reject it or stop parsing tool calls). Calls without
+    # tools always get it when asked.
+    llm_json_with_tools: Optional[bool] = None
     embedding_api_base: str = ""
     embedding_model: str = "text-embedding-3-small"
     embedding_api_key: str = ""
@@ -48,6 +54,9 @@ class Settings:
     clarify_timeout_hours: float = 24
 
     def __post_init__(self):
+        if self.llm_json_with_tools is None:
+            host = urlsplit(self.llm_api_base).hostname or ""
+            object.__setattr__(self, "llm_json_with_tools", host == "api.openai.com")
         # Embedding settings fall back to the chat settings when unset.
         if not self.embedding_api_base:
             object.__setattr__(self, "embedding_api_base", self.llm_api_base)
@@ -72,6 +81,8 @@ def get_settings() -> Settings:
         llm_api_base=llm_base,
         llm_model=env.get("LLM_MODEL", ""),
         llm_api_key=env.get("LLM_API_KEY", ""),
+        # "1" on, "0" off, unset or empty: decided by the base URL.
+        llm_json_with_tools={"1": True, "0": False}.get(env.get("LLM_JSON_WITH_TOOLS", "")),
         embedding_api_base=env.get("EMBEDDING_API_BASE", llm_base).rstrip("/"),
         embedding_model=env.get("EMBEDDING_MODEL", defaults.embedding_model),
         embedding_api_key=env.get("EMBEDDING_API_KEY", env.get("LLM_API_KEY", "")),

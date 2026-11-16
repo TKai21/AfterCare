@@ -1,9 +1,10 @@
 import json
+import os
 
 import httpx
 import pytest
 
-from config import Settings
+from config import Settings, get_settings
 from llm import LLMClient, LLMError
 
 
@@ -28,7 +29,8 @@ async def test_chat_sends_model_tools_and_auth_header():
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "hi"}}]})
 
     tools = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
-    msg = await make_client(handler).chat([{"role": "user", "content": "yo"}], tools=tools, json_mode=True)
+    msg = await make_client(handler, llm_json_with_tools=True).chat(
+        [{"role": "user", "content": "yo"}], tools=tools, json_mode=True)
     assert msg["content"] == "hi"
     assert seen["url"] == "https://llm.example/v1/chat/completions"
     assert seen["auth"] == "Bearer key-123"
@@ -133,3 +135,64 @@ async def test_empty_key_sends_no_authorization_header():
     assert seen["chat"] is None
     await client.embed(["x"])
     assert seen["embed"] is None
+
+
+def _json_requests():
+    """The response_format each chat call sends, for a call with and without tools."""
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content).get("response_format"))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    return seen, handler
+
+
+async def test_json_with_tools_off_requests_json_only_on_calls_without_tools():
+    tools = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
+    seen, handler = _json_requests()
+    client = make_client(handler, llm_json_with_tools=False)
+    await client.chat([{"role": "user", "content": "x"}], tools=tools, json_mode=True)
+    await client.chat([{"role": "user", "content": "x"}], json_mode=True)
+    assert seen == [None, {"type": "json_object"}]
+
+
+async def test_json_with_tools_on_requests_json_with_tools_too():
+    tools = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
+    seen, handler = _json_requests()
+    client = make_client(handler, llm_json_with_tools=True)
+    await client.chat([{"role": "user", "content": "x"}], tools=tools, json_mode=True)
+    await client.chat([{"role": "user", "content": "x"}], json_mode=True)
+    assert seen == [{"type": "json_object"}, {"type": "json_object"}]
+
+
+def test_json_with_tools_defaults_on_only_for_openai():
+    assert Settings().llm_json_with_tools is True
+    assert Settings(llm_api_base="https://api.openai.com/v1/").llm_json_with_tools is True
+    assert Settings(llm_api_base="http://gpu-host:8000/v1").llm_json_with_tools is False
+    assert Settings(llm_api_base="http://gpu-host:8000/v1",
+                    llm_json_with_tools=True).llm_json_with_tools is True
+
+
+@pytest.mark.parametrize("base, value, expected", [
+    (None, None, True),
+    ("http://gpu-host:8000/v1", None, False),
+    ("http://gpu-host:8000/v1", "", False),
+    ("http://gpu-host:8000/v1", "1", True),
+    ("https://api.openai.com/v1", "0", False),
+])
+def test_json_with_tools_env(monkeypatch, base, value, expected):
+    saved = dict(os.environ)
+    get_settings.cache_clear()
+    try:
+        for name, v in (("LLM_API_BASE", base), ("LLM_JSON_WITH_TOOLS", value)):
+            if v is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, v)
+        monkeypatch.setattr("config.load_dotenv", lambda *a, **k: None)
+        assert get_settings().llm_json_with_tools is expected
+    finally:
+        get_settings.cache_clear()
+        os.environ.clear()
+        os.environ.update(saved)

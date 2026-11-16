@@ -79,6 +79,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `LLM_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `LLM_MODEL` | empty | Chat model name, for example `gpt-4.1-mini` (see `.env.example`) |
 | `LLM_API_KEY` | empty | May stay empty for a self-hosted server |
+| `LLM_JSON_WITH_TOOLS` | on for `api.openai.com`, off otherwise | `1` lets a chat call that offers tools also request JSON output (`response_format`); `0` requests JSON only on calls without tools (the clone's final, format and repair calls). Unset, empty or any other value: decided by `LLM_API_BASE` |
 | `EMBEDDING_API_BASE` | `LLM_API_BASE` | Embeddings endpoint base |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name |
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
@@ -91,7 +92,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 
 Without `LLM_MODEL` the app still starts and you can sign up, but uploading a document (extraction) and Ask return a "not configured" error (HTTP 503). The one exception is an emergency message in Ask: it still gets the call-911 answer and banner. A temporary model failure returns HTTP 502 and the page asks the patient to try again.
 
-To use a self-hosted vLLM server, set `LLM_API_BASE` to its OpenAI-compatible URL (for example `http://host:8000/v1`) and `LLM_MODEL` to the served model name; `LLM_API_KEY` can be empty (no `Authorization` header is sent then, and `manage_knowledge.py index` only requires a key for `api.openai.com`). If you change `EMBEDDING_MODEL` or the embeddings endpoint, rebuild the index with `python backend/manage_knowledge.py index` (`status` shows whether the index matches the configured model).
+To use a self-hosted vLLM server, set `LLM_API_BASE` to its OpenAI-compatible URL (for example `http://host:8000/v1`) and `LLM_MODEL` to the served model name; `LLM_API_KEY` can be empty (no `Authorization` header is sent then, and `manage_knowledge.py index` only requires a key for `api.openai.com`). With a non-OpenAI base URL the clone does not combine JSON output with tools (some vLLM versions reject the pair or stop parsing tool calls); set `LLM_JSON_WITH_TOOLS=1` if your server supports both. If you change `EMBEDDING_MODEL` or the embeddings endpoint, rebuild the index with `python backend/manage_knowledge.py index` (`status` shows whether the index matches the configured model).
 
 ## Knowledge library
 
