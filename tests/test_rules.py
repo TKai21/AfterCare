@@ -424,3 +424,253 @@ async def test_ask_cites_a_rule_and_shows_the_doctors_words(client, fake_llm):
     assert source["kind"] == "doctor"
     assert source["content"] == "Drink 2 liters of water every day. Take your pill with food."
     assert data["guidance_ids"] == [source["guidance_id"]]
+
+
+# ---------- habits ----------
+
+HABIT_ANSWER = (
+    "Hi Mike, have you had any fever? Take it easy and drink water. "
+    "Tell me right away if the toe turns black. "
+    "Have you had any recent changes in your medications? "
+    "Please call the office if it gets worse."
+)
+
+
+def habit(statement, quote, habit_type, terms=()):
+    return {"kind": "habit", "habit_type": habit_type, "statement": statement,
+            "quote": quote, "warning_terms": list(terms)}
+
+
+def advice(statement, quote):
+    return {"kind": "advice", "habit_type": None, "statement": statement, "quote": quote,
+            "warning_terms": []}
+
+
+def route_rules(llm, *items):
+    llm.route(rules.RULES_PROMPT, lambda m: {"content": json.dumps({"rules": list(items)})})
+
+
+async def habit_entry(session, llm, answer, **kw):
+    (doc, *_), _ = await seed(session)
+    return await general(session, llm, doc, answer, **kw)
+
+
+def test_habits_are_stored_with_their_type():
+    answer = ("Have you had any fever? Drink plenty of water. "
+              "Tell me right away if the toe turns black. Please call the office if it gets worse.")
+    data = {"rules": [
+        habit("Asks whether the patient has had a fever.", "Have you had any fever?", "ask"),
+        habit("Wants to be told immediately about a black toe.",
+              "Tell me right away if the toe turns black.", "warning",
+              ["toe turns black", "not in the quote"]),
+        habit("Closes by asking the patient to call if it gets worse.",
+              "Please call the office if it gets worse.", "close", ["ignored"]),
+        advice("Drink plenty of water.", "Drink plenty of water."),
+    ]}
+    got = rules.validate_rules(answer, data)
+    assert [(r.kind, r.habit_type) for r in got] == [
+        ("habit", "ask"), ("habit", "warning"), ("habit", "close"), ("advice", None)]
+    assert got[1].warning_terms == ("toe turns black",)
+    assert got[0].warning_terms == () and got[2].warning_terms == ()
+
+
+def test_warning_habit_without_a_term_in_its_quote_is_dropped():
+    answer = "Tell me right away if the toe turns black."
+    data = {"rules": [habit("Wants to be told about a black toe.", answer, "warning", ["fever"])]}
+    assert rules.validate_rules(answer, data) == []
+
+
+def test_unknown_kind_or_habit_type_is_dropped():
+    answer = "Have you had any fever?"
+    data = {"rules": [
+        {"kind": "habit", "habit_type": "other", "statement": "Asks about fever.", "quote": answer},
+        {"kind": "habit", "statement": "Asks about fever.", "quote": answer},
+        {"kind": "mystery", "statement": "Asks about fever.", "quote": answer},
+    ]}
+    assert rules.validate_rules(answer, data) == []
+
+
+def test_a_rule_without_kind_is_advice():
+    got = rules.validate_rules("Rest well.", {"rules": [{"statement": "Rest well.", "quote": "Rest well."}]})
+    assert [(r.kind, r.habit_type) for r in got] == [("advice", None)]
+
+
+def test_habit_with_a_number_is_dropped():
+    answer = "Call me if fever above 101. Call 911 if you cannot breathe."
+    data = {"rules": [
+        habit("Wants a call for fever above 101.", "Call me if fever above 101.", "warning", ["fever"]),
+        habit("Wants 911 called for trouble breathing.", "Call 911 if you cannot breathe.", "warning",
+              ["cannot breathe"]),
+    ]}
+    got = rules.validate_rules(answer, data)
+    assert [r.quote for r in got] == ["Call 911 if you cannot breathe."]
+
+
+def test_habit_naming_a_drug_is_dropped():
+    answer = "Have you been taking your naproxen? Have you had any fever?"
+    data = {"rules": [
+        habit("Asks about naproxen use.", "Have you been taking your naproxen?", "ask"),
+        habit("Asks about fever.", "Have you had any fever?", "ask"),
+    ]}
+    assert [r.quote for r in rules.validate_rules(answer, data)] == ["Have you had any fever?"]
+
+
+def test_habit_changing_a_medication_is_dropped():
+    answer = "Stop your naproxen. Stop eating late."
+    data = {"rules": [habit("Tells the patient to stop the medicine.", "Stop your naproxen.", "close"),
+                      habit("Tells the patient to stop the pills.", "Stop the pills.", "close")]}
+    assert rules.validate_rules(answer, data) == []
+    answer = "Stop the pills and rest."
+    data = {"rules": [habit("Tells the patient to stop the pills.", "Stop the pills", "close")]}
+    assert rules.validate_rules(answer, data) == []
+
+
+def test_medication_change_question_is_allowed():
+    for q in ("Have you had any recent changes in your medications?",
+              "Any new medicines or changes to your medication?",
+              "Have you changed your medications?"):
+        data = {"rules": [habit("Asks whether the medications changed.", q, "ask")]}
+        assert [r.quote for r in rules.validate_rules(q, data)] == [q], q
+    for q in ("Change your medication if the pain returns.",
+              "Stop your pills if you feel sick?",
+              "Have you thought about stopping your pills?"):
+        data = {"rules": [habit("Medication talk.", q, "ask")]}
+        assert rules.validate_rules(q, data) == [], q
+    # The allowance is for ask habits only.
+    q = "Have you had any recent changes in your medications?"
+    assert rules.MEDICATION_CHANGE_QUESTION.fullmatch(q)
+    assert not rules.MEDICATION_CHANGE_QUESTION.fullmatch("Change your medication if the pain returns.")
+
+
+def test_habit_quoting_a_name_is_dropped():
+    answer = "Hi Mike, have you had any fever? Dear Anna, rest well. Have you had any chills?"
+    data = {"rules": [
+        habit("Asks about fever.", "Hi Mike, have you had any fever?", "ask"),
+        habit("Asks about fever.", "have you had any fever?", "ask"),
+    ]}
+    got = rules.validate_rules(answer, data, names=["mike", "Dr. Lee"])
+    assert [r.quote for r in got] == ["have you had any fever?"]
+    # A name after a greeting is caught even when it is not a known name.
+    data = {"rules": [habit("Asks about fever.", "Hi Mike, have you had any fever?", "ask")]}
+    assert rules.validate_rules(answer, data) == []
+    data = {"rules": [habit("Wishes rest.", "Dear Anna, rest well.", "close")]}
+    assert rules.validate_rules(answer, data) == []
+    # A name inside a longer word is not a match.
+    data = {"rules": [habit("Asks about chills.", "Have you had any chills?", "ask")]}
+    assert len(rules.validate_rules(answer, data, names=["ill"])) == 1
+    # The statement is checked as well.
+    data = {"rules": [habit("Asks Mike about fever.", "have you had any fever?", "ask")]}
+    assert rules.validate_rules(answer, data, names=["mike"]) == []
+
+
+async def test_build_rules_stores_habits_and_embeds_them(session):
+    llm = FakeLLM()
+    answer = "Have you had any fever? Drink plenty of water."
+    e = await habit_entry(session, llm, answer)
+    route_rules(llm, habit("Asks about fever.", "Have you had any fever?", "ask"),
+                advice("Drink plenty of water.", "Drink plenty of water."))
+    built = await rules.build_rules(session, llm, e)
+    assert [(r.kind, r.habit_type, r.suppressed) for r in built] == [
+        ("habit", "ask", False), ("advice", None, False)]
+    assert all(r.embedding for r in built)
+
+
+async def test_build_rules_drops_a_habit_with_a_name_it_is_given(session):
+    llm = FakeLLM()
+    answer = "Hi Mike, have you had any fever? Drink plenty of water."
+    e = await habit_entry(session, llm, answer)
+    route_rules(llm, habit("Asks about fever.", "Hi Mike, have you had any fever?", "ask"),
+                advice("Drink plenty of water.", "Drink plenty of water."))
+    built = await rules.build_rules(session, llm, e, names=["mike"])
+    assert [r.kind for r in built] == ["advice"]
+
+
+async def test_suppressed_habit_is_not_read_back(session):
+    llm = FakeLLM()
+    answer = "Have you had any fever? Have you had any chills? Drink plenty of water."
+    e = await habit_entry(session, llm, answer)
+    route_rules(llm, habit("Asks about fever.", "Have you had any fever?", "ask"),
+                habit("Asks about chills.", "Have you had any chills?", "ask"),
+                advice("Drink plenty of water.", "Drink plenty of water."))
+    first = await rules.build_rules(session, llm, e)
+    fever = next(r for r in first if "fever" in r.statement)
+    fever.suppressed = True
+    await session.flush()
+    again = await rules.build_rules(session, llm, e)
+    rows = (await session.scalars(select(GuidanceRule).order_by(GuidanceRule.id))).all()
+    assert [r.statement for r in again] == ["Asks about chills.", "Drink plenty of water."]
+    assert [(r.statement, r.suppressed) for r in rows if r.kind == "habit"] == [
+        ("Asks about fever.", True), ("Asks about chills.", False)]
+    # Positions stay unique within the entry.
+    assert len({r.position for r in rows}) == len(rows)
+    # Deleting the entry's rules for good removes the suppressed row too.
+    await rules.clear_rules_of(session, select(DoctorGuidance.id).where(DoctorGuidance.id == e.id))
+    assert await session.scalar(select(func.count()).select_from(GuidanceRule)) == 0
+
+
+async def test_clear_rules_keeps_suppressed_rows(session):
+    llm = FakeLLM()
+    e = await habit_entry(session, llm, "Have you had any fever?")
+    route_rules(llm, habit("Asks about fever.", "Have you had any fever?", "ask"))
+    (r,) = await rules.build_rules(session, llm, e)
+    r.suppressed = True
+    await session.flush()
+    await rules.clear_rules(session, e.id)
+    assert await session.scalar(select(func.count()).select_from(GuidanceRule)) == 1
+
+
+async def test_habits_are_not_checked_against_labels_or_advice(session):
+    llm = FakeLLM()
+    (doc, *_), _ = await seed(session)
+    old = await general(session, llm, doc, "Have you had any fever? Drink plenty of water.")
+    route_rules(llm, habit("Asks about fever.", "Have you had any fever?", "ask"),
+                advice("Drink plenty of water.", "Drink plenty of water."))
+    await rules.build_rules(session, llm, old)
+    new = await general(session, llm, doc, "Have you had any fever now?")
+    route_rules(llm, habit("Asks about fever.", "Have you had any fever now?", "ask"))
+    built = await rules.build_rules(session, llm, new)
+
+    class Store:
+        async def retrieve(self, *a, **k):
+            raise AssertionError("habits must not search labels")
+
+    seen = []
+
+    def conflicts(messages):
+        seen.append(messages[1]["content"])
+        return {"content": json.dumps({"conflicts": []})}
+
+    llm.route(rules.CONFLICT_PROMPT, conflicts)
+    session.add(DrugLabel(rxcui="1", ingredient="colchicine", status="approved", title="t", url="u"))
+    await session.flush()
+    await rules.find_conflicts(session, llm, Store(), new, built)
+    assert len(seen) == 1
+    assert "Asks about fever." in seen[0] and "Drink plenty of water" not in seen[0]
+    # And an advice rule never meets a habit.
+    advice_new = await general(session, llm, doc, "Fever means drink plenty of water.")
+    route_rules(llm, advice("Fever means drink plenty of water.", "Fever means drink plenty of water."))
+    built = await rules.build_rules(session, llm, advice_new)
+    seen.clear()
+    await rules.find_conflicts(session, llm, None, advice_new, built)
+    assert len(seen) == 1 and "Asks about fever." not in seen[0]
+
+
+async def test_index_entry_passes_the_source_patient_and_doctor_names(session):
+    from models import CareTeamQuestion
+    llm = FakeLLM()
+    (doc, patient, *_), d = await seed(session)
+    patient.display_name = "Michael Jones"
+    doc.display_name = "Dr. Lee"
+    q = CareTeamQuestion(user_id=patient.id, document_id=d.id, question="q", reason="r",
+                         source="agent")
+    session.add(q)
+    await session.flush()
+    answer = "Michael, have you had any fever? Dr. Lee asks about chills. Have you had any chills?"
+    e = await general(session, llm, doc, answer, source_question_id=q.id)
+    assert set(await rules.reader_names(session, e)) == {"a", "Michael Jones", "Dr. Lee"}
+    route_rules(llm, habit("Asks about fever.", "Michael, have you had any fever?", "ask"),
+                habit("Asks about chills.", "Dr. Lee asks about chills.", "ask"),
+                habit("Asks about chills.", "Have you had any chills?", "ask"))
+    await rules.index_entry(session, llm, None, e)
+    kept = (await session.scalars(select(GuidanceRule.quote))).all()
+    assert kept == ["Have you had any chills?"]

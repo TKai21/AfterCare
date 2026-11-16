@@ -66,7 +66,7 @@ def sentence_rules(messages):
     as both statement and quote."""
     answer = messages[1]["content"].split("Doctor's answer:\n", 1)[1]
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
-    return {"content": json.dumps({"rules": [{"statement": s, "quote": s} for s in sentences]})}
+    return {"content": json.dumps({"rules": [{"kind": "advice", "statement": s, "quote": s} for s in sentences]})}
 
 
 def no_conflicts(messages):
