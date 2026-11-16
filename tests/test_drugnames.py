@@ -60,3 +60,16 @@ def test_exclusions_drop_names(tmp_path):
     lex = DrugLexicon.load(data, ex)
     assert lex.find("water and Advil") == {"advil"}
     assert lex.equivalents("advil") == {"advil", "ibuprofen"}
+
+
+def test_aftercare_text_has_no_drug_hits():
+    lex = get_lexicon()
+    for text in [
+        "drink plenty of water", "limit sodium to 2000 mg",
+        "oxalate like spinach, beets, nuts, rhubarb", "coffee and tea",
+        "lemon juice, orange juice, cranberry", "cherries", "honey", "fish oil",
+        "fever, rest, ice, heat", "your creatinine and urea levels",
+        "Julie from the clinic will call", "turkey has tryptophan",
+        "apply petrolatum or Vaseline to the wound",
+    ]:
+        assert lex.find(text) == set(), text

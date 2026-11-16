@@ -16,3 +16,4 @@ models/
 
 # Private voice recordings: never serve statically or commit patient audio.
 private/
+.cache/
