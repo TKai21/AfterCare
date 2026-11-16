@@ -2192,3 +2192,33 @@ def test_number_error_names_only_document_and_doctor_evidence():
     message = str(exc.value)
     assert "[2]" not in message
     assert "3 appears in no document paragraph or earlier advice of mine; remove it." in message
+
+
+def test_validate_range_cap_counts_every_range_of_one_marker():
+    ev = evidence(*["Rest at home." for _ in range(60)])
+    with pytest.raises(ValueError, match="range"):
+        validate(raw(answer="Rest [1-20, 21-40, 41-60].", citations=list(range(1, 61))), ev)
+    with pytest.raises(ValueError, match="range"):
+        validate(raw(answer="Rest [1-10, 11-21].", citations=list(range(1, 22))), ev)
+    # Single numbers next to ranges do not count toward the cap.
+    assert validate(raw(answer="Rest [1-10, 11-20, 30].", citations=[*range(1, 21), 30]),
+                    ev)[2] == [*range(1, 21), 30]
+
+
+def test_validate_range_covers_only_document_paragraphs():
+    ev = evidence("Rest at home.", "Rest more.")
+    ev[3] = Evidence(3, "habit", "t", None, "Call me if pain lasts.", check_text="Call me.")
+    with pytest.raises(ValueError, match="range"):
+        validate(raw(answer="Rest at home [1-3].", citations=[1, 2, 3]), ev)
+    # Cited one by one, the same evidence passes.
+    assert validate(raw(answer="Rest at home [1, 2, 3].", citations=[1, 2, 3]), ev)[2] == [1, 2, 3]
+
+
+def test_fixed_answer_stops_at_the_fallback_sentence():
+    for name in ("Dr. A", "Dr. Ting Kai", "Dr. Mary-Ann O'Neil"):
+        fixed = agent.fallback_answer(name)
+        assert agent.is_fixed_answer(fixed)
+        for extra in (" Also drink 2 liters of water [2].", " Also drink water [2]."):
+            assert not agent.is_fixed_answer(fixed + extra), (name, extra)
+    # A period ends the name unless it follows a title or an initial.
+    assert not agent.is_fixed_answer(agent.fallback_answer("Dr. Ting Kai") + " Rest at home.")

@@ -69,8 +69,13 @@ def fallback_answer(doctor_name: str = DEFAULT_DOCTOR_NAME) -> str:
 
 FALLBACK = fallback_answer()
 # The fallback sentence for any doctor's name (the name may have changed since).
+# The name stops at the first sentence: no line break, digit or bracket (an
+# answer the model wrote carries "[n]" markers), and a period only right after
+# a title or an initial ("Dr. J. Smith").
+_DOCTOR_NAME = (r"(?:[^.\n\[\]\d]|(?<=\b(?:Dr|Mr|Ms|St|Jr|Sr))\.|(?<=\bMrs)\.|(?<=\bProf)\."
+                r"|(?<=\b[A-Z])\.){1,80}")
 _FALLBACK_TEXT = re.compile(
-    re.escape(NOT_COVERED_ANSWER).replace(re.escape("{DOCTOR}"), r".+"))
+    re.escape(NOT_COVERED_ANSWER).replace(re.escape("{DOCTOR}"), _DOCTOR_NAME))
 FALLBACK_REASON = "The assistant could not give a verified answer."
 # The fixed answer for an emergency the model could not handle (no model, a model
 # error, or an answer that failed validation). Same copy as the page's banner.
@@ -88,8 +93,9 @@ ALWAYS_ALLOWED_NUMBERS = frozenset({("number", Decimal("911"))})
 _MARKER_ITEM = r"\d+(?:\s*[-\u2013]\s*\d+)?"
 MARKER = re.compile(rf"\[\s*({_MARKER_ITEM}(?:\s*,\s*{_MARKER_ITEM})*)\s*\]")
 _MARKER_RANGE = re.compile(r"(\d+)\s*[-\u2013]\s*(\d+)")
-# The most numbers one range marker may stand for, so a stray "[1-500]" is an
-# error rather than a citation of everything.
+# The most numbers the ranges of one marker may stand for together, so a stray
+# "[1-500]" or "[1-20, 21-40]" is an error rather than a citation of everything.
+# A range may cover only document paragraphs (validate).
 MAX_MARKER_RANGE = 20
 URL = re.compile(r"https?://\S+")
 # Number grounding tokens (see number_tokens). ASCII digits only: \d would also
@@ -368,21 +374,37 @@ def _append_markers(answer: str, cited: list[int]) -> str:
     return f"{answer} {marker}"
 
 
+def _marker_ranges(group: str) -> list[int]:
+    """The numbers the ranges of one marker's contents stand for ("2, 41-45"
+    gives 41 to 45). Raises ValueError for a backward range, or when the
+    ranges of the marker together stand for more than MAX_MARKER_RANGE
+    numbers."""
+    numbers: list[int] = []
+    for item in group.split(","):
+        span = _MARKER_RANGE.fullmatch(item.strip())
+        if span is None:
+            continue
+        low, high = int(span.group(1)), int(span.group(2))
+        if low > high or len(numbers) + high - low + 1 > MAX_MARKER_RANGE:
+            raise ValueError(
+                f"The citation range [{group.strip()}] is not valid: a range goes from low to "
+                f"high, and the ranges in one marker span at most {MAX_MARKER_RANGE} numbers. "
+                "Cite each evidence number instead.")
+        numbers.extend(range(low, high + 1))
+    return numbers
+
+
 def _marker_numbers(group: str) -> list[int]:
     """The evidence numbers of one marker's contents ("2, 41-45"). Raises
-    ValueError for a backward range or one longer than MAX_MARKER_RANGE."""
+    ValueError for invalid ranges (_marker_ranges)."""
+    _marker_ranges(group)
     numbers: list[int] = []
     for item in group.split(","):
         span = _MARKER_RANGE.fullmatch(item.strip())
         if span is None:
             numbers.append(int(item))
-            continue
-        low, high = int(span.group(1)), int(span.group(2))
-        if not low <= high < low + MAX_MARKER_RANGE:
-            raise ValueError(
-                f"The citation range [{low}-{high}] is not valid: a range goes from low to high "
-                f"and spans at most {MAX_MARKER_RANGE} numbers. Cite each evidence number instead.")
-        numbers.extend(range(low, high + 1))
+        else:
+            numbers.extend(range(int(span.group(1)), int(span.group(2)) + 1))
     return numbers
 
 
@@ -567,6 +589,8 @@ def validate(
     if not isinstance(answer, str) or not answer.strip():
         raise ValueError("The answer is empty.")
     raw_answer = answer
+    # Numbers cited through a range ("[41-45]"), read before the ranges are expanded.
+    ranged = {n for group in MARKER.findall(clean_text(answer)) for n in _marker_ranges(group)}
     answer = _normalize_markers(clean_text(answer))
     if not answer:
         raise ValueError("The answer is empty.")
@@ -593,6 +617,9 @@ def validate(
         raise ValueError("Citation markers do not match the citations.")
     if cited - evidence.keys():
         raise ValueError("A citation refers to evidence that does not exist.")
+    if any(evidence[n].kind != "document" for n in ranged):
+        raise ValueError("A citation range like [41-45] may cover only document paragraphs. "
+                         "Cite other evidence by its own number.")
     if kind == "answer" and all(evidence[n].kind == "habit" for n in cited):
         raise ValueError(HABIT_ONLY_ERROR)
     if kind == "clarify":
