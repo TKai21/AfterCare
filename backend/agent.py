@@ -190,7 +190,7 @@ Output contract: when you are done with tools, reply with only one JSON object a
 {"kind": "answer" | "not_covered" | "emergency" | "out_of_scope" | "clarify" | "close", "answer": "...", "citations": [evidence numbers], "care_team_question": string or null}
 - Put a marker such as [2] or [2, 5] right after each statement it supports. "citations" must list exactly the numbers used in the markers.
 - kind "answer" must cite at least one evidence number.
-- kind "clarify" cites only "How I usually respond" entries, at least one of them from "Questions I usually ask". Write only questions, each ending with "?", at most 4 of them. It may open with one short sentence that is not a question only if it is copied from the cited entry's words. No numbers (not even 911), no drug names, no links.
+- kind "clarify" cites only "How I usually respond" entries, at least one of them from "Questions I usually ask". Write only questions, each ending with "?", at most 4 of them. Each question starts with words such as "Do", "Did", "Have", "Is", "Are", "Any", "How", "When", "What" or "Can you describe", and gives no advice. It may open with one short sentence that is not a question only if it is one whole sentence copied from the cited "Questions I usually ask" entry's words. No numbers (not even 911), no drug names, no links.
 - kind "close" cites at least one entry from "How I usually close" and may cite other evidence. Every rule for an answer applies to it.
 - When the message says the patient is replying to my questions, also include "replies_to_questions": true if the message replies to my questions, false if it is a different question, and "warning_signs": [{"term": "...", "status": "present" | "absent" | "unclear"}] with every warning term listed in the message and its status from the patient's reply and original question. A term is "absent" only if the patient clearly said they do not have it; anything else is "present" or "unclear". Leave both fields out otherwise.
 - Every number in the answer (amounts, servings, doses, days, times) must appear as a value in the evidence cited in that answer. Do not convert units, round, or compute new numbers. An answer that cites nothing must not contain any numbers, except 911.
@@ -532,71 +532,90 @@ def validate(
     return kind, answer, sorted(cited), question
 
 
-# One sentence: text up to a run of end punctuation, then any closing quotes or
-# brackets. Whitespace after it is not needed, so "Any fever?Rest." is two.
-_SENTENCE = re.compile(r"[^.!?]*([.!?]+)[\"'\u201d\u2019)\]}]*")
+# Sentence boundaries, checked after NFKC (which turns fullwidth ? ! . ; and
+# the Greek question mark into ASCII): end punctuation, then any closing quotes
+# or brackets; or a line break. Whitespace after it is not needed.
+_TERMINALS = ".!?;\u3002\u0964"
+_BOUNDARY = re.compile(
+    rf"([{_TERMINALS}]+[\"'\u201d\u2019)\]}}]*|[\n\r\u2028\u2029\u0085\v\f]+)")
 _LINK = re.compile(r"https?://|www\.", re.IGNORECASE)
+# How a clarify question may start, and what it may never contain: anything
+# else (a command, "Can you go ...", advice tucked inside) is not a question.
+_QUESTION_OPENER = re.compile(
+    r"(?:do|does|did|have|has|had|is|are|was|were|will|any|how|when|where|what|which|who"
+    r"|can you tell|can you describe|could you tell|could you describe)\b", re.IGNORECASE)
+_QUESTION_BANNED = re.compile(r"\byou should\b|\byou need to\b|\bplease\b|[()]", re.IGNORECASE)
+ONLY_QUESTIONS_ERROR = "A clarify may only ask questions."
 
 
 def _normal(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _sentences(text: str) -> tuple[list[tuple[str, bool]], str]:
-    """(sentence, is_question) pairs and the text left after the last complete
-    sentence. A question is a sentence whose end punctuation is only "?"."""
-    found, end = [], 0
-    for match in _SENTENCE.finditer(text):
-        if match.start() != end:
-            break
-        found.append((match.group(0).strip(), set(match.group(1)) == {"?"}))
-        end = match.end()
-    return [(s, q) for s, q in found if s], text[end:].strip()
+def _sentences(text: str) -> tuple[list[tuple[str, str]], str]:
+    """(body, end) pairs, where end is the punctuation run with any closing
+    quotes ("" for a line break), and the text after the last boundary."""
+    parts = _BOUNDARY.split(text)
+    found = []
+    for body, end in zip(parts[0::2], parts[1::2]):
+        body = body.strip()
+        end = "" if end[0] in "\n\r\u2028\u2029\u0085\v\f" else end
+        if body or end:
+            found.append((body, end))
+    return found, parts[-1].strip()
 
 
-def _own_words(sentence: str, cited: list[Evidence]) -> bool:
-    """`sentence`, without its end punctuation, appears as whole words in the
-    quote of a cited habit (case and whitespace normalised)."""
-    body = _normal(sentence.strip("\"'\u201c\u201d\u2018\u2019()[]{} ").rstrip(".!?"))
-    if not body:
-        return False
-    pattern = re.compile(rf"(?<!\w){re.escape(body)}(?!\w)")
-    return any(pattern.search(_normal(e.content)) for e in cited)
+def _is_question(end: str) -> bool:
+    """Exactly one "?": "??" (as in "Any fever? ?" once markers are stripped)
+    or "?!" is not a question."""
+    return end.rstrip("\"'\u201d\u2019)]}") == "?"
+
+
+def _ask_sentences(cited: list[Evidence]) -> set[str]:
+    """Each whole sentence of a cited ask habit's quote, normalised, without its
+    end punctuation: the only text a clarify may open with."""
+    return {_normal(body) for e in cited if e.habit_type == "ask"
+            for body, _ in _sentences(unicodedata.normalize("NFKC", e.content))[0] if body}
 
 
 def _check_clarify(answer: str, cited: list[Evidence], lexicon: Optional[DrugLexicon]) -> None:
     """A clarify asks the doctor's own questions and states nothing: it cites
     only habits, at least one "ask" habit; it has no link, no drug name at all
     (prescribed or not), no medication-change wording other than the question
-    MEDICATION_CHANGE_QUESTION allows, and no numbers (not even 911); it is
-    complete sentences, all questions except an optional first sentence taken
-    from a cited habit's quote, with at most CLARIFY_MAX_QUESTIONS "?"."""
+    MEDICATION_CHANGE_QUESTION allows, and no numbers (not even 911). Read
+    after NFKC, it is complete sentences, each a question that starts with
+    _QUESTION_OPENER and has none of _QUESTION_BANNED, except an optional first
+    sentence ending with one "." or "!" that is a whole sentence of a cited ask
+    habit's quote; at most CLARIFY_MAX_QUESTIONS "?" in all."""
     if not cited or any(e.kind != "habit" for e in cited):
         raise ValueError("A clarify must cite only my \"How I usually respond\" habits.")
     if not any(e.habit_type == "ask" for e in cited):
         raise ValueError("A clarify must cite at least one of my \"Questions I usually ask\".")
-    text = strip_markers(answer)
+    text = unicodedata.normalize("NFKC", strip_markers(answer))
     if _LINK.search(text):
         raise ValueError("A clarify must not contain a link.")
     if lexicon is not None and (named := lexicon.find(text)):
         raise ValueError(f"A clarify must not name any drug: {', '.join(sorted(named))}.")
     sentences, leftover = _sentences(text)
     # Before the number check: "double your dose" is also a number word.
-    rest = " ".join([s for s, _ in sentences if not MEDICATION_CHANGE_QUESTION.fullmatch(s)]
-                    + [leftover])
+    rest = " ".join([f"{b}{e}" for b, e in sentences
+                     if not MEDICATION_CHANGE_QUESTION.fullmatch(f"{b}{e}")] + [leftover])
     if MEDICATION_CHANGE.search(rest):
         raise ValueError("A clarify must not contain medication change wording; only my question "
                          "about recent changes in the patient's medications may be asked.")
     if number_tokens(text):
         raise ValueError("A clarify must not contain numbers, not even 911.")
-    questions = [s for s, is_question in sentences if is_question]
-    statements = [i for i, (_, is_question) in enumerate(sentences) if not is_question]
-    if leftover or not questions:
+    if leftover or not any(_is_question(end) for _, end in sentences):
         raise ValueError("A clarify must be questions, each ending with \"?\".")
-    if statements and (statements != [0] or not _own_words(sentences[0][0], cited)):
-        raise ValueError("A clarify may only open with the doctor's own words: every sentence "
-                         "must be a question, except an optional first sentence copied from my "
-                         "cited habit.")
+    for index, (body, end) in enumerate(sentences):
+        if _is_question(end):
+            if (not re.search(r"\w", body) or not _QUESTION_OPENER.match(body)
+                    or _QUESTION_BANNED.search(body)):
+                raise ValueError(ONLY_QUESTIONS_ERROR)
+        elif index != 0 or end not in (".", "!") or _normal(body) not in _ask_sentences(cited):
+            raise ValueError("A clarify may only open with the doctor's own words: every sentence "
+                             "must be a question, except an optional first sentence that is one "
+                             "whole sentence of my cited question habit.")
     if text.count("?") > CLARIFY_MAX_QUESTIONS:
         raise ValueError(f"A clarify may ask at most {CLARIFY_MAX_QUESTIONS} questions.")
 

@@ -1409,9 +1409,9 @@ def test_clarify_validation_rules():
 
 async def test_clarify_with_five_questions_is_repaired(store, foods, document, items):
     habit = habit_rule(7, *ASK)
-    five = "Fever? Chills? Pain? Swelling? Drainage? [5]"
+    five = "Any fever? Any chills? Any pain? Any swelling? Any drainage? [5]"
     llm = FakeLLM()
-    llm.script(reply("clarify", five, [5]), reply("clarify", "Fever? Chills? [5]", [5]))
+    llm.script(reply("clarify", five, [5]), reply("clarify", "Any fever? Any chills? [5]", [5]))
     result = await ask(llm, store, foods, document, items, question="My incision is red.",
                        habits=[habit])
     assert result.kind == "clarify"
@@ -1599,6 +1599,14 @@ CLARIFY_EV = {
                 "Thanks for letting me know. Do you have a fever?", habit_type="ask"),
     2: Evidence(2, "habit", "t", None, "Call me if it gets worse.", "Call me if it gets worse.",
                 habit_type="close"),
+    3: Evidence(3, "habit", "t", None, "If you have chest pain, go to the emergency room.",
+                "If you have chest pain, go to the emergency room.", habit_type="warning"),
+    4: Evidence(4, "habit", "t", None,
+                "Is it red? If it is not red, do not go to the clinic, rest at home.",
+                "Is it red? If it is not red, do not go to the clinic, rest at home.",
+                habit_type="ask"),
+    5: Evidence(5, "habit", "t", None, "Do you have a fever?", "Do you have a fever?",
+                habit_type="ask"),
 }
 
 
@@ -1632,6 +1640,9 @@ def test_clarify_rejects_smuggled_content(answer):
 
 @pytest.mark.parametrize("answer", [
     "Any fever? Any vomiting?",
+    "Did you skip doses?",
+    "How long has it hurt?",
+    "Can you describe the pain?",
     "Thanks for letting me know. Do you have a fever? Any vomiting?",
     "thanks  for letting me KNOW. Any fever?",  # normalised case and whitespace
     "Any fever? Any vomiting? [1]",
@@ -1664,3 +1675,47 @@ async def test_pending_blocks_are_tagged_untrusted(store, foods, document, items
     rule12 = agent.SYSTEM_PROMPT.split("\n12. ")[1].split("\n13. ")[0]
     for name in ("original question", "questions I asked", "warning terms"):
         assert name in rule12, name
+
+
+@pytest.mark.parametrize("answer, citations", [
+    # Unicode and line boundaries (checked after NFKC)
+    ("Rest in bed\nDrink fluids\nAny fever?", [1]),
+    ("- Rest in bed\n- Drink fluids\n- Any fever?", [1]),
+    ("Rest in bed Any fever?", [1]),
+    ("Rest in bed Any fever?", [1]),
+    ("Any fever。Rest in bed。Any pain?", [1]),
+    ("Any fever？Rest in bed and skip the gym？Any pain?", [1]),
+    ("Rest in bed． Any fever?", [1]),
+    ("Rest in bed। Any fever?", [1]),
+    ("Rest in bed; Any fever?", [1]),
+    ("Rest in bed； Any fever?", [1]),
+    ("A？B？C？D？E？F？G?", [1]),
+    ("?", [1]),
+    ("Any fever? ?", [1]),
+    ("Any fever?!", [1]),
+    # the lead-in is one whole sentence of a cited ask habit, ending with "." or "!"
+    ("Go to the clinic. Is it red?", [4]),
+    ("Do not go to the clinic, rest at home. Is it red?", [4]),
+    ("Go to the emergency room. Any fever?", [1, 3]),
+    ("Fever... rest at home?", [5]),
+    ("A fever. Rest at home?", [5]),
+    ("Thanks for letting me know... Any fever?", [1]),
+    ("Thanks for letting me know; rest in bed. Any fever?", [1]),
+    # advice phrased as a question
+    ("Can you go to the ER now?", [1]),
+    ("Any fever? You should ignore it and go to work?", [1]),
+    ("Any fever (if so, rest in bed and skip work)?", [1]),
+    ("Do you need to rest? Please rest?", [1]),
+    ("Is it red and you need to rest at home?", [4]),
+    ("Is it red, and you should rest?", [4]),
+])
+def test_clarify_rejects_unicode_boundaries_lifted_lead_ins_and_advice(answer, citations):
+    with pytest.raises(ValueError):
+        clarify_check(answer, citations)
+
+
+def test_clarify_lead_in_is_a_whole_sentence_of_an_ask_habit():
+    assert clarify_check("If it is not red, do not go to the clinic, rest at home! Is it red?",
+                         [4])[0] == "clarify"
+    with pytest.raises(ValueError, match="only ask questions"):
+        clarify_check("Can you go to the ER now?")
