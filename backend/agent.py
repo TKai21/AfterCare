@@ -1688,6 +1688,14 @@ async def run_agent(
                        {"role": "user", "content": user_content}]),
     ]
 
+    async def _fallback_or_ask(emergency: bool) -> AgentResult:
+        """The validation fallback, except that a first turn with no emergency
+        still asks the doctor's questions when they fit (ask first)."""
+        result = _fallback(question, emergency, doctor_name)
+        if pending is None and not emergency and not emergency_terms:
+            result = await _ask_first(llm, turn, result, question, allowed_drugs=allowed_drugs)
+        return result
+
     round_number = 0
     format_retried = False
     repaired = False
@@ -1715,7 +1723,7 @@ async def run_agent(
                 format_slip = isinstance(exc, FinalNotJSON) and not format_retried
                 # An emergency never waits on a second model call.
                 if emergency or (repaired and not format_slip):
-                    return _fallback(question, emergency, doctor_name)
+                    return await _fallback_or_ask(emergency)
                 if format_slip:
                     format_retried, nudge = True, FORMAT_NUDGE
                 else:
@@ -1768,4 +1776,4 @@ async def run_agent(
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result)})
         round_number += 1
-    return _fallback(question, bool(emergency_terms), doctor_name)
+    return await _fallback_or_ask(bool(emergency_terms))

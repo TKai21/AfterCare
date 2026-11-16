@@ -1394,7 +1394,7 @@ async def test_clarify_cites_ask_habits_only(store, foods, document, items):
     for bad in (reply("clarify", "Do you have a fever? [5, 2]", [5, 2]),
                 reply("clarify", "Anything else? [6]", [6])):
         llm = FakeLLM()
-        llm.script(bad, bad)
+        llm.script(bad, bad, picker_reply([]))
         result = await ask(llm, store, foods, document, items, question="My incision is red.",
                            habits=[ask_habit, close_habit])
         assert_fallback(result, "My incision is red.")
@@ -1431,7 +1431,7 @@ async def test_clarify_with_a_number_is_repaired(store, foods, document, items):
     habit = habit_rule(7, *ASK)
     llm = FakeLLM()
     llm.script(reply("clarify", "Is your temperature over 100? [5]", [5]),
-               reply("clarify", "Call 911? [5]", [5]))
+               reply("clarify", "Call 911? [5]", [5]), picker_reply([]))
     result = await ask(llm, store, foods, document, items, question="My incision is red.",
                        habits=[habit])
     assert_fallback(result, "My incision is red.")  # not even 911 is allowed in a clarify
@@ -1466,7 +1466,7 @@ async def test_close_needs_pending_and_a_close_habit(store, foods, document, ite
     # close without pending: rejected, repaired, then the fallback
     close = reply("close", "Keep your follow-up visit and call me if it changes. [6]", [6])
     llm = FakeLLM()
-    llm.script(close, close)
+    llm.script(close, close, picker_reply([]))
     result = await ask(llm, store, foods, document, items, habits=habits)
     assert_fallback(result)
     assert "only when the patient is replying" in llm.calls[1][0][-1]["content"]
@@ -1596,7 +1596,7 @@ async def test_clarify_medication_change_wording(store, foods, document, items, 
                        "medications? Have you changed your medications?")
     bad = reply("clarify", f"Do you have a fever? {question} [5]", [5])
     llm = FakeLLM()
-    llm.script(bad, bad)
+    llm.script(bad, bad, picker_reply([]))
     result = await ask(llm, store, foods, document, items, question="My incision is red.",
                        habits=[habit])
     if ok:
@@ -2628,3 +2628,19 @@ def test_prompt_puts_ask_first_before_the_handoff_rules():
     head = prompt.split("Authority rules:")[0]
     assert 'kind "clarify"' in head and "add_care_team_question" in head
     assert "do not call add_care_team_question" in prompt
+
+
+async def test_failed_clarify_attempt_falls_back_to_the_doctors_own_questions(
+        store, foods, document, items):
+    bad = reply("clarify", f"Sorry about that cold. {CONTACTS} [5]", [5])  # opener not allowed
+    llm = FakeLLM()
+    llm.script(bad, bad, picker_reply([5]))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify" and CONTACTS in result.answer
+    assert result.care_team_question is None and result.habit_rule_ids == [41]
+    # an emergency fallback never asks
+    llm = FakeLLM()
+    llm.script(bad, bad)
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=ask_habits(),
+                       emergency_terms=["chest pain"])
+    assert result.kind == "emergency" and len(llm.calls) == 1
