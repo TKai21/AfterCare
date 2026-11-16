@@ -1483,9 +1483,24 @@ async def test_payload_lists_cited_habit_rule_ids(client, fake_llm):
 
 # ---------- M4 reverted: a reply gets the unchanged backstop ----------
 
-from m4_probe_data import reply_strings  # noqa: E402
-
-REPLY_PROBES = reply_strings()
+# A representative subset at route level (every probe string is checked at
+# function level in test_safety): one reply per static label category, plus
+# the reviewer cases that once closed a case.
+REPLY_PROBES = [
+    "No trouble breathing but he is not breathing",            # breathing
+    "No chest pain, my chest hurts",                           # chest
+    "No face swelling. My tongue is swollen",                  # allergy, throat
+    "No numbness on one side, but my arm is numb",             # stroke signs
+    "Not unconscious, but he is unresponsive",                 # fainting, unconscious
+    "No heart attack, cardiac arrest",                         # heart
+    "No fever, I can't keep fluids down",                      # vomiting, fluids, urine
+    "No fever. I can't breathe.",
+    "No chest pain, until an hour ago when it started",
+    "No chest pain. I take that back.",
+    "No seizure, but it happened again",                       # seizure
+    "No heavy bleeding, until the bandage got soaked",         # bleeding
+    "I don't want to die",                                     # self-harm
+]
 
 
 @pytest.mark.parametrize("reply", REPLY_PROBES)

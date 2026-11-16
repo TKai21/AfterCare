@@ -205,12 +205,3 @@ ROUND3 = [
     'No pain that is not controlled by your medicine',
 ]
 
-
-def reply_strings(with_document_terms: bool = False) -> list[str]:
-    """Every probe string the backstop matches, deduplicated: with the round 3
-    document terms, or with static patterns only (for a route test, whose
-    document has no such terms)."""
-    from safety import detect_emergency
-    terms = ROUND3_DOC if with_document_terms else []
-    found = [*SYNONYMS, *RETRACTIONS, *PLAIN_DENIALS, *ROUND1, *ROUND3]
-    return [m for m in dict.fromkeys(found) if detect_emergency(m, terms)]
