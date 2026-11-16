@@ -2461,3 +2461,30 @@ def test_round2_bypasses_block(paragraphs, answer):
     ev = evidence(*paragraphs)
     with pytest.raises(ValueError):
         check(answer, cited_by_markers(answer), ev)
+
+
+# Grounding fix 2, round 3: trailing comparators, limit polarity, ranges and units.
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    (("Call if above 101 or under 90.",), "Call if above 101 [1]."),
+    (("Call if above 101 or under 90.",), "Call if under 90 [1]."),
+    (("Do not take more than 3 doses.",), "Take no more than 3 doses [1]."),
+    (("Do not take more than 3 doses.",), "Do not exceed 3 doses [1]."),
+    (("Take 1 to 2 tablets every 4 to 6 hours.",), "Take 1 to 2 tablets every 4 to 6 hours [1]."),
+    (("Take 1-2 tablets every 4 to 6 hours.",), "Take 1 to 2 tablets every 4 to 6 hours [1]."),
+])
+def test_round3_correct_answers_pass(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    assert check(answer, cited_by_markers(answer), ev)[0] == "answer"
+
+
+@pytest.mark.parametrize("paragraphs,answer", [
+    (("Call if above 101 or under 90.",), "Call if under 101 [1]."),
+    (("Do not take more than 3 doses.",), "Take at least 3 doses [1]."),
+    (("Take 1 to 2 tablets every 4 to 6 hours.",),
+     "Take 4 to 6 tablets every 1 to 2 hours [1]."),
+])
+def test_round3_bypasses_block(paragraphs, answer):
+    ev = evidence(*paragraphs)
+    with pytest.raises(ValueError):
+        check(answer, cited_by_markers(answer), ev)

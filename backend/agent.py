@@ -711,6 +711,7 @@ class _GroundingUnit(NamedTuple):
     tokens: frozenset  # the number tokens it grounds
     drugs: frozenset  # the drugs it names, with their lexicon equivalents
     thresholds: frozenset = frozenset()  # its (direction, number token) thresholds
+    facts: frozenset = frozenset()  # its numbers with a unit word, and its ranges
 
 
 # A threshold: a number with a comparator before it ("above 101") or after it
@@ -720,10 +721,12 @@ class _GroundingUnit(NamedTuple):
 # takes them from, so a bare "7 days" never grounds "above 7".
 _NUMBER = r"(?:[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?|\.[0-9]+)"
 _THRESHOLD_BEFORE = re.compile(
-    r"(?<![A-Za-z])(?:(?P<lo>(?:no|not) more than|no greater than|(?:do not |not |never )?"
-    r"exceed(?:s|ing)? no|below|under|less than|lower than|fewer than|at most|up to|<=?)"
-    r"|(?P<hi>(?:do not |not |never )exceed(?:s|ing)?|above|over|more than|higher than|"
-    r"greater than|at least|exceed(?:s|ing)?|beyond|>=?))"
+    r"(?<![A-Za-z])(?:(?P<lo>(?:do not|don't|not|never) take more than|(?:no|not) more than"
+    r"|no greater than|(?:do not |not |never )?exceed(?:s|ing)? no|(?:do not |not |never )exceed"
+    r"(?:s|ing)?|max(?:imum)?(?:\s+of)?|below|under|less than|lower than|fewer than|at most"
+    r"|up to|<=?)"
+    r"|(?P<hi>above|over|more than|higher than|greater than|at least|min(?:imum)?(?:\s+of)?"
+    r"|exceed(?:s|ing)?|beyond|>=?))"
     rf"\s*(?:about\s+|approximately\s+|around\s+)?(?P<n>{_NUMBER})", re.IGNORECASE)
 _THRESHOLD_AFTER = re.compile(
     rf"(?<![0-9.,])(?P<n>{_NUMBER})\s*(?:[A-Za-z%]{{1,5}}\.?)?\s*(?:\([^)]*\)\s*)?"
@@ -733,11 +736,58 @@ _THRESHOLD_AFTER = re.compile(
 
 
 def _thresholds(text: str) -> set[tuple]:
+    """The (direction, number token) pairs of `text`: "hi" is a lower limit
+    (above, at least, minimum, or more), "lo" an upper limit (no more than, do
+    not exceed, up to, maximum, or less). A trailing "or <comparator>" binds
+    only to a number with no comparator before it."""
     found = set()
-    for pattern in (_THRESHOLD_BEFORE, _THRESHOLD_AFTER):
-        for m in pattern.finditer(text):
-            direction = "hi" if m.group("hi") else "lo"
-            found.update((direction, token) for token in number_tokens(m.group("n")))
+    led = set()
+    for m in _THRESHOLD_BEFORE.finditer(text):
+        led.add(m.start("n"))
+        direction = "hi" if m.group("hi") else "lo"
+        found.update((direction, token) for token in number_tokens(m.group("n")))
+    for m in _THRESHOLD_AFTER.finditer(text):
+        if m.start("n") in led:
+            continue
+        direction = "hi" if m.group("hi") else "lo"
+        found.update((direction, token) for token in number_tokens(m.group("n")))
+    return found
+
+
+# A number followed by a unit word, and a range "A to B" / "A-B" / "A or B": a
+# statement may state them only as a unit of the evidence does, so "4 to 6
+# tablets every 1 to 2 hours" is not grounded by "1 to 2 tablets every 4 to 6
+# hours".
+_UNIT_WORD = (r"(?:mg|mcg|ml|g|tablets?|pills?|capsules?|puffs?|drops?|units?|hours?|hrs?|"
+              r"days?|weeks?|months?|doses?|times|time|minutes?|mins?|(?-i:[FC])|%)")
+_NUMBER_UNIT = re.compile(
+    rf"(?<![A-Za-z0-9.,])(?P<n>{_NUMBER})\s*(?P<u>{_UNIT_WORD})(?![A-Za-z])", re.IGNORECASE)
+_RANGE = re.compile(
+    rf"(?<![0-9.,-])(?P<a>{_NUMBER})\s*(?:to|[-\u2013]|or)\s*(?P<b>{_NUMBER})(?![0-9-])"
+    rf"(?:\s*(?P<u>{_UNIT_WORD})(?![A-Za-z]))?", re.IGNORECASE)
+_UNIT_ALIASES = {"hr": "hour", "min": "minute", "times": "time"}
+
+
+def _unit_word(word: str) -> str:
+    word = word.lower() if word not in ("F", "C") else word
+    word = _UNIT_ALIASES.get(word, word)
+    word = word.rstrip("s") if len(word) > 2 and word not in ("mcg",) else word
+    return _UNIT_ALIASES.get(word, word)
+
+
+def _facts(text: str) -> set[tuple]:
+    found = set()
+    for m in _NUMBER_UNIT.finditer(text):
+        unit = _unit_word(m.group("u"))
+        found.update(("n", token, unit) for token in number_tokens(m.group("n")))
+    for m in _RANGE.finditer(text):
+        unit = _unit_word(m.group("u")) if m.group("u") else None
+        for a in number_tokens(m.group("a")):
+            for b in number_tokens(m.group("b")):
+                found.add(("r", a, b, None))
+                if unit:
+                    found.add(("r", a, b, unit))
+                    found.update(("n", t, unit) for t in (a, b))
     return found
 
 
@@ -779,7 +829,7 @@ def _unit(raw: str, text: str, lexicon: Optional[DrugLexicon],
         frozenset(number_tokens(cleaned) | erased_numerals(raw)),
         _with_equivalents(lexicon.find(clean_text(drug_text or text)), lexicon) if lexicon
         else frozenset(),
-        frozenset(_thresholds(cleaned)))
+        frozenset(_thresholds(cleaned)), frozenset(_facts(cleaned)))
 
 
 def _grounding_units(e: Evidence, lexicon: Optional[DrugLexicon]) -> list[_GroundingUnit]:
@@ -890,16 +940,22 @@ def _check_statements(text: str, cited: dict[int, Evidence], evidence: dict[int,
         if not need:
             continue
         wanted = _thresholds(sentence)
+        wanted_facts = _facts(sentence)
 
-        def usable(units):
-            return [u for u in units if wanted <= u.thresholds]
+        def held(u):
+            """The tokens `u` may ground here: not one whose threshold, unit
+            word or range this statement states and `u` does not."""
+            lost = {t for pair in wanted - u.thresholds for t in pair[1:]}
+            for fact in wanted_facts - u.facts:
+                lost.update(fact[1:3] if fact[0] == "r" else fact[1:2])
+            return u.tokens - lost
 
         if drugs:
-            groups = [[u.tokens for u in usable(fine) if u.drugs & _with_equivalents({d}, lexicon)]
+            groups = [[held(u) for u in fine if u.drugs & _with_equivalents({d}, lexicon)]
                       for d in drugs]
             if not _covers(need, groups):
                 raise ValueError(_drug_binding_error(sentence, drugs, need, evidence, lexicon))
-        elif not _covers(need, [[u.tokens for u in usable(coarse)]]):
+        elif not _covers(need, [[held(u) for u in coarse]]):
             where = [n for n, e in cited.items()
                      if need & set().union(*(u.tokens for u in _grounding_units(e, lexicon)))]
             raise ValueError(
