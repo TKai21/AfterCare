@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   answered_at DATETIME NULL,
   doctor_id INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  asked_count INT NOT NULL DEFAULT 1,                     -- times the patient asked this same open question
+  last_asked_at DATETIME NULL,                            -- when it was last asked again
   PRIMARY KEY (id),
   KEY ix_care_team_questions_user_id (user_id),
   KEY ix_care_team_questions_doctor_id (doctor_id),

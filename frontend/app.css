@@ -2255,6 +2255,7 @@ textarea.composer-input:focus { box-shadow: none; }
 .doctor-list > .card + .card { border-top: 1px solid var(--border); }
 .doctor-card { padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .doctor-meta { color: var(--text-muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.doctor-asked-count { font-size: 12.5px; }
 .doctor-meta-label { font-weight: 650; color: var(--text); }
 .doctor-question {
   font-family: var(--font-display);

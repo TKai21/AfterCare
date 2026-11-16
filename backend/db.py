@@ -55,6 +55,8 @@ ADDED_COLUMNS = (
     ("care_team_questions", "asked", "TEXT NULL"),
     ("care_team_questions", "patient_reply", "TEXT NULL"),
     ("care_team_questions", "stopped_by", "VARCHAR(100) NULL"),
+    ("care_team_questions", "asked_count", "INT NOT NULL DEFAULT 1"),
+    ("care_team_questions", "last_asked_at", "DATETIME NULL"),
 )
 
 

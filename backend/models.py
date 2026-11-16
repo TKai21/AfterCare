@@ -166,6 +166,10 @@ class CareTeamQuestion(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # The patient asking the same open question again bumps this row instead of
+    # adding a copy; last_asked_at is when it was last asked.
+    asked_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_asked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class VoiceClip(Base):

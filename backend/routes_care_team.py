@@ -1,3 +1,5 @@
+import re
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -35,10 +37,34 @@ def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = Non
         "answered_at": q.answered_at.isoformat() if q.answered_at else None,
         "created_at": q.created_at.isoformat() if q.created_at else None,
         "document_id": q.document_id,
+        "asked_count": q.asked_count or 1,
     }
     if voices and q.id in voices:
         result["voice"] = voices[q.id]
     return result
+
+
+_SPACES = re.compile(r"\s+")
+_TRAILING = re.compile(r"[\s.,;:!?\u3002\uff01\uff1f]+$")
+
+
+def normalize_question(text: str) -> str:
+    """The text two asks of the same question share: case, spacing and trailing
+    punctuation do not tell them apart."""
+    return _TRAILING.sub("", _SPACES.sub(" ", text.casefold()).strip())
+
+
+def same_open_question(q: CareTeamQuestion, other: CareTeamQuestion) -> bool:
+    """Whether the doctor would see these two open rows as one question."""
+    return (q.user_id == other.user_id and q.document_id == other.document_id
+            and q.doctor_id == other.doctor_id
+            and normalize_question(q.question) == normalize_question(other.question))
+
+
+def mergeable(q: CareTeamQuestion) -> bool:
+    """An open, unanswered question the doctor can answer in text. Waiting rows
+    belong to the clone's clarify and voice questions carry a clip."""
+    return q.status == "open" and q.answer is None and q.source != "patient_voice"
 
 
 async def add_question(
@@ -56,7 +82,35 @@ async def add_question(
     """Add a question to the user's care-team list. The caller commits.
 
     With dedupe=True, returns None (inserting nothing) when the user already has
-    an open question with the same text and reason for the same doctor."""
+    an open question with the same text and reason for the same doctor.
+
+    A new open question the patient has already asked (same document, same
+    doctor, same text once normalised) and the doctor has not answered is not
+    added again: that row's asked_count goes up and it counts as asked now. The
+    row is returned (None with dedupe=True, which asks only for a new row)."""
+    if status == "open" and source != "patient_voice":
+        candidate = CareTeamQuestion(user_id=user_id, document_id=document_id,
+                                     question=question, doctor_id=doctor_id)
+        rows = await session.scalars(
+            select(CareTeamQuestion).where(
+                CareTeamQuestion.user_id == user_id,
+                CareTeamQuestion.status == "open",
+                CareTeamQuestion.answer.is_(None),
+                CareTeamQuestion.source != "patient_voice",
+                CareTeamQuestion.document_id == document_id
+                if document_id is not None else CareTeamQuestion.document_id.is_(None),
+                CareTeamQuestion.doctor_id == doctor_id
+                if doctor_id is not None else CareTeamQuestion.doctor_id.is_(None),
+            ).order_by(CareTeamQuestion.id.desc())
+        )
+        for row in rows:
+            if same_open_question(row, candidate):
+                row.asked_count = (row.asked_count or 1) + 1
+                row.last_asked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                if asked is not None:
+                    row.asked = asked
+                await session.flush()
+                return None if dedupe else row
     if dedupe:
         existing = await session.scalar(
             select(CareTeamQuestion.id).where(

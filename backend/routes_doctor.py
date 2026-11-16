@@ -30,7 +30,7 @@ from models import (
 )
 from closing import doctor_warning_terms
 from routes_agent import NOT_ANSWERED, recent_history
-from routes_care_team import question_view
+from routes_care_team import mergeable, normalize_question, question_view
 from routes_documents import load_items
 from rules import clear_rules, index_entry, is_suppressed
 from safety import match_terms, warning_terms
@@ -152,13 +152,28 @@ async def list_questions(
             CareTeamQuestion.answer.is_(None),
             mine_or_unassigned,
         )
-        .order_by(CareTeamQuestion.id)
     ))
+    # The same question asked again is one card: the newest row, asked N times.
+    groups: dict[tuple, list[CareTeamQuestion]] = {}
+    for q in open_rows:
+        key = (q.user_id, q.document_id, q.doctor_id,
+               normalize_question(q.question) if mergeable(q) else q.id)
+        groups.setdefault(key, []).append(q)
+    asked_counts: dict[int, int] = {}
+    recency: dict[int, datetime] = {}
+    open_rows = []
+    for members in groups.values():
+        card = max(members, key=lambda r: r.id)
+        asked_counts[card.id] = sum(r.asked_count or 1 for r in members)
+        recency[card.id] = max(
+            t for r in members for t in (r.created_at, r.last_asked_at) if t is not None)
+        open_rows.append(card)
+    open_rows.sort(key=lambda q: (recency[q.id], q.id), reverse=True)
     waiting_rows = list(await session.scalars(
         select(CareTeamQuestion)
         .where(CareTeamQuestion.status == "waiting_on_patient",
                CareTeamQuestion.doctor_id == user.id)
-        .order_by(CareTeamQuestion.id)
+        .order_by(CareTeamQuestion.created_at.desc(), CareTeamQuestion.id.desc())
     ))
     answered_rows = list(await session.scalars(
         select(CareTeamQuestion)
@@ -194,6 +209,7 @@ async def list_questions(
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
         view = question_view(q, names, voices)
+        view["asked_count"] = asked_counts.get(q.id, view["asked_count"])
         view["closed_by_clone"] = (
             q.status == "resolved" and q.answer is not None and q.answered_by is None
             and q.asked is not None)
@@ -375,6 +391,24 @@ async def answer_question(
     if q.source == "patient_voice":
         raise HTTPException(status_code=409, detail="Reply to this voice question with a voice clip.")
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
+    # The same question asked again is answered with this card.
+    ids = [q.id]
+    if mergeable(q):
+        twins = await session.scalars(
+            select(CareTeamQuestion).where(
+                CareTeamQuestion.id != q.id,
+                CareTeamQuestion.user_id == q.user_id,
+                CareTeamQuestion.status == "open",
+                CareTeamQuestion.answer.is_(None),
+                CareTeamQuestion.source != "patient_voice",
+                CareTeamQuestion.document_id == q.document_id
+                if q.document_id is not None else CareTeamQuestion.document_id.is_(None),
+                CareTeamQuestion.doctor_id == q.doctor_id
+                if q.doctor_id is not None else CareTeamQuestion.doctor_id.is_(None),
+            )
+        )
+        wanted = normalize_question(q.question)
+        ids += [t.id for t in twins if normalize_question(t.question) == wanted]
     # Only one concurrent answer can match "answer IS NULL" and win.
     result = await session.execute(
         update(CareTeamQuestion)
@@ -391,6 +425,19 @@ async def answer_question(
     if result.rowcount != 1:
         await session.rollback()
         raise HTTPException(status_code=409, detail="This question already has an answer.")
+    if len(ids) > 1:
+        await session.execute(
+            update(CareTeamQuestion)
+            .where(CareTeamQuestion.id.in_(ids[1:]), CareTeamQuestion.answer.is_(None))
+            .values(
+                answer=body.answer,
+                answered_by=doctor.id,
+                doctor_id=func.coalesce(CareTeamQuestion.doctor_id, doctor.id),
+                answered_at=utcnow(),
+                status="answered",
+            )
+            .execution_options(synchronize_session=False)
+        )
     if body.draft_id is not None:
         draft = await session.get(AnswerDraft, body.draft_id)
         if (draft is not None and draft.question_id == q.id and draft.doctor_id == doctor.id

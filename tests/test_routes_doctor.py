@@ -85,7 +85,7 @@ async def test_queue_question_without_document_has_no_document_context(client):
     assert item["context"]["confirmed_items"] == []
 
 
-async def test_queue_open_oldest_first_answered_newest_first(client, fake_llm):
+async def test_queue_open_and_answered_newest_first_newest_first(client, fake_llm):
     h = await auth_headers(client)
     doc = (await upload_text(client, h, fake_llm)).json()
     for item in doc["items"]:
@@ -93,12 +93,12 @@ async def test_queue_open_oldest_first_answered_newest_first(client, fake_llm):
     ids = sorted(q["id"] for q in (await client.get("/api/care-team", headers=h)).json()["questions"])
     dh = await doctor_headers(client)
     data = (await client.get("/api/doctor/questions", headers=dh)).json()
-    assert [q["id"] for q in data["open"]] == ids
+    assert [q["id"] for q in data["open"]] == ids[::-1]
     for qid in ids[:2]:
         assert (await client.post(f"/api/doctor/questions/{qid}/answer", headers=dh,
                                   json=answer_body())).status_code == 200
     data = (await client.get("/api/doctor/questions", headers=dh)).json()
-    assert [q["id"] for q in data["open"]] == ids[2:]
+    assert [q["id"] for q in data["open"]] == ids[2:][::-1]
     assert [q["id"] for q in data["answered"]] == [ids[1], ids[0]]
     assert data["answered"][0]["answered_by_name"] == "Dr. Ting Kai"
 
@@ -518,10 +518,10 @@ async def test_queue_shows_own_and_unassigned_only(client, fake_llm):
         s.add(CareTeamQuestion(user_id=alice_id, question="For anyone?", reason="r", source="agent"))
         await s.commit()
     data = (await client.get("/api/doctor/questions", headers=ha)).json()
-    assert [q["question"] for q in data["open"]] == ["For A?", "For anyone?"]
-    assert data["open"][0]["doctor_name"] == "Dr. A"
+    assert [q["question"] for q in data["open"]] == ["For anyone?", "For A?"]
+    assert data["open"][1]["doctor_name"] == "Dr. A"
     data = (await client.get("/api/doctor/questions", headers=hb)).json()
-    assert [q["question"] for q in data["open"]] == ["For B?", "For anyone?"]
+    assert [q["question"] for q in data["open"]] == ["For anyone?", "For B?"]
 
 
 async def test_answering_unassigned_assigns_it(client, fake_llm):

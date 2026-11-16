@@ -153,6 +153,11 @@ function generalHtml(q, d) {
     </div>`;
 }
 
+function askedCountHtml(q) {
+  const n = Number(q.asked_count) || 1;
+  return n > 1 ? ` &middot; <span class="doctor-asked-count">Asked ${esc(String(n))} times</span>` : '';
+}
+
 // Open and answered cards. Answering assigns a question, so an answered card
 // never shows "Unassigned".
 function metaLabelsHtml(q) {
@@ -240,7 +245,7 @@ function openCardHtml(q) {
   const handoff = !!q.asked;
   return `
     <li class="card doctor-card" data-id="${q.id}">
-      <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${metaLabelsHtml(q)}</p>
+      <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${askedCountHtml(q)}${metaLabelsHtml(q)}</p>
       ${questionHtml(q)}
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
       ${handoff ? threadHtml(q) : ''}
