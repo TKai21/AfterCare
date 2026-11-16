@@ -105,6 +105,17 @@ def rules_usable(entry: DoctorGuidance, rules: list[GuidanceRule], model: str) -
     )
 
 
+def select_hits(scored: list[tuple[Unit, float]], floor: float, margin: float,
+                limit: int) -> list[tuple[Unit, float]]:
+    """Best first, at most `limit`, keeping a hit only when its score is at
+    least `floor` and at least `margin` below the best score at most."""
+    ranked = sorted(scored, key=lambda pair: pair[1], reverse=True)
+    if not ranked:
+        return []
+    cutoff = max(floor, ranked[0][1] - margin)
+    return [pair for pair in ranked if pair[1] >= cutoff][:limit]
+
+
 async def retrieve(
     session: AsyncSession,
     llm,
@@ -112,9 +123,10 @@ async def retrieve(
     document: DischargeDocument,
     items: list[ExtractedItem],
     query: str,
-    min_similarity: float,
     *,
     doctor_id: int,
+    floor: float,
+    margin: float,
     limit: int = 6,
 ) -> list[tuple[Unit, float]]:
     """The best matching guidance of one doctor that may be used for this
@@ -122,7 +134,9 @@ async def retrieve(
     clone never sees another doctor's advice.
 
     The gate runs on entries first; only then are an eligible entry's rules
-    scored (RuleHit), or the entry itself when it has no usable rules."""
+    scored (RuleHit), or the entry itself when it has no usable rules. A hit
+    must score at least `floor` and no more than `margin` below the best score;
+    at most `limit` are returned, best first."""
     rows = (
         await session.scalars(
             select(DoctorGuidance).where(
@@ -163,16 +177,15 @@ async def retrieve(
             hits = []
             for rule in rules:
                 score = _cosine(rule.embedding, query_vec, query_norm)
-                if score is not None and score >= min_similarity:
+                if score is not None:
                     hits.append((RuleHit(row, rule), score))
             hits.sort(key=lambda pair: pair[1], reverse=True)
             scored.extend(hits[:RULES_PER_ENTRY])
         else:
             score = _cosine(row.embedding, query_vec, query_norm)
-            if score is not None and score >= min_similarity:
+            if score is not None:
                 scored.append((row, score))
-    scored.sort(key=lambda pair: pair[1], reverse=True)
-    return scored[:limit]
+    return select_hits(scored, floor, margin, limit)
 
 
 def unit_entry(unit: Unit) -> DoctorGuidance:

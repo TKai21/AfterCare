@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import guidance_title, number_tokens
+from config import Settings
 from documents import paragraphs
 from guidance import RuleHit, retrieve
 from knowledge import KnowledgeError
@@ -76,7 +77,7 @@ def same_text(a: str, b: str) -> bool:
 
 
 async def build_context(session: AsyncSession, llm, store, q: CareTeamQuestion,
-                        doctor: User, doctor_name: str, min_similarity: float,
+                        doctor: User, doctor_name: str, settings: Settings,
                         rxcuis: frozenset[str]) -> DraftContext:
     """Numbered evidence for drafting an answer to `q`. The doctor's guidance
     goes through the clone's own gate for this patient and document."""
@@ -88,8 +89,9 @@ async def build_context(session: AsyncSession, llm, store, q: CareTeamQuestion,
         patient = await session.get(User, q.user_id)
         items = list(await session.scalars(
             select(ExtractedItem).where(ExtractedItem.document_id == doc.id)))
-        hits = await retrieve(session, llm, patient, doc, items, q.question, min_similarity,
-                              doctor_id=doctor.id)
+        hits = await retrieve(session, llm, patient, doc, items, q.question, doctor_id=doctor.id,
+                              floor=settings.guidance_floor, margin=settings.guidance_margin,
+                              limit=settings.guidance_top_k)
         for unit, _score in hits:
             if isinstance(unit, RuleHit):
                 ctx.add("doctor", guidance_title(doctor_name, unit.entry), unit.rule.quote)

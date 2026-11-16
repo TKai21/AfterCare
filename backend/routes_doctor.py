@@ -539,7 +539,7 @@ async def draft_answer(
     try:
         ctx = await build_context(
             session, llm, request.app.state.store, q, doctor, name,
-            request.app.state.settings.guidance_min_similarity,
+            request.app.state.settings,
             await patient_rxcuis(session, q.document_id),
         )
         draft = await write_draft(session, llm, q, doctor, name, ctx)

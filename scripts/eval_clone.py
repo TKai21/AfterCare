@@ -495,7 +495,9 @@ def _following_section(following: dict, retrieval: dict | None) -> list[str]:
     dims = {r["case"]: r["dimension"] for r in rows}
     misses = sum(not r["own"] for r in rows)
     md += [f"Whether `guidance.retrieve` on the case question itself (the prefetch before the first model "
-           f"call; floor {retrieval['floor']}, top {retrieval['limit']}) returns at least one entry of the "
+           f"call; floor {retrieval['floor']}"
+           + (f", margin {retrieval['margin']}" if "margin" in retrieval else "")
+           + f", top {retrieval['limit']}) returns at least one entry of the "
            "case's dimension. The clone may still find one with its own search_doctor_guidance queries.", "",
            f"{misses} of {len(rows)} case-doctor pairs retrieve no entry of their own dimension.", "",
            "| Case | Dimension | " + " | ".join(u for u, _, _ in DOCTORS) + " |",
@@ -669,7 +671,7 @@ def agreement(sheet: Path, key: Path) -> dict:
 
 # ---------------------------------------------------------------- retrieval check
 
-# The prefetch calls `retrieve` without a limit; the check uses the same one.
+# The default top K (Settings.guidance_top_k, retrieve's `limit`); the check uses the configured one.
 RETRIEVAL_LIMIT = inspect.signature(retrieve).parameters["limit"].default
 
 
@@ -679,10 +681,11 @@ def unit_entry(unit) -> DoctorGuidance:
 
 
 async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, patients: list[dict] | None = None,
-                          memory: dict | None = None) -> list[dict]:
+                          memory: dict | None = None, floor: float | None = None,
+                          margin: float | None = None) -> list[dict]:
     """For every D1-D4 case and every doctor, what `guidance.retrieve` returns
-    for the case question (the guidance gate, the configured similarity floor,
-    the prefetch's limit) in a world built as a run builds it. A hit is a rule
+    for the case question (the guidance gate, the configured floor and margin
+    unless `floor` and `margin` are given, the configured top K) in a world built as a run builds it. A hit is a rule
     or a whole entry, named by its entry's dimension. Each row: case,
     dimension, doctor, hits [(dimension, score)], and own (whether a hit of the
     case's dimension was retrieved). The world is built with the chat model
@@ -690,6 +693,8 @@ async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, pat
     cases = load("cases") if cases is None else cases
     patients = load("patients") if patients is None else patients
     memory = load("memory") if memory is None else memory
+    floor = settings.guidance_floor if floor is None else floor
+    margin = settings.guidance_margin if margin is None else margin
     rows = []
     async with temporary_world(settings, llm, patients, memory) as (_, session, world):
         dimension_of = {(username, e["question"], e["answer"]): e["dimension"]
@@ -702,8 +707,8 @@ async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, pat
             items = list(await session.scalars(select(ExtractedItem).where(ExtractedItem.document_id == doc.id)))
             for username, _, _ in DOCTORS:
                 found = await retrieve(session, llm, user, doc, items, case["question"],
-                                       settings.guidance_min_similarity, doctor_id=world.doctors[username],
-                                       limit=RETRIEVAL_LIMIT)
+                                       doctor_id=world.doctors[username], floor=floor, margin=margin,
+                                       limit=settings.guidance_top_k)
                 hits = [(dimension_of[(username, unit_entry(unit).question, unit_entry(unit).answer)],
                          round(score, 3))
                         for unit, score in found]
@@ -712,8 +717,8 @@ async def retrieval_check(settings, llm, *, cases: list[dict] | None = None, pat
     return rows
 
 
-def format_retrieval(rows: list[dict], floor: float) -> str:
-    lines = [f"Guidance retrieval per case and doctor (floor {floor}, top {RETRIEVAL_LIMIT}):"]
+def format_retrieval(rows: list[dict], floor: float, margin: float, limit: int) -> str:
+    lines = [f"Guidance retrieval per case and doctor (floor {floor}, margin {margin}, top {limit}):"]
     for r in rows:
         hits = ", ".join(f"{d} {s:.3f}" for d, s in r["hits"]) or "nothing"
         lines.append(f"{r['case']} {r['dimension']} {r['doctor']}: {hits}" + ("" if r["own"] else "  MISS"))
@@ -919,9 +924,10 @@ def _retrieval_check(path: Path) -> int:
         rows = asyncio.run(retrieval_check(settings, LLMClient(settings)))
     except LLMError as exc:
         return _fail(str(exc))
-    print(format_retrieval(rows, settings.guidance_min_similarity))
+    print(format_retrieval(rows, settings.guidance_floor, settings.guidance_margin, settings.guidance_top_k))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"floor": settings.guidance_min_similarity, "limit": RETRIEVAL_LIMIT,
+    path.write_text(json.dumps({"floor": settings.guidance_floor, "margin": settings.guidance_margin,
+                                "limit": settings.guidance_top_k,
                                 "embedding_model": settings.embedding_model, "rows": rows}, indent=2) + "\n",
                     encoding="utf-8")
     print(f"Saved {path}; the report reads it from there.")

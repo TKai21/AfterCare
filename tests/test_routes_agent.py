@@ -721,7 +721,7 @@ async def test_prefetch_failure_still_answers_and_saves_the_turn(client, fake_ll
     searched = []
 
     async def failing(session, *args, **kwargs):
-        searched.append(args[-2])
+        searched.append(args[-1])
         await broken_retrieve(session)
 
     monkeypatch.setattr("routes_agent.retrieve", failing)

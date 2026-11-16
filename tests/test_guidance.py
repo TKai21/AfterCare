@@ -1,7 +1,10 @@
+import os
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
+from config import Settings, get_settings
 from db import init_db, make_engine, make_session_factory
 from fake_llm import FakeLLM
 from guidance import embed_entry, eligible, patient_text, retrieve, tag_names
@@ -98,11 +101,11 @@ async def test_retrieve_scope_and_document(session):
         document_id=d1.id, question="Can I drink coffee?", answer="Yes, coffee is fine.",
     )
     q = "coffee"
-    got = await retrieve(session, llm, a, d1, [], q, 0.1, doctor_id=doc.id)
+    got = await retrieve(session, llm, a, d1, [], q, floor=0.1, margin=1.0, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [e.id]
     assert got[0][1] > 0.1
-    assert await retrieve(session, llm, b, d1, [], q, 0.1, doctor_id=doc.id) == []
-    assert await retrieve(session, llm, a, d2, [], q, 0.1, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, b, d1, [], q, floor=0.1, margin=1.0, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d2, [], q, floor=0.1, margin=1.0, doctor_id=doc.id) == []
 
 
 async def test_retrieve_general_uses_gate_and_ranks(session):
@@ -112,9 +115,9 @@ async def test_retrieve_general_uses_gate_and_ranks(session):
                      question="colchicine diarrhea", answer="reduce dose")
     await add(session, llm, doctor_id=doc.id, drug_tags=["warfarin"],
               question="colchicine diarrhea", answer="reduce dose")
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=doc.id)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", floor=0.1, margin=1.0, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [good.id]
-    assert await retrieve(session, llm, a, d1, [], "unrelated zebra", 0.5, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d1, [], "unrelated zebra", floor=0.5, margin=1.0, doctor_id=doc.id) == []
 
 
 async def test_retrieve_orders_best_first_and_limits(session):
@@ -124,11 +127,11 @@ async def test_retrieve_orders_best_first_and_limits(session):
                     question="colchicine diarrhea water", answer="more words here")
     near = await add(session, llm, doctor_id=doc.id, drug_tags=["colchicine"],
                      question="colchicine diarrhea", answer="")
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0, doctor_id=doc.id)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", floor=0.0, margin=1.0, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [near.id, far.id]
     assert got[0][1] >= got[1][1]
-    assert len(await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.0,
-                              doctor_id=doc.id, limit=1)) == 1
+    assert len(await retrieve(session, llm, a, d1, [], "colchicine diarrhea",
+                              floor=0.0, margin=1.0, doctor_id=doc.id, limit=1)) == 1
 
 
 async def test_retrieve_skips_retired_unembedded_and_other_model(session):
@@ -141,7 +144,7 @@ async def test_retrieve_skips_retired_unembedded_and_other_model(session):
     old = await add(session, llm, **common)
     old.embedding_model = "old"
     await session.flush()
-    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d1, [], "coffee", floor=0.0, margin=1.0, doctor_id=doc.id) == []
 
 
 async def test_retrieve_skips_mismatched_vector_length(session):
@@ -151,7 +154,7 @@ async def test_retrieve_skips_mismatched_vector_length(session):
                   document_id=d1.id, question="coffee", answer="coffee")
     e.embedding = [1.0, 0.0]
     await session.flush()
-    assert await retrieve(session, llm, a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d1, [], "coffee", floor=0.0, margin=1.0, doctor_id=doc.id) == []
 
 
 class FailingLLM(FakeLLM):
@@ -178,7 +181,7 @@ async def test_failed_embedding_is_sql_null_and_skipped(session):
         text("select embedding is null from doctor_guidance where id = :i"), {"i": e.id}
     )).one()
     assert row[0] == 1
-    assert await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0, doctor_id=doc.id) == []
+    assert await retrieve(session, FakeLLM(), a, d1, [], "coffee", floor=0.0, margin=1.0, doctor_id=doc.id) == []
 
 
 async def test_retrieve_only_own_doctor(session):
@@ -193,13 +196,94 @@ async def test_retrieve_only_own_doctor(session):
     theirs = await add(session, llm, doctor_id=other.id, **common)
     own = await add(session, llm, doctor_id=other.id, scope="patient", patient_id=a.id,
                     document_id=d1.id, question="colchicine diarrhea", answer="reduce dose")
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=doc.id)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", floor=0.1, margin=1.0, doctor_id=doc.id)
     assert [g.id for g, _ in got] == [mine.id]
-    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", 0.1, doctor_id=other.id)
+    got = await retrieve(session, llm, a, d1, [], "colchicine diarrhea", floor=0.1, margin=1.0, doctor_id=other.id)
     assert sorted(g.id for g, _ in got) == sorted([theirs.id, own.id])
 
 
 async def test_retrieve_requires_a_doctor_id(session):
     (doc, a, b), (d1, d2) = await seed(session)
     with pytest.raises(TypeError):
-        await retrieve(session, FakeLLM(), a, d1, [], "coffee", 0.0)
+        await retrieve(session, FakeLLM(), a, d1, [], "coffee", floor=0.0, margin=1.0)
+
+
+class VectorLLM(FakeLLM):
+    """Every query embeds to the unit x vector, so an entry's score is the x of its own unit vector."""
+    def __init__(self):
+        super().__init__("vec")
+
+    async def embed(self, texts):
+        return [[1.0, 0.0] for _ in texts]
+
+
+async def scored_entries(session, scores):
+    llm = VectorLLM()
+    (doc, a, _), (d1, _) = await seed(session)
+    for i, score in enumerate(scores):
+        session.add(entry(doctor_id=doc.id, drug_tags=["colchicine"], question=f"q{i}", answer=f"a{i}",
+                          embedding=[score, (1 - score ** 2) ** 0.5], embedding_model="vec"))
+    await session.flush()
+    return llm, doc, a, d1
+
+
+async def test_margin_drops_hits_far_below_the_best(session):
+    llm, doc, a, d1 = await scored_entries(session, [0.40, 0.38, 0.20])
+    got = await retrieve(session, llm, a, d1, [], "q", floor=0.1, margin=0.1, doctor_id=doc.id)
+    assert [round(s, 2) for _, s in got] == [0.40, 0.38]
+
+
+async def test_floor_still_applies(session):
+    llm, doc, a, d1 = await scored_entries(session, [0.08, 0.07])
+    assert await retrieve(session, llm, a, d1, [], "q", floor=0.1, margin=0.1, doctor_id=doc.id) == []
+
+
+async def test_margin_is_measured_from_the_best_even_when_it_is_the_only_hit_above_the_floor(session):
+    llm, doc, a, d1 = await scored_entries(session, [0.30, 0.25, 0.05])
+    got = await retrieve(session, llm, a, d1, [], "q", floor=0.1, margin=0.2, doctor_id=doc.id)
+    assert [round(s, 2) for _, s in got] == [0.30, 0.25]
+
+
+@pytest.mark.xfail(strict=True, reason="GuidanceRule.kind arrives with the habits task")
+async def test_habit_rules_are_never_retrieved(session):
+    from models import GuidanceRule
+    llm = VectorLLM()
+    (doc, a, _), (d1, _) = await seed(session)
+    e = entry(doctor_id=doc.id, drug_tags=["colchicine"], embedding=[0.1, 0.99], embedding_model="vec",
+              rules_status="ready")
+    session.add(e)
+    await session.flush()
+    session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=0, statement="habit", quote="habit", kind="habit",
+                             embedding=[1.0, 0.0], embedding_model="vec"))
+    session.add(GuidanceRule(guidance_id=e.id, doctor_id=doc.id, position=1, statement="advice", quote="advice", kind="advice",
+                             embedding=[0.5, 0.87], embedding_model="vec"))
+    await session.flush()
+    got = await retrieve(session, llm, a, d1, [], "q", floor=0.0, margin=1.0, doctor_id=doc.id)
+    assert [u.rule.statement for u, _ in got] == ["advice"]
+
+
+@pytest.fixture
+def clean_settings_cache():
+    saved = dict(os.environ)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+    os.environ.clear()
+    os.environ.update(saved)
+
+
+def test_old_env_name_sets_the_floor(monkeypatch, clean_settings_cache):
+    monkeypatch.delenv("GUIDANCE_FLOOR", raising=False)
+    monkeypatch.setenv("GUIDANCE_MIN_SIMILARITY", "0.33")
+    assert get_settings().guidance_floor == 0.33
+    get_settings.cache_clear()
+    monkeypatch.setenv("GUIDANCE_FLOOR", "0.2")  # the new name wins
+    assert get_settings().guidance_floor == 0.2
+
+
+def test_margin_and_top_k_come_from_the_environment(monkeypatch, clean_settings_cache):
+    monkeypatch.setenv("GUIDANCE_MARGIN", "0.07")
+    monkeypatch.setenv("GUIDANCE_TOP_K", "4")
+    settings = get_settings()
+    assert settings.guidance_margin == 0.07 and settings.guidance_top_k == 4
+    assert Settings().guidance_top_k == 6

@@ -23,7 +23,12 @@ class Settings:
     embedding_api_key: str = ""
     rag_db_path: str = "knowledge/index.sqlite3"
     rag_min_similarity: float = 0.25
-    guidance_min_similarity: float = 0.45
+    # Doctor guidance retrieval keeps the top `guidance_top_k` rules scoring at
+    # least `guidance_floor` and within `guidance_margin` of the best score.
+    # Chosen by scripts/sweep_guidance_floor.py on the calibration split.
+    guidance_floor: float = 0.30
+    guidance_margin: float = 0.25
+    guidance_top_k: int = 6
     foods_path: str = "data/foods.json"
     # Dev only: answer RxNav and DailyMed from the recorded demo/labels fixtures.
     label_fixtures: bool = False
@@ -70,9 +75,12 @@ def get_settings() -> Settings:
         embedding_api_key=env.get("EMBEDDING_API_KEY", env.get("LLM_API_KEY", "")),
         rag_db_path=env.get("RAG_DB_PATH", defaults.rag_db_path),
         rag_min_similarity=float(env.get("RAG_MIN_SIMILARITY", defaults.rag_min_similarity)),
-        guidance_min_similarity=float(
-            env.get("GUIDANCE_MIN_SIMILARITY", defaults.guidance_min_similarity)
+        # GUIDANCE_MIN_SIMILARITY, the floor's old name, still works when GUIDANCE_FLOOR is unset.
+        guidance_floor=float(
+            env.get("GUIDANCE_FLOOR") or env.get("GUIDANCE_MIN_SIMILARITY") or defaults.guidance_floor
         ),
+        guidance_margin=float(env.get("GUIDANCE_MARGIN") or defaults.guidance_margin),
+        guidance_top_k=int(env.get("GUIDANCE_TOP_K") or defaults.guidance_top_k),
         foods_path=env.get("FOODS_PATH", defaults.foods_path),
         label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
         rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),

@@ -147,11 +147,11 @@ async def test_retrieve_scores_rules_and_falls_back_to_whole_entries(session):
                          "Walk for 20 minutes after dinner.", drugs=("naproxen",))
     await rules.build_rules(session, llm, long)
     whole = await general(session, llm, doc, COLCHICINE, rules_status="failed")
-    hits = await retrieve(session, llm, a, d, [], "naproxen food", 0.1, doctor_id=doc.id)
+    hits = await retrieve(session, llm, a, d, [], "naproxen food", floor=0.1, margin=1.0, doctor_id=doc.id)
     top, _ = hits[0]
     assert isinstance(top, RuleHit) and top.rule.quote == "Take naproxen with food."
     assert top.entry.id == long.id
-    hits = await retrieve(session, llm, a, d, [], "colchicine diarrhea", 0.1, doctor_id=doc.id)
+    hits = await retrieve(session, llm, a, d, [], "colchicine diarrhea", floor=0.1, margin=1.0, doctor_id=doc.id)
     assert any(unit is whole for unit, _ in hits)
 
 
@@ -161,7 +161,7 @@ async def test_retrieve_caps_rules_per_entry(session):
     e = await general(session, llm, doc, " ".join(
         f"Colchicine note {i} for gout." for i in range(6)))
     await rules.build_rules(session, llm, e)
-    hits = await retrieve(session, llm, a, d, [], "colchicine note gout", 0.0, doctor_id=doc.id)
+    hits = await retrieve(session, llm, a, d, [], "colchicine note gout", floor=0.0, margin=1.0, doctor_id=doc.id)
     assert len(hits) == 3 and all(isinstance(u, RuleHit) for u, _ in hits)
 
 
@@ -170,7 +170,7 @@ async def test_rules_never_bypass_the_gate(session):
     (doc, a, *_), d = await seed(session)
     e = await general(session, llm, doc, "Warfarin: avoid kale.", drugs=("warfarin",))
     await rules.build_rules(session, llm, e)
-    assert await retrieve(session, llm, a, d, [], "warfarin kale", 0.0, doctor_id=doc.id) == []
+    assert await retrieve(session, llm, a, d, [], "warfarin kale", floor=0.0, margin=1.0, doctor_id=doc.id) == []
 
 
 async def test_stale_rule_embeddings_fall_back_to_the_entry(session):
@@ -180,7 +180,7 @@ async def test_stale_rule_embeddings_fall_back_to_the_entry(session):
     await rules.build_rules(session, llm, e)
     for r in await session.scalars(select(GuidanceRule)):
         r.embedding_model = "an-older-model"
-    hits = await retrieve(session, llm, a, d, [], "colchicine", 0.0, doctor_id=doc.id)
+    hits = await retrieve(session, llm, a, d, [], "colchicine", floor=0.0, margin=1.0, doctor_id=doc.id)
     assert [unit for unit, _ in hits] == [e]
 
 

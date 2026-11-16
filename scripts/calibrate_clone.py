@@ -30,6 +30,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -202,21 +203,20 @@ async def add_history(app, llm) -> None:
             print(f"  history: {e['doctor']}: {e['question'][:60]} -> rules {entry.rules_status}")
 
 
-async def run_questions(questions: list[dict]):
-    import httpx
-    from sqlalchemy import delete, select
-
-    import seed_demo
+@asynccontextmanager
+async def history_world():
+    """The calibration world: a temporary database seeded with the demo
+    patients and the doctors' history (read into rules by the real chat model),
+    and a temporary copy of the library index. Yields (app, llm, settings)
+    with the app's lifespan running and the confidence gate off."""
     from app import create_app
-    from config import get_settings
+    import seed_demo
     from llm import LLMClient
-    from models import ChatMessage, DischargeDocument, User
 
     settings = get_settings()
     if not settings.llm_model:
         raise SystemExit("Set LLM_MODEL (and the API key) in .env first.")
     llm = LLMClient(settings)
-    runs: list[dict] = []
     with tempfile.TemporaryDirectory() as scratch:
         url = f"sqlite+aiosqlite:///{Path(scratch) / 'eval.sqlite3'}"
         index = Path(settings.rag_db_path)
@@ -234,45 +234,56 @@ async def run_questions(questions: list[dict]):
             # own code path, and none is held back (a verifier failure still is).
             app.state.clone_threshold = 0.0
             await add_history(app, llm)
-            async with app.state.session_factory() as session:
-                users = {u.username: u for u in await session.scalars(select(User))}
-                docs = {d.active_user_id: d.id for d in await session.scalars(select(DischargeDocument))
-                        if d.active_user_id}
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://eval", timeout=180) as client:
-                tokens = {}
-                for name, password in PASSWORDS.items():
-                    resp = await client.post("/api/login", json={"username": name, "password": password})
-                    resp.raise_for_status()
-                    tokens[name] = resp.json()["token"]
-                for i, item in enumerate(questions, 1):
-                    patient = users[item["patient"]]
-                    async with app.state.session_factory() as session:  # each question starts fresh
-                        await session.execute(delete(ChatMessage).where(
-                            ChatMessage.document_id == docs[patient.id]))
-                        await session.commit()
-                    resp = await client.post(
-                        "/api/ask", headers={"Authorization": f"Bearer {tokens[item['patient']]}"},
-                        json={"question": item["question"], "doctor_id": users[item["doctor"]].id})
-                    if resp.status_code != 200:
-                        raise SystemExit(f"{item['id']}: /api/ask returned {resp.status_code}: {resp.text}")
-                    body = resp.json()
-                    run = {**{k: item[k] for k in ("id", "split", "expect", "patient", "doctor", "question", "facts")},
-                           "kind": body["kind"], "answer": body["answer"],
-                           "sources": [s["title"] for s in body["sources"]],
-                           "score": None, "wrong": None, "verdict": None}
-                    if body["kind"] == "answer":
-                        run["score"] = body["confidence"]
-                        if item["expect"] == "escalate":
-                            run["wrong"] = True
-                            run["verdict"] = {"correct": False, "problems": ["answered a question to escalate"]}
-                        else:
-                            verdict = await judge(llm, item["question"], item["facts"], body["answer"])
-                            run["wrong"], run["verdict"] = not verdict["correct"], verdict
-                    print(f"[{i}/{len(questions)}] {item['id']}: {body['kind']}"
-                          + (f", score {run['score']:.2f}, {'WRONG' if run['wrong'] else 'right'}"
-                             if run["score"] is not None else ""))
-                    runs.append(run)
+            yield app, llm, settings
+
+
+async def run_questions(questions: list[dict]):
+    import httpx
+    from sqlalchemy import delete, select
+
+    from models import ChatMessage, DischargeDocument, User
+
+    runs: list[dict] = []
+    async with history_world() as (app, llm, settings):
+        async with app.state.session_factory() as session:
+            users = {u.username: u for u in await session.scalars(select(User))}
+            docs = {d.active_user_id: d.id for d in await session.scalars(select(DischargeDocument))
+                    if d.active_user_id}
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://eval", timeout=180) as client:
+            tokens = {}
+            for name, password in PASSWORDS.items():
+                resp = await client.post("/api/login", json={"username": name, "password": password})
+                resp.raise_for_status()
+                tokens[name] = resp.json()["token"]
+            for i, item in enumerate(questions, 1):
+                patient = users[item["patient"]]
+                async with app.state.session_factory() as session:  # each question starts fresh
+                    await session.execute(delete(ChatMessage).where(
+                        ChatMessage.document_id == docs[patient.id]))
+                    await session.commit()
+                resp = await client.post(
+                    "/api/ask", headers={"Authorization": f"Bearer {tokens[item['patient']]}"},
+                    json={"question": item["question"], "doctor_id": users[item["doctor"]].id})
+                if resp.status_code != 200:
+                    raise SystemExit(f"{item['id']}: /api/ask returned {resp.status_code}: {resp.text}")
+                body = resp.json()
+                run = {**{k: item[k] for k in ("id", "split", "expect", "patient", "doctor", "question", "facts")},
+                       "kind": body["kind"], "answer": body["answer"],
+                       "sources": [s["title"] for s in body["sources"]],
+                       "score": None, "wrong": None, "verdict": None}
+                if body["kind"] == "answer":
+                    run["score"] = body["confidence"]
+                    if item["expect"] == "escalate":
+                        run["wrong"] = True
+                        run["verdict"] = {"correct": False, "problems": ["answered a question to escalate"]}
+                    else:
+                        verdict = await judge(llm, item["question"], item["facts"], body["answer"])
+                        run["wrong"], run["verdict"] = not verdict["correct"], verdict
+                print(f"[{i}/{len(questions)}] {item['id']}: {body['kind']}"
+                      + (f", score {run['score']:.2f}, {'WRONG' if run['wrong'] else 'right'}"
+                         if run["score"] is not None else ""))
+                runs.append(run)
     return runs, settings
 
 

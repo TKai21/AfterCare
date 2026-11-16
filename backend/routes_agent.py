@@ -125,7 +125,7 @@ async def ask(
         # stay loaded (the prefetch can fail before the agent has read them).
         for loaded in (user, doc, *items):
             session.expunge(loaded)
-        min_similarity = request.app.state.settings.guidance_min_similarity
+        settings = request.app.state.settings
         memory_failed = False
 
         async def guidance_search(query: str) -> list[Unit]:
@@ -135,8 +135,9 @@ async def ask(
             if memory_failed:
                 raise GuidanceUnavailable("The guidance memory failed earlier in this turn.")
             try:
-                hits = await retrieve(session, llm, user, doc, items, query, min_similarity,
-                                      doctor_id=doctor_id)
+                hits = await retrieve(session, llm, user, doc, items, query, doctor_id=doctor_id,
+                                      floor=settings.guidance_floor, margin=settings.guidance_margin,
+                                      limit=settings.guidance_top_k)
                 await session.commit()  # no read transaction held across model calls
             except LLMError:
                 await session.commit()

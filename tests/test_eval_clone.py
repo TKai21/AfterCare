@@ -146,7 +146,7 @@ async def test_build_world_memory_reaches_every_patient(tmp_path):
             want_rxcuis = {"colchicine": "2683", "naproxen": "7258"}
             assert await patient_rxcuis(session, doc.id) == {want_rxcuis[d] for d in patient["prescribed"]}
             for username in USERNAMES:
-                hits = await retrieve(session, llm, user, doc, items, "gout flare medicine plan", -1.0,
+                hits = await retrieve(session, llm, user, doc, items, "gout flare medicine plan", floor=-1.0, margin=1.0,
                                       doctor_id=w.doctors[username], limit=100)
                 assert all(isinstance(unit, RuleHit) for unit, _ in hits)
                 assert {eval_clone.unit_entry(u).id for u, _ in hits} == set(w.guidance[username])
@@ -187,7 +187,7 @@ async def test_without_memory_the_doctor_entries_are_inactive(tmp_path):
     llm = FakeLLM()
     # Floor 0: the fake bag-of-words embedding scores a one-sentence rule low,
     # and this test is about the memory switch, not the floor.
-    async with world(tmp_path, llm, guidance_min_similarity=0.0) as (client, session, w):
+    async with world(tmp_path, llm, guidance_floor=0.0) as (client, session, w):
         await eval_clone.set_memory(session, w, "dr.ting", False)
         rows = {r.id: r for r in await session.scalars(
             select(DoctorGuidance).execution_options(populate_existing=True))}
@@ -319,7 +319,7 @@ class CitingLLM(FakeLLM):
 
 async def test_records_name_the_dimension_of_each_cited_entry(tmp_path):
     settings, _, _ = sentinel_settings(tmp_path)
-    settings = replace(settings, guidance_min_similarity=0.0)
+    settings = replace(settings, guidance_floor=0.0)
     records = await eval_clone.run_eval(settings, CitingLLM(), FakeJudge(), repeats=1,
                                         results_path=tmp_path / "r.jsonl", cases=[CASE_D1],
                                         patients=PATIENTS, memory=MEMORY, judge_model="j")
@@ -711,7 +711,7 @@ CASE_D2 = {
 
 async def test_retrieval_check_lists_each_doctors_hits_by_dimension(tmp_path):
     settings, dev, _ = sentinel_settings(tmp_path)
-    settings = replace(settings, guidance_min_similarity=0.0)
+    settings = replace(settings, guidance_floor=0.0)
     before = snapshot(tmp_path)
     rows = await eval_clone.retrieval_check(settings, FakeLLM(), cases=[CASE_D1, CASE_NONE, CASE_D2],
                                             patients=PATIENTS, memory=MEMORY)
@@ -727,7 +727,7 @@ async def test_retrieval_check_lists_each_doctors_hits_by_dimension(tmp_path):
     assert by[("t04", "dr.ting")]["own"] is True
     assert by[("t04", "dr.patel")]["own"] is False and by[("t04", "dr.renny")]["own"] is False
 
-    text = eval_clone.format_retrieval(rows, 0.0)
+    text = eval_clone.format_retrieval(rows, 0.0, 1.0, 6)
     ting_line = next(line for line in text.splitlines() if line.startswith("t01 D1 dr.ting: "))
     assert "D1 " in ting_line and "MISS" not in ting_line and "MISS" in text
     assert "2 of 6 case-doctor pairs retrieve no entry of their own dimension" in text
@@ -735,7 +735,7 @@ async def test_retrieval_check_lists_each_doctors_hits_by_dimension(tmp_path):
 
 async def test_retrieval_check_uses_the_configured_floor(tmp_path):
     settings, _, _ = sentinel_settings(tmp_path)
-    rows = await eval_clone.retrieval_check(replace(settings, guidance_min_similarity=0.999), FakeLLM(),
+    rows = await eval_clone.retrieval_check(replace(settings, guidance_floor=0.999), FakeLLM(),
                                             cases=[CASE_D1], patients=PATIENTS, memory=MEMORY)
     assert all(r["hits"] == [] and r["own"] is False for r in rows)
 
@@ -752,7 +752,8 @@ def test_main_retrieval_check(monkeypatch, tmp_path, capsys):
     assert code in (0, 1) and "case-doctor pairs" in out
     assert ("MISS" in out) == (code == 1)
     saved = json.loads((out_dir / "retrieval.json").read_text())
-    assert saved["floor"] == settings.guidance_min_similarity and saved["limit"] == eval_clone.RETRIEVAL_LIMIT
+    assert saved["floor"] == settings.guidance_floor and saved["margin"] == settings.guidance_margin
+    assert saved["limit"] == settings.guidance_top_k == eval_clone.RETRIEVAL_LIMIT
     assert len(saved["rows"]) == sum(c["dimension"] != "none" for c in CASES) * 3
     assert str(out_dir / "retrieval.json") in out
     monkeypatch.setattr(config, "get_settings", lambda: replace(settings, llm_api_key="", embedding_api_key=""))
