@@ -2,17 +2,17 @@
   "chat_model": "gpt-4o-mini",
   "embedding_model": "text-embedding-3-small",
   "date": "2026-11-16",
-  "review_overrides": 4,
+  "review_overrides": 0,
   "alpha": 0.1,
   "threshold": 0.75,
   "calibration": {
     "n": 47,
-    "risk": 0.0213,
+    "risk": 0.0426,
     "answer_rate": 0.4468,
-    "coverage": 0.6452,
-    "wrong_answers": 1,
+    "coverage": 0.6129,
+    "wrong_answers": 2,
     "escalated": 26,
-    "bound": 0.0417
+    "bound": 0.0625
   },
   "test": {
     "n": 46,

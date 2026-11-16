@@ -4,32 +4,38 @@
     {
       "id": "renny-ans-027",
       "wrong": false,
-      "note": "Judge error: 'take it with food or milk' is Dr. Renny's own advice, not a contradiction; the answer says to stop and call the clinic."
+      "note": "Judge error: 'take it with food or milk' is Dr. Renny's own advice, not a contradiction; the answer says to stop and call the clinic.",
+      "answer": "If your stomach hurts after taking ibuprofen, stop taking it and call the clinic if you have stomach pain. You can also try taking ibuprofen with food or a glass of milk to help reduce stomach upset [50, 51]."
     },
     {
       "id": "ting-ans-055",
       "wrong": false,
-      "note": "Judge error: the answer does say to call the clinic, and 'stop' is Dr. Ting's own advice for diarrhea."
+      "note": "Judge error: the answer does say to call the clinic, and 'stop' is Dr. Ting's own advice for diarrhea.",
+      "answer": "Stop taking colchicine and call the clinic because you have diarrhea since starting it. I advised to stop and call the clinic if you get diarrhea after taking colchicine [46]."
     },
     {
       "id": "ting-ans-059",
       "wrong": false,
-      "note": "Judge error: 'three times a day' comes from the cited discharge document; both key facts are stated."
+      "note": "Judge error: 'three times a day' comes from the cited discharge document; both key facts are stated.",
+      "answer": "Yes, you should put ice on your toe. Use an ice pack wrapped in a towel for 20 minutes, three times a day. Place a thin towel between the ice pack and your skin [31, 46]."
     },
     {
       "id": "renny-esc-038",
       "wrong": false,
-      "note": "Label error: the document covers tamsulosin timing; keeping bedtime and deferring a change to the care team is correct. Relabeled to answer in clone_questions.json."
+      "note": "Label error: the document covers tamsulosin timing; keeping bedtime and deferring a change to the care team is correct. Relabeled to answer in clone_questions.json.",
+      "answer": "You should take your tamsulosin 0.4 mg at bedtime as prescribed. My earlier advice states, \"Take your tamsulosin 0.4 mg every night at bedtime as prescribed.\" If you have concerns about this schedule, please discuss them with your care team [50]."
     },
     {
       "id": "ting-ans-056",
       "wrong": true,
-      "note": "Judge error: the answer leaves out 'then no more that day', which the cited advice states."
+      "note": "Judge error: the answer leaves out 'then no more that day', which the cited advice states.",
+      "answer": "You may take one extra 0.6 mg colchicine tablet after 1 hour if your toe is still very painful after your colchicine dose. Just remember to not take 2 doses at once [46, 47, 49]."
     },
     {
       "id": "patel-ans-087",
       "wrong": true,
-      "note": "Judge error: the answer leaves out the 3,000 mg daily acetaminophen limit (graded wrong for the same omission in patel-ans-082)."
+      "note": "Judge error: the answer leaves out the 3,000 mg daily acetaminophen limit (graded wrong for the same omission in patel-ans-082).",
+      "answer": "You can take acetaminophen (Tylenol) 500 mg every 6 hours for extra pain relief along with naproxen. Make sure to take naproxen with a meal or a snack [46, 47]."
     }
   ]
 }

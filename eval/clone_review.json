@@ -4,22 +4,26 @@
     {
       "id": "renny-ans-013",
       "wrong": false,
-      "note": "Judge error: both key facts are stated; the extra advice (temperature, fluids, when to call) is correct and cited, which the grading rules allow."
+      "note": "Judge error: both key facts are stated; the extra advice (temperature, fluids, when to call) is correct and cited, which the grading rules allow.",
+      "answer": "You should strain all of your urine through the strainer provided and save any stone pieces in the container for your follow-up visit. Additionally, check your temperature every evening for 7 days. If you cannot urinate, call the clinic. Make sure to drink enough fluids to make at least 2.5 liters of urine a day, which usually means about 3 liters (12 cups) of fluid daily, mostly water. If you notice any heavy bleeding or clots, call the clinic [23, 24, 35, 37, 46, 50]."
     },
     {
       "id": "renny-ans-027",
       "wrong": false,
-      "note": "Judge error (same as v1): 'take it with food or milk' is Dr. Renny's own advice, not a contradiction; the answer says to stop and call the clinic."
+      "note": "Judge error (same as v1): 'take it with food or milk' is Dr. Renny's own advice, not a contradiction; the answer says to stop and call the clinic.",
+      "answer": "Stop taking ibuprofen and call the clinic if you have stomach pain. You might also consider taking ibuprofen with food or a glass of milk to help reduce stomach upset [50, 51]."
     },
     {
       "id": "ting-ans-055",
       "wrong": false,
-      "note": "Judge error (same as v1): the answer says to call the clinic, and 'stop' is Dr. Ting's own advice for diarrhea."
+      "note": "Judge error (same as v1): the answer says to call the clinic, and 'stop' is Dr. Ting's own advice for diarrhea.",
+      "answer": "You should stop taking colchicine and call the clinic because diarrhea is a side effect that requires attention. I have sent this question to Dr. Ting Kai for further guidance [46]."
     },
     {
       "id": "ting-ans-059",
       "wrong": false,
-      "note": "Judge error (same as v1): 'three times a day' comes from the cited discharge document; both key facts are stated (a towel between ice and skin)."
+      "note": "Judge error (same as v1): 'three times a day' comes from the cited discharge document; both key facts are stated (a towel between ice and skin).",
+      "answer": "Yes, you should put an ice pack wrapped in a towel on your toe for 20 minutes, three times a day to help reduce swelling and pain [31]."
     }
   ]
 }

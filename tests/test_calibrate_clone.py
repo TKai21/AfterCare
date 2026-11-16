@@ -2,6 +2,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,17 +100,34 @@ async def test_every_history_entry_reaches_its_eval_patient(tmp_path):
 
 
 def test_apply_review_overrides_and_rejects_stale_entries():
-    runs = [dict(run("test", "answer", "answer", 0.9, True), id="a"),
-            dict(run("test", "escalate", "not_covered"), id="b")]
-    out = calibrate_clone.apply_review(runs, [{"id": "a", "wrong": False, "note": "judge error"}])
+    runs = [dict(run("test", "answer", "answer", 0.9, True), id="a", answer="text A"),
+            dict(run("test", "escalate", "not_covered"), id="b", answer="")]
+    out = calibrate_clone.apply_review(runs, [{"id": "a", "wrong": False, "note": "judge error", "answer": "text A"}])
     assert out[0]["wrong"] is False and out[0]["judge_wrong"] is True and out[0]["review"] == "judge error"
     assert runs[0]["wrong"] is True  # the input is not changed
-    for stale in ({"id": "b", "wrong": True, "note": ""}, {"id": "zz", "wrong": True, "note": ""}):
-        try:
+    for stale in ({"id": "b", "wrong": True, "note": "", "answer": ""},
+                  {"id": "zz", "wrong": True, "note": "", "answer": "x"}):
+        with pytest.raises(ValueError):
             calibrate_clone.apply_review(runs, [stale])
-            raise AssertionError("expected a stale review error")
-        except ValueError:
-            pass
+
+
+def test_override_for_a_different_answer_is_stale():
+    runs = [dict(run("test", "answer", "answer", 0.9, True), id="a", answer="new text")]
+    with pytest.raises(ValueError, match=r"a.*stale.*different answer"):
+        calibrate_clone.apply_review(runs, [{"id": "a", "wrong": False, "note": "n", "answer": "old text"}])
+
+
+def test_override_without_an_answer_is_an_error():
+    runs = [dict(run("test", "answer", "answer", 0.9, True), id="a", answer="text")]
+    with pytest.raises(ValueError, match=r"a.*answer"):
+        calibrate_clone.apply_review(runs, [{"id": "a", "wrong": False, "note": "n"}])
+
+
+def test_no_review_flag_keeps_the_judge_verdicts(tmp_path):
+    out = tmp_path / "out"
+    assert calibrate_clone.main(["--from-runs", "--runs", str(ROOT / "eval" / "clone_runs.json"),
+                                 "--no-review", "--out-dir", str(out)]) == 0
+    assert json.loads((out / "clone_calibration.json").read_text())["review_overrides"] == 0
 
 
 def test_review_files_match_their_saved_runs():

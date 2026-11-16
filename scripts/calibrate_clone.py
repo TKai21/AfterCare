@@ -60,7 +60,8 @@ Reply with JSON only: {"correct": true or false, "missing": ["each key fact the 
 
 def apply_review(runs: list[dict], overrides: list[dict]) -> list[dict]:
     """Runs with the human review's verdicts applied. An override for an
-    unanswered question or an unknown id is an error: the review is stale."""
+    unanswered question, an unknown id, or an answer other than the one it
+    judged (its `answer` field) is an error: the review is stale."""
     by_id = {r["id"]: r for r in runs}
     out = [dict(r) for r in runs]
     index = {r["id"]: i for i, r in enumerate(out)}
@@ -68,6 +69,10 @@ def apply_review(runs: list[dict], overrides: list[dict]) -> list[dict]:
         if o["id"] not in by_id or by_id[o["id"]]["kind"] != "answer":
             raise ValueError(f"Review override {o['id']} does not match an answered question.")
         run = out[index[o["id"]]]
+        if "answer" not in o:
+            raise ValueError(f"Review override {o['id']} has no `answer`: it must record the answer it judged.")
+        if o["answer"] != run["answer"]:
+            raise ValueError(f"Review override {o['id']} is stale: it judged a different answer than this run's.")
         run["judge_wrong"], run["wrong"], run["review"] = run["wrong"], bool(o["wrong"]), o["note"]
     return out
 
@@ -298,7 +303,7 @@ async def main_async(args) -> int:
                                     "date": datetime.now(timezone.utc).date().isoformat(),
                                     "runs": runs}, indent=2) + "\n")
     review = Path(args.review)
-    overrides = json.loads(review.read_text())["overrides"] if review.is_file() and not args.limit else []
+    overrides = json.loads(review.read_text())["overrides"] if review.is_file() and not args.limit and not args.no_review else []
     try:
         runs = apply_review(runs, overrides)
         result = calibrate(runs, args.alpha)
@@ -341,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", default=str(OUT_DIR),
                         help="where to write the runs, calibration and figure (default eval/)")
     parser.add_argument("--runs", default=None, help="saved runs for --from-runs (default OUT_DIR/clone_runs.json)")
+    parser.add_argument("--no-review", action="store_true",
+                        help="keep the judge's verdicts as they are (apply no review overrides)")
     parser.add_argument("--review", default=str(REVIEW), help="human review overrides")
     args = parser.parse_args(argv)
     if not args.from_runs:
