@@ -69,6 +69,29 @@ class DrugLexicon:
         return out
 
 
+def prescribed_drug_names(items: Collection, rxcuis: Collection[str],
+                          lexicon: DrugLexicon) -> set[str]:
+    """Drug names the patient takes: active medication items (their text and
+    name, in any brand or ingredient spelling) and the library RxCUIs' names,
+    each with its brand and ingredient equivalents."""
+    found: set[str] = set()
+    for item in items:
+        if item.category != "medication" or item.status == "rejected":
+            continue
+        name = (item.details or {}).get("name")
+        found |= lexicon.find(f"{item.text} {name}" if isinstance(name, str) else item.text)
+    found |= lexicon.names_for_rxcuis(rxcuis)
+    return set().union(found, *(lexicon.equivalents(n) for n in found))
+
+
+def allowed_drug_names(items: Collection, rxcuis: Collection[str], question: str,
+                       lexicon: DrugLexicon) -> set[str]:
+    """Prescribed names plus the drugs the patient named in this turn's question."""
+    asked = lexicon.find(question)
+    return prescribed_drug_names(items, rxcuis, lexicon) | set().union(
+        asked, *(lexicon.equivalents(n) for n in asked))
+
+
 @lru_cache(maxsize=1)
 def get_lexicon() -> DrugLexicon:
     return DrugLexicon.load()

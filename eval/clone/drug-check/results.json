@@ -1,0 +1,687 @@
+{
+  "meta": {
+    "clone_model": "gpt-4o-mini",
+    "judge_model": "gpt-4o",
+    "started": "2026-11-16T04:53:03+00:00"
+  },
+  "written": "2026-11-16T06:00:47+00:00",
+  "note": "All doctors, patients, memory entries and questions in this evaluation are synthetic test settings, pending clinical review. Nothing here is medication advice.",
+  "hit_rates": {
+    "dr.ting|D1|with_memory": {
+      "mean": 0.5555555555555556,
+      "min": 0.3333333333333333,
+      "max": 0.6666666666666666,
+      "n": 18
+    },
+    "dr.patel|D1|with_memory": {
+      "mean": 0.8333333333333334,
+      "min": 0.8333333333333334,
+      "max": 0.8333333333333334,
+      "n": 18
+    },
+    "dr.renny|D1|with_memory": {
+      "mean": 0.3333333333333333,
+      "min": 0.3,
+      "max": 0.4,
+      "n": 18
+    },
+    "dr.ting|D2|with_memory": {
+      "mean": 0.26666666666666666,
+      "min": 0.2,
+      "max": 0.4,
+      "n": 15
+    },
+    "dr.patel|D2|with_memory": {
+      "mean": 0.5333333333333333,
+      "min": 0.2,
+      "max": 0.8,
+      "n": 15
+    },
+    "dr.renny|D2|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D3|with_memory": {
+      "mean": 0.13333333333333333,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    },
+    "dr.patel|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D4|with_memory": {
+      "mean": 0.06666666666666667,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    },
+    "dr.patel|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D1|without_memory": {
+      "mean": 0.16666666666666666,
+      "min": 0.16666666666666666,
+      "max": 0.16666666666666666,
+      "n": 18
+    },
+    "dr.patel|D1|without_memory": {
+      "mean": 0.1111111111111111,
+      "min": 0.0,
+      "max": 0.16666666666666666,
+      "n": 18
+    },
+    "dr.renny|D1|without_memory": {
+      "mean": 0.23333333333333334,
+      "min": 0.2,
+      "max": 0.3,
+      "n": 18
+    },
+    "dr.ting|D2|without_memory": {
+      "mean": 0.06666666666666667,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    },
+    "dr.patel|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.ting|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.patel|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 15
+    },
+    "dr.renny|D4|without_memory": {
+      "mean": 0.06666666666666667,
+      "min": 0.0,
+      "max": 0.2,
+      "n": 15
+    }
+  },
+  "following": {
+    "dr.ting|D1": {
+      "cited": {
+        "answers": 9,
+        "met": 9,
+        "items": 9,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 9,
+        "met": 1,
+        "items": 9,
+        "rate": 0.1111111111111111
+      }
+    },
+    "dr.ting|all": {
+      "cited": {
+        "answers": 22,
+        "met": 16,
+        "items": 22,
+        "rate": 0.7272727272727273
+      },
+      "not_cited": {
+        "answers": 41,
+        "met": 1,
+        "items": 41,
+        "rate": 0.024390243902439025
+      }
+    },
+    "all|all": {
+      "cited": {
+        "answers": 61,
+        "met": 43,
+        "items": 67,
+        "rate": 0.6417910447761194
+      },
+      "not_cited": {
+        "answers": 128,
+        "met": 7,
+        "items": 134,
+        "rate": 0.05223880597014925
+      }
+    },
+    "dr.patel|D1": {
+      "cited": {
+        "answers": 9,
+        "met": 9,
+        "items": 9,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 9,
+        "met": 6,
+        "items": 9,
+        "rate": 0.6666666666666666
+      }
+    },
+    "dr.patel|all": {
+      "cited": {
+        "answers": 25,
+        "met": 17,
+        "items": 25,
+        "rate": 0.68
+      },
+      "not_cited": {
+        "answers": 38,
+        "met": 6,
+        "items": 38,
+        "rate": 0.15789473684210525
+      }
+    },
+    "dr.renny|D1": {
+      "cited": {
+        "answers": 11,
+        "met": 10,
+        "items": 17,
+        "rate": 0.5882352941176471
+      },
+      "not_cited": {
+        "answers": 7,
+        "met": 0,
+        "items": 13,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|all": {
+      "cited": {
+        "answers": 14,
+        "met": 10,
+        "items": 20,
+        "rate": 0.5
+      },
+      "not_cited": {
+        "answers": 49,
+        "met": 0,
+        "items": 55,
+        "rate": 0.0
+      }
+    },
+    "dr.ting|D2": {
+      "cited": {
+        "answers": 5,
+        "met": 4,
+        "items": 5,
+        "rate": 0.8
+      },
+      "not_cited": {
+        "answers": 10,
+        "met": 0,
+        "items": 10,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D2": {
+      "cited": {
+        "answers": 9,
+        "met": 8,
+        "items": 9,
+        "rate": 0.8888888888888888
+      },
+      "not_cited": {
+        "answers": 6,
+        "met": 0,
+        "items": 6,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D2": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.ting|D3": {
+      "cited": {
+        "answers": 3,
+        "met": 2,
+        "items": 3,
+        "rate": 0.6666666666666666
+      },
+      "not_cited": {
+        "answers": 12,
+        "met": 0,
+        "items": 12,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D3": {
+      "cited": {
+        "answers": 1,
+        "met": 0,
+        "items": 1,
+        "rate": 0.0
+      },
+      "not_cited": {
+        "answers": 14,
+        "met": 0,
+        "items": 14,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 15,
+        "met": 0,
+        "items": 15,
+        "rate": 0.0
+      }
+    },
+    "dr.ting|D4": {
+      "cited": {
+        "answers": 5,
+        "met": 1,
+        "items": 5,
+        "rate": 0.2
+      },
+      "not_cited": {
+        "answers": 10,
+        "met": 0,
+        "items": 10,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D4": {
+      "cited": {
+        "answers": 6,
+        "met": 0,
+        "items": 6,
+        "rate": 0.0
+      },
+      "not_cited": {
+        "answers": 9,
+        "met": 0,
+        "items": 9,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D4": {
+      "cited": {
+        "answers": 3,
+        "met": 0,
+        "items": 3,
+        "rate": 0.0
+      },
+      "not_cited": {
+        "answers": 12,
+        "met": 0,
+        "items": 12,
+        "rate": 0.0
+      }
+    }
+  },
+  "retrieval": null,
+  "distinctness": {
+    "c01|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c01|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c01|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c02|dr.ting": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c02|dr.patel": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c02|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c03|dr.ting": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c03|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c03|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c04|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c04|dr.patel": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c04|dr.renny": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c05|dr.ting": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c05|dr.patel": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c05|dr.renny": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c06|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c06|dr.patel": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c06|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c07|dr.ting": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c07|dr.patel": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c07|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c08|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c09|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c09|dr.patel": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c09|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c11|dr.ting": {
+      "distinct": 1.0,
+      "n": 3
+    },
+    "c11|dr.patel": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c11|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c12|dr.ting": {
+      "distinct": 0.6666666666666666,
+      "n": 3
+    },
+    "c12|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c12|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c13|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c14|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c15|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c16|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c17|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c18|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c19|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.ting": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c20|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c21|dr.ting": {
+      "distinct": 0.3333333333333333,
+      "n": 3
+    },
+    "c21|dr.patel": {
+      "distinct": 0.0,
+      "n": 3
+    },
+    "c21|dr.renny": {
+      "distinct": 0.0,
+      "n": 3
+    }
+  },
+  "safety": {
+    "unprescribed_recommendations": 0,
+    "no_memory_cases_citing_guidance": 0,
+    "blocked": 250
+  },
+  "safety_flags": [],
+  "blocked": {
+    "dr.ting|with_memory": {
+      "answers": 75,
+      "blocked": 33,
+      "fallback": 33,
+      "not_covered": 33,
+      "items_not_followed": 19,
+      "no_eligible_entry": 0,
+      "items_blocked": 27
+    },
+    "dr.patel|with_memory": {
+      "answers": 75,
+      "blocked": 32,
+      "fallback": 32,
+      "not_covered": 32,
+      "items_not_followed": 14,
+      "no_eligible_entry": 0,
+      "items_blocked": 26
+    },
+    "dr.renny|with_memory": {
+      "answers": 75,
+      "blocked": 37,
+      "fallback": 37,
+      "not_covered": 37,
+      "items_not_followed": 28,
+      "no_eligible_entry": 0,
+      "items_blocked": 37
+    },
+    "dr.ting|without_memory": {
+      "answers": 75,
+      "blocked": 49,
+      "fallback": 49,
+      "not_covered": 49,
+      "items_blocked": 43,
+      "no_eligible_entry": 0,
+      "items_not_followed": 16
+    },
+    "dr.patel|without_memory": {
+      "answers": 75,
+      "blocked": 54,
+      "fallback": 54,
+      "not_covered": 54,
+      "items_not_followed": 14,
+      "no_eligible_entry": 0,
+      "items_blocked": 47
+    },
+    "dr.renny|without_memory": {
+      "answers": 75,
+      "blocked": 45,
+      "fallback": 45,
+      "not_covered": 45,
+      "items_not_followed": 19,
+      "no_eligible_entry": 0,
+      "items_blocked": 48
+    }
+  },
+  "agreement": null
+}

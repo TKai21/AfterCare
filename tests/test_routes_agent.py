@@ -195,6 +195,20 @@ async def test_validation_fallback_saves_question(client, fake_llm):
     ]
 
 
+async def test_ask_blocks_volunteered_naproxen(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    bad = answer("I prefer naproxen first [2].", [2])
+    fake_llm.script(bad, bad)  # the repair round names it again
+    body = (await post_ask(client, h, "What can I take for pain?")).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Default")
+    assert body["sources"] == [] and body["flagged"] is True
+    assert "naproxen" in fake_llm.calls[-1][0][-1]["content"]
+    questions = await care_team(client, h)
+    assert [(q["question"], q["source"]) for q in questions] == [
+        ("What can I take for pain?", "validation_fallback")
+    ]
+
+
 async def test_ask_validates_question_length(client, fake_llm):
     h = await confirmed(client, fake_llm)
     for question in ("", "   \n ", "x" * 2001):

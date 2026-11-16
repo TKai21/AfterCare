@@ -8,6 +8,7 @@ import pytest
 import agent
 from agent import FALLBACK, Evidence, number_tokens, render_food, run_agent, validate
 from fake_llm import FakeLLM
+from drugnames import allowed_drug_names, get_lexicon
 from foods import FoodTable
 from knowledge import KnowledgeStore
 from llm import LLMError
@@ -1108,3 +1109,98 @@ async def test_label_passage_numbers_are_checked(foods, document, items):
     )
     result = await ask(llm, stub, foods, document, items, library_rxcuis=frozenset({"2683"}))
     assert_fallback(result, "Can I eat almonds?")
+
+
+def library_evidence(content):
+    return {1: Evidence(number=1, kind="library", title="Label", url=None, content=content,
+                        check_text=content)}
+
+
+def med_item(text, name=None, status="active", category="medication"):
+    return ExtractedItem(id=9, document_id=1, category=category, status=status, text=text,
+                         source_quote=text, details={"name": name} if name else {})
+
+
+async def test_unprescribed_drug_from_doctor_advice_is_repaired_then_falls_back(
+    store, foods, document, items
+):
+    bad = final("I prefer naproxen first [5].", [5])
+    llm = FakeLLM()
+    llm.script(bad, bad)
+    result = await ask(llm, store, foods, document, items, question="What should I take?",
+                       doctor_name="Dr. Ting Kai", prefetch=[guidance()],
+                       allowed_drugs=frozenset({"colchicine"}))
+    assert result.kind == "not_covered" and result.sources == []
+    assert result.answer == agent.fallback_answer("Dr. Ting Kai")
+    assert result.care_team_question == "What should I take?"
+    assert result.care_team_source == "validation_fallback"
+    assert len(llm.calls) == 2 and "naproxen" in llm.calls[1][0][-1]["content"]
+
+
+def test_drug_the_patient_asked_about_may_be_named():
+    lex = get_lexicon()
+    allowed = frozenset(allowed_drug_names(
+        [med_item("Take naproxen 500 mg twice daily.", "Naproxen")], [], "Can I take aspirin?", lex))
+    ev = library_evidence("Aspirin can raise bleeding risk with naproxen.")
+    answer = "No aspirin while taking naproxen [1]."
+    assert validate(raw(answer=answer, citations=[1]), ev, allowed_drugs=allowed, lexicon=lex)[0] \
+        == "answer"
+    # Without the question the same answer is refused.
+    only_rx = frozenset(allowed_drug_names([med_item("Take naproxen.", "Naproxen")], [], "", lex))
+    with pytest.raises(ValueError, match="Names a drug the patient does not take: aspirin"):
+        validate(raw(answer=answer, citations=[1]), ev, allowed_drugs=only_rx, lexicon=lex)
+
+
+def test_brand_in_question_allows_its_ingredient():
+    lex = get_lexicon()
+    allowed = frozenset(allowed_drug_names([], [], "Can I take Tylenol?", lex))
+    ev = library_evidence("Acetaminophen is a pain reliever.")
+    assert validate(raw(answer="Acetaminophen is a pain reliever [1].", citations=[1]), ev,
+                    allowed_drugs=allowed, lexicon=lex)[0] == "answer"
+
+
+def test_drug_named_in_a_cited_document_paragraph_passes():
+    lex = get_lexicon()
+    ev = evidence("Do not take ibuprofen.")
+    assert validate(raw(answer="Do not take ibuprofen [1].", citations=[1]), ev,
+                    lexicon=lex)[0] == "answer"
+    # A document paragraph that is not cited does not unlock the name.
+    ev = {**evidence("Do not take ibuprofen."),
+          2: Evidence(number=2, kind="library", title="L", url=None, content="Rest.",
+                      check_text="Rest.")}
+    with pytest.raises(ValueError, match="ibuprofen"):
+        validate(raw(answer="Ibuprofen is risky [2].", citations=[2]), ev, lexicon=lex)
+
+
+def test_drug_check_covers_general_information_only_among_not_covered():
+    lex = get_lexicon()
+    ev = library_evidence("Naproxen is an NSAID.")
+    general = f"{agent.GENERAL_INFO} Naproxen is an NSAID [1]."
+    with pytest.raises(ValueError, match="naproxen"):
+        validate(raw(kind="not_covered", answer=general, citations=[1]), ev, lexicon=lex)
+    # A not_covered answer that is replaced by the fixed sentence is not checked.
+    assert validate(raw(kind="not_covered", answer="Naproxen? I could not find this."), ev,
+                    lexicon=lex)[0] == "not_covered"
+
+
+def test_prescribed_names_use_active_medication_items_and_rxcuis():
+    from drugnames import prescribed_drug_names
+    lex = get_lexicon()
+    names = prescribed_drug_names(
+        [med_item("Take Tylenol as needed.", "Tylenol"),
+         med_item("Take ibuprofen.", "Ibuprofen", status="rejected"),
+         med_item("Avoid aspirin.", category="warning")],
+        [lex.names["colchicine"]["rxcui"]], lex)
+    assert {"tylenol", "acetaminophen", "colchicine"} <= names
+    assert not names & {"ibuprofen", "aspirin"}
+
+
+async def test_fixed_texts_are_not_checked(store, foods, document, items):
+    # The emergency and fallback answers name no check: they never go through validate.
+    llm = FakeLLM()
+    llm.script(final("Nope [9].", [9]))
+    result = await ask(llm, store, foods, document, items, emergency_terms=["chest pain"],
+                       allowed_drugs=frozenset())
+    assert result.kind == "emergency" and result.answer == agent.EMERGENCY_ANSWER
+    assert agent.get_lexicon().find(agent.EMERGENCY_ANSWER) == set()
+    assert agent.get_lexicon().find(agent.fallback_answer("Dr. Ting Kai")) == set()

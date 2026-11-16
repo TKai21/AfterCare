@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Awaitable, Callable, NamedTuple, Optional
 
 from documents import paragraphs
+from drugnames import DrugLexicon, get_lexicon
 from guidance import RuleHit, Unit
 from knowledge import KnowledgeError
 from llm import LLMError
@@ -391,8 +392,18 @@ def number_tokens(text: str) -> set[tuple]:
     return tokens
 
 
-def validate(raw: str, evidence: dict[int, Evidence]) -> tuple[str, str, list[int], Optional[str]]:
-    """Check the model's final JSON against the evidence. Raises ValueError."""
+def validate(
+    raw: str,
+    evidence: dict[int, Evidence],
+    *,
+    allowed_drugs: frozenset[str] = frozenset(),
+    lexicon: Optional[DrugLexicon] = None,
+) -> tuple[str, str, list[int], Optional[str]]:
+    """Check the model's final JSON against the evidence. Raises ValueError.
+
+    With a `lexicon`, a delivered answer may only name a drug that is in
+    `allowed_drugs` (prescribed or asked about) or named in a cited document
+    paragraph."""
     data = _final_object(raw)
     kind = data.get("kind")
     if kind not in KINDS:
@@ -435,6 +446,17 @@ def validate(raw: str, evidence: dict[int, Evidence]) -> tuple[str, str, list[in
         and not any(evidence[n].kind in ("document", "doctor") for n in cited)
     ):
         raise ValueError(MEDICATION_CHANGE_ERROR)
+    delivered = kind == "answer" or (kind == "not_covered" and answer.startswith(GENERAL_INFO))
+    if lexicon is not None and delivered:
+        in_documents = set().union(
+            *(lexicon.find(evidence[n].content) for n in cited if evidence[n].kind == "document"))
+        stray = sorted(lexicon.find(MARKER.sub(" ", answer)) - allowed_drugs - in_documents)
+        if stray:
+            raise ValueError(
+                f"Names a drug the patient does not take: {', '.join(stray)}. Remove it, or "
+                "say the document does not cover this; a drug may be named only if the patient "
+                "is prescribed it, a cited document paragraph names it, or the patient asked "
+                "about it.")
     allowed = set(ALWAYS_ALLOWED_NUMBERS).union(
         *(number_tokens(evidence[n].check_text) for n in cited)
     )
@@ -769,6 +791,7 @@ async def run_agent(
     doctor_name: str = DEFAULT_DOCTOR_NAME,
     prefetch: Optional[list[DoctorGuidance]] = None,
     library_rxcuis: frozenset[str] = frozenset(),
+    allowed_drugs: frozenset[str] = frozenset(),
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -791,7 +814,9 @@ async def run_agent(
     that may be used for this patient, or raises LLMError or GuidanceUnavailable
     (the tool then reports guidance unavailable, as it does when the search is
     None). An entry found both ways keeps one evidence number. `library_rxcuis` are
-    the patient's drug RxCUIs: only they unlock drug label passages in the library."""
+    the patient's drug RxCUIs: only they unlock drug label passages in the library.
+    `allowed_drugs` are the lower-case drug names an answer may name beyond those a
+    cited document paragraph names (see drugnames.allowed_drug_names)."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
     user_content = _document_context(turn.paragraphs, items)
     if prefetch is not None:
@@ -822,7 +847,8 @@ async def run_agent(
         if not calls:
             raw = reply.get("content") or ""
             try:
-                kind, answer, cited, final_question = validate(raw, turn.evidence)
+                kind, answer, cited, final_question = validate(raw, turn.evidence, allowed_drugs=allowed_drugs,
+                                                       lexicon=get_lexicon())
             except ValueError as exc:
                 emergency = bool(emergency_terms) or _claimed_kind(raw) == "emergency"
                 # A reply with no JSON object gets its own retry, so a format slip

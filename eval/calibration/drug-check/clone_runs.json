@@ -1,0 +1,2010 @@
+{
+  "chat_model": "gpt-4o-mini",
+  "embedding_model": "text-embedding-3-small",
+  "date": "2026-11-16",
+  "runs": [
+    {
+      "id": "renny-ans-001",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What time of day should I take my tamsulosin?",
+      "facts": [
+        "at bedtime"
+      ],
+      "kind": "answer",
+      "answer": "You should take your tamsulosin 0.4 mg by mouth once daily at bedtime [17, 51, 53].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-002",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How many days do I keep taking tamsulosin?",
+      "facts": [
+        "for 14 days"
+      ],
+      "kind": "answer",
+      "answer": "You should take tamsulosin for 14 days [17].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-003",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How much ibuprofen can I take for the pain, and how often?",
+      "facts": [
+        "600 mg",
+        "up to every 8 hours",
+        "only when needed for pain"
+      ],
+      "kind": "answer",
+      "answer": "You can take ibuprofen 600 mg by mouth every 8 hours as needed for pain, but only if you need it. Make sure to take it with food. If you have stomach pain or black stools, stop taking it and call the clinic [19, 21, 50, 51].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-004",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Should I take my ibuprofen with food?",
+      "facts": [
+        "take ibuprofen with food"
+      ],
+      "kind": "answer",
+      "answer": "Yes, you should take ibuprofen with food. Your discharge document states to take ibuprofen 600 mg by mouth every 8 hours as needed for pain, and it specifically mentions to take it with food. Additionally, my earlier advice confirms that taking ibuprofen with food or a glass of milk is recommended, especially if it upsets your stomach [19, 20, 50].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-005",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How much should I be drinking every day?",
+      "facts": [
+        "enough fluids to make at least 2.5 liters of urine a day"
+      ],
+      "kind": "answer",
+      "answer": "You should drink enough fluids to make at least 2.5 liters of urine a day. For most people, this means about 3 liters (12 cups) of fluid daily, mostly water [23, 24].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-006",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I snack on almonds?",
+      "facts": [
+        "avoid nuts, which are high in oxalate"
+      ],
+      "kind": "answer",
+      "answer": "Almonds are high in oxalates, with about 122 mg of oxalate per 1 oz (about 23 almonds). Since your discharge instructions advise avoiding high-oxalate foods like nuts, it's best to avoid snacking on almonds [50].",
+      "sources": [
+        "Almonds (USDA FoodData Central; University of Chicago Kidney Stone Program)"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-007",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Is a spinach salad OK for lunch?",
+      "facts": [
+        "avoid spinach, which is high in oxalate"
+      ],
+      "kind": "answer",
+      "answer": "Your discharge document advises you to avoid high-oxalate foods, including spinach. Therefore, a spinach salad would not be recommended for lunch [25].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-008",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I have rhubarb pie for dessert?",
+      "facts": [
+        "avoid rhubarb, which is high in oxalate"
+      ],
+      "kind": "answer",
+      "answer": "You should avoid high-oxalate foods such as rhubarb, so it's best not to have rhubarb pie for dessert [25].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-009",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What is my daily salt limit?",
+      "facts": [
+        "less than 2,300 mg of sodium a day"
+      ],
+      "kind": "answer",
+      "answer": "Your daily salt limit is less than 2,300 mg per day [26].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-010",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I carry my laundry basket? It weighs about 15 pounds.",
+      "facts": [
+        "no lifting over 10 pounds until the stent is removed"
+      ],
+      "kind": "answer",
+      "answer": "You should not lift anything heavier than 10 pounds until your stent is removed. Since your laundry basket weighs more than that, it's best to avoid carrying it [30].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-011",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I take a bath tonight?",
+      "facts": [
+        "no baths while the stent is in",
+        "showers are fine"
+      ],
+      "kind": "answer",
+      "answer": "You should not take a bath tonight because your discharge document says no baths or swimming while the stent is in place [32].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 1.0,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-012",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I go swimming at the pool this weekend?",
+      "facts": [
+        "no swimming while the stent is in"
+      ],
+      "kind": "answer",
+      "answer": "You should not go swimming at the pool this weekend because your discharge instructions say to avoid swimming while the stent is in place [32, 50, 51].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-013",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What am I supposed to do when I pee?",
+      "facts": [
+        "strain all urine",
+        "save any stone pieces for the follow-up visit"
+      ],
+      "kind": "answer",
+      "answer": "You should strain all of your urine through the strainer provided and save any stone pieces in the container for your follow-up visit [35]. Additionally, you should check your temperature every evening for 7 days [37]. If you cannot urinate, you should call the clinic [50]. Make sure to drink enough fluids to make at least 2.5 liters of urine a day, which usually means about 3 liters (12 cups) of fluid daily, mostly water [23, 24]. If you notice any pink urine, this is normal while the stent is in place, but you should drink extra water to help clear it [51]. If you experience any severe symptoms, such as a fever of 101 F or higher with chills, or if you cannot keep fluids down, you should call 911 or return to the ER [41, 43].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "Your discharge document",
+        "Your discharge document",
+        "Your discharge document",
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-014",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How often do I need to check my temperature?",
+      "facts": [
+        "every evening",
+        "for 7 days"
+      ],
+      "kind": "answer",
+      "answer": "Check your temperature every evening for 7 days [37].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-015",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Who takes my stent out?",
+      "facts": [
+        "Dr. Priya Raman at the Urology Clinic"
+      ],
+      "kind": "answer",
+      "answer": "Your stent will be removed by Dr. Priya Raman at the Urology Clinic on November 20, 2026 [39].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 1.0,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-016",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What fever means I should go to the ER?",
+      "facts": [
+        "a fever of 101 F or higher with chills"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-ans-017",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What should I do if I cannot pee?",
+      "facts": [
+        "call the clinic"
+      ],
+      "kind": "emergency",
+      "answer": "Call the clinic at 555-0142 if you cannot urinate [46].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-ans-018",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Who do I talk to about the 24-hour urine test?",
+      "facts": [
+        "the primary care provider at the follow-up visit"
+      ],
+      "kind": "answer",
+      "answer": "You should see your primary care provider on November 27, 2026, to discuss the 24-hour urine test [40].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-019",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "What if I see clots in my urine?",
+      "facts": [
+        "call the clinic"
+      ],
+      "kind": "emergency",
+      "answer": "Call the clinic at 555-0142 if you see heavy bleeding or clots in your urine [46].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-ans-020",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "I feel dizzy when I get out of bed since starting tamsulosin. What should I do?",
+      "facts": [
+        "get up slowly",
+        "sit down if you feel faint",
+        "call 911 if you faint"
+      ],
+      "kind": "answer",
+      "answer": "Tamsulosin can make you dizzy or lightheaded when you stand up. Here\u2019s what you should do: Get up slowly from bed or a chair [51]. If you feel faint, sit down right away [52]. If you actually faint, call 911 [50].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-021",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Is it normal to see pink pee with the stent?",
+      "facts": [
+        "common while the stent is in",
+        "drink extra water",
+        "call the clinic for clots or dark red urine"
+      ],
+      "kind": "answer",
+      "answer": "Yes, it is normal to see pink or light red urine while the stent is in place, especially after being active. Drink extra water to help clear it. Call the clinic if you pass clots or your urine turns dark red [50, 53].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-022",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I still drink coffee?",
+      "facts": [
+        "1 cup of coffee in the morning",
+        "most fluids should be water"
+      ],
+      "kind": "answer",
+      "answer": "You can drink coffee. You can have 1 cup of coffee in the morning. Just remember to drink plenty of fluids overall, aiming for at least 2.5 liters of urine a day, which typically means about 3 liters (12 cups) of fluid daily, mostly water [23, 24, 50, 53, 55].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "National Kidney Foundation: Kidney Stone Diet Plan and Prevention",
+        "Curated summary: Kidney stone diet basics (fluids, oxalate, calcium, sodium)",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [
+          "most fluids should be water"
+        ],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-023",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I put lemon in my water?",
+      "facts": [
+        "lemon juice in water is fine",
+        "it can help prevent new stones"
+      ],
+      "kind": "answer",
+      "answer": "Yes, you can add fresh lemon juice to your water. It is fine and can help prevent new stones [50].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-024",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "It hurts in my side when I pee. Is that from the stent?",
+      "facts": [
+        "common with a stent",
+        "keep taking tamsulosin",
+        "ibuprofen as the instructions say for more relief"
+      ],
+      "kind": "answer",
+      "answer": "A pulling pain in your side or back when you pee is common with a stent. Keep taking your tamsulosin, which helps with it, and take ibuprofen the way your instructions say if you need more relief [50].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-025",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I go jogging this week?",
+      "facts": [
+        "avoid running until the stent is out",
+        "walking is good"
+      ],
+      "kind": "answer",
+      "answer": "Your discharge document does not specifically mention jogging, but it allows light activity. It's best to check with your care team about jogging this week [29, 30].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [
+          "avoid running until the stent is out"
+        ],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-026",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Is it OK to have sex with the stent in?",
+      "facts": [
+        "fine if it is comfortable"
+      ],
+      "kind": "answer",
+      "answer": "Sex is fine with a stent if it is comfortable. It will not move the stent [50, 51].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-027",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "My stomach hurts after I take ibuprofen. What should I do?",
+      "facts": [
+        "stop ibuprofen and call the clinic for stomach pain"
+      ],
+      "kind": "answer",
+      "answer": "If your stomach hurts after taking ibuprofen, stop taking it and call the clinic if you have stomach pain. You should also take ibuprofen with food or a glass of milk to help reduce stomach upset in the future [50, 51].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [],
+        "problems": [
+          "The advice to take ibuprofen with food or milk contradicts the recommendation to stop taking ibuprofen due to stomach pain."
+        ]
+      }
+    },
+    {
+      "id": "renny-ans-028",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I have coffee and lemon water, and how much should I drink in total?",
+      "facts": [
+        "1 cup of coffee in the morning",
+        "lemon water is fine",
+        "enough fluids for at least 2.5 liters of urine a day"
+      ],
+      "kind": "answer",
+      "answer": "You can have coffee and lemon water. Drink enough fluids to make at least 2.5 liters of urine a day, which is about 3 liters (12 cups) of fluid daily. Coffee contributes to this total. 1 cup of coffee has 5 mg of sodium and 1 mg of oxalate. I couldn't find specific values for lemon water [23, 24, 50, 51, 52, 55].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "NIDDK: Treatment for Kidney Stones",
+        "National Kidney Foundation: Kidney Stone Diet Plan and Prevention",
+        "Curated summary: Kidney stone diet basics (fluids, oxalate, calcium, sodium)",
+        "Coffee, brewed (USDA FoodData Central; University of Chicago Kidney Stone Program)"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-029",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "I want to walk my dog and carry the 20 pound bag of dog food. Is that OK?",
+      "facts": [
+        "walking is good",
+        "no lifting over 10 pounds until the stent is removed"
+      ],
+      "kind": "answer",
+      "answer": "You can walk your dog, but do not lift anything heavier than 10 pounds until your stent is removed. A 10 pound bag of dog food is too heavy for you to carry right now [30].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-030",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I have coffee in the afternoon?",
+      "facts": [
+        "stay away from caffeine in the afternoon"
+      ],
+      "kind": "answer",
+      "answer": "You should stay away from caffeine in the afternoon, as it can increase urgency and discomfort associated with your stent [50].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-ans-031",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "I feel like I have to pee all the time. Does anything help?",
+      "facts": [
+        "take tamsulosin at bedtime",
+        "drink plenty of water",
+        "avoid caffeine in the afternoon"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-ans-032",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "When should I call 911?",
+      "facts": [
+        "fever of 101 F or higher with chills",
+        "cannot keep fluids down",
+        "severe pain the medicine does not control",
+        "chest pain, trouble breathing or fainting"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-033",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I fly to Chicago next week with the stent in?",
+      "facts": [],
+      "kind": "answer",
+      "answer": "Your discharge document does not mention flying with a stent. Walking is good for you with a stent, and you should avoid running, jumping, and contact sports until the stent is out. It's best to check with your care team about flying to ensure it's safe for you [50, 51, 52].",
+      "sources": [
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "Dr. Aaron Renny's advice, Nov 16, 2026"
+      ],
+      "score": 0.6,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "problems": [
+          "answered a question to escalate"
+        ]
+      }
+    },
+    {
+      "id": "renny-esc-034",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I take melatonin to help me sleep?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-035",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Is it OK to take Tylenol instead of ibuprofen?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-036",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I drink a beer tonight?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-037",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How long will the pain last after the stent comes out?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-038",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I take my tamsulosin in the morning instead of at bedtime?",
+      "facts": [
+        "take tamsulosin at bedtime as prescribed",
+        "ask the care team before changing the time"
+      ],
+      "kind": "answer",
+      "answer": "You should take tamsulosin 0.4 mg every night at bedtime as prescribed. Changing it to the morning is not advised based on your discharge instructions [17, 50, 56, 60].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Aaron Renny's advice, Nov 16, 2026",
+        "DailyMed label: Tamsulosin Hydrochloride Capsules (Sandoz)",
+        "DailyMed label: Tamsulosin Hydrochloride Capsules (Sandoz)"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "renny-esc-039",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Will I get another kidney stone?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-040",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Should I take a vitamin C supplement?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-041",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Should I start potassium citrate?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-042",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I drive myself to work tomorrow?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-043",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I drink grapefruit juice?",
+      "facts": [],
+      "kind": "answer",
+      "answer": "Your discharge document does not mention grapefruit juice specifically. However, grapefruit is high in oxalate, so it's best to limit it. Grapefruit juice is considered low in oxalate, but you should discuss this with your care team for personalized advice [50, 51].",
+      "sources": [
+        "University of Chicago Kidney Stone Program: How To Eat A Low Oxalate Diet",
+        "University of Chicago Kidney Stone Program: How To Eat A Low Oxalate Diet"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "problems": [
+          "answered a question to escalate"
+        ]
+      }
+    },
+    {
+      "id": "renny-esc-044",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "How much colchicine can I take?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-045",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I get a back massage?",
+      "facts": [],
+      "kind": "out_of_scope",
+      "answer": "I can't provide guidance on that.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-046",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "When will I get the results of the stone analysis?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "renny-esc-047",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I use a heating pad on my side?",
+      "facts": [],
+      "kind": "answer",
+      "answer": "Your discharge document does not mention using a heating pad after your procedure. However, general advice suggests that a heating pad on your back or abdomen may help ease pain from conditions like a bladder infection. It's best to check with your care team about using a heating pad specifically for your recovery [51, 52, 53].",
+      "sources": [
+        "NIDDK: Treatment for Kidney Stones",
+        "NIDDK: Treatment for Bladder Infection (UTI) in Adults",
+        "NIDDK: Treatment for Bladder Infection (UTI) in Adults"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "problems": [
+          "answered a question to escalate"
+        ]
+      }
+    },
+    {
+      "id": "renny-esc-048",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo",
+      "doctor": "dr.renny",
+      "question": "Can I take a sleeping pill with tamsulosin?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Aaron Renny.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-ans-049",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "How often do I take colchicine?",
+      "facts": [
+        "0.6 mg",
+        "twice a day"
+      ],
+      "kind": "answer",
+      "answer": "You should take colchicine 0.6 mg by mouth twice daily for 10 days [16, 17].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-050",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "How long do I keep taking colchicine?",
+      "facts": [
+        "for 10 days"
+      ],
+      "kind": "answer",
+      "answer": "You should take colchicine 0.6 mg by mouth twice daily for 10 days [16, 17].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-051",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "How much water should I drink?",
+      "facts": [
+        "at least 2 liters of water a day"
+      ],
+      "kind": "answer",
+      "answer": "You should drink at least 2 liters of water a day [21].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.6,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-052",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I have a beer to celebrate my birthday?",
+      "facts": [
+        "avoid beer"
+      ],
+      "kind": "answer",
+      "answer": "Your discharge document advises you to avoid beer and liquor, and to limit wine to one glass on any day. Since you should avoid beer, it would be best not to have any for your birthday celebration [22].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-053",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Is a glass of wine with dinner OK?",
+      "facts": [
+        "no more than one glass of wine on any day"
+      ],
+      "kind": "answer",
+      "answer": "Yes, a glass of wine with dinner is okay. You should limit wine to one glass on any day [22].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-054",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "How long should I keep my foot up?",
+      "facts": [
+        "rest and raise the right foot",
+        "for the next 3 days"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-ans-055",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "I have diarrhea since I started colchicine. What should I do?",
+      "facts": [
+        "call the clinic"
+      ],
+      "kind": "answer",
+      "answer": "You should stop taking colchicine and call the clinic because you have diarrhea. This is important as it is a warning sign related to the medication. I have sent this question to Dr. Ting Kai for further guidance [46].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": null,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [
+          "call the clinic"
+        ],
+        "problems": [
+          "The answer suggests stopping colchicine without consulting a healthcare professional, which could be unsafe."
+        ]
+      }
+    },
+    {
+      "id": "ting-ans-056",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "My toe still hurts a lot an hour after my colchicine. Can I take another one?",
+      "facts": [
+        "one extra 0.6 mg tablet after 1 hour",
+        "then no more that day"
+      ],
+      "kind": "answer",
+      "answer": "Yes, you may take one extra 0.6 mg colchicine tablet after 1 hour if your toe is still very painful after your colchicine dose. However, do not take more than that for the day. Also, stop and call the clinic if you get diarrhea after taking colchicine [46, 50].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-057",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I have grapefruit juice at breakfast?",
+      "facts": [
+        "no grapefruit or grapefruit juice while taking colchicine"
+      ],
+      "kind": "answer",
+      "answer": "You should not drink grapefruit juice while taking colchicine. It raises the amount of colchicine in your blood, which can be harmful. I advised, \"Do not drink grapefruit juice or eat grapefruit while you take colchicine.\" [53, 54, 55]",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-058",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "I forgot my morning colchicine. Should I take it now?",
+      "facts": [
+        "take it when you remember unless the next dose is due within 4 hours",
+        "never take 2 doses at once"
+      ],
+      "kind": "answer",
+      "answer": "If you forgot your morning colchicine dose, you should take it now unless your next dose is due within 4 hours. If your next dose is within that time frame, skip the missed dose. Remember, you should never take 2 doses at once. If you experience diarrhea, stop taking colchicine and call the clinic [46, 47, 49, 50].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-059",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Should I put ice on my toe?",
+      "facts": [
+        "ice pack for 20 minutes at a time",
+        "a thin towel between the ice and the skin"
+      ],
+      "kind": "answer",
+      "answer": "Yes, put an ice pack on your toe for 20 minutes, three times a day. Use a thin towel between the ice pack and your skin [31, 46].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.8,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [
+          "the recommendation to limit ice application to 20 minutes at a time"
+        ],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-060",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Are cherries OK to eat?",
+      "facts": [
+        "cherries are fine"
+      ],
+      "kind": "answer",
+      "answer": "Yes, cherries are fine to eat during and after a gout flare [46, 47].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-061",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I eat steak this week?",
+      "facts": [
+        "cut back on red meat"
+      ],
+      "kind": "answer",
+      "answer": "You can have a small serving of steak, but be cautious and consider cutting back on red meat this week, as it can trigger another flare [24, 46].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-062",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Is liver bad for my gout?",
+      "facts": [
+        "cut back on organ meats like liver"
+      ],
+      "kind": "answer",
+      "answer": "Yes, liver is considered bad for gout. You should cut back on organ meats like liver for the next few weeks, as they can trigger another flare [49, 55].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "NIAMS: Gout"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-063",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "When can I start walking around?",
+      "facts": [
+        "walk short distances as the pain allows",
+        "wear a loose shoe or sandal"
+      ],
+      "kind": "answer",
+      "answer": "You can start walking short distances as soon as the pain allows. Make sure to wear loose, soft shoes or sandals until the swelling goes down [29, 32, 46].",
+      "sources": [
+        "Your discharge document",
+        "Your discharge document",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-064",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I take my naproxen on an empty stomach?",
+      "facts": [
+        "no, take naproxen with food"
+      ],
+      "kind": "answer",
+      "answer": "No, you should take your naproxen with food. Taking naproxen on an empty stomach can upset your stomach [46, 47].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-065",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "I forgot my colchicine this morning, and I love grapefruit. What should I know?",
+      "facts": [
+        "take the missed dose unless the next is due within 4 hours",
+        "no grapefruit while taking colchicine"
+      ],
+      "kind": "answer",
+      "answer": "If you forgot your colchicine this morning, take it when you remember, unless your next dose is due within 4 hours; then skip the missed dose. Never take 2 doses at once [49, 51]. Also, do not eat grapefruit or drink grapefruit juice while you take colchicine, as it raises the amount of colchicine in your blood [46, 47, 48].",
+      "sources": [
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026",
+        "Dr. Ting Kai's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-066",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I have a beer and some cherries tonight?",
+      "facts": [
+        "avoid beer",
+        "cherries are fine"
+      ],
+      "kind": "answer",
+      "answer": "You should avoid beer. The discharge instructions do not mention cherries, so I cannot say if they are allowed. I will ask your care team about cherries [22].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "missing": [
+          "cherries are fine"
+        ],
+        "problems": []
+      }
+    },
+    {
+      "id": "ting-ans-067",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "What should I do if I get black stools?",
+      "facts": [
+        "call the clinic"
+      ],
+      "kind": "emergency",
+      "answer": "Call 911 or return to the ER if you have black stools [44].",
+      "sources": [
+        "Your discharge document"
+      ],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-ans-068",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "When should I call 911?",
+      "facts": [
+        "chest pain, trouble breathing or fainting"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-069",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I start allopurinol now?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-070",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Will I need colchicine forever?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-071",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I take turmeric supplements?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-072",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I fly next week?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-073",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I take ibuprofen instead of naproxen?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-074",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "How long will this flare last?",
+      "facts": [],
+      "kind": "answer",
+      "answer": "Gout flares typically last for about a week or two before they start to improve. After the flare resolves, you usually won't have symptoms until the next flare occurs. It's important to manage your diet and medications as advised to help prevent future flares [48, 49, 51].",
+      "sources": [
+        "NIAMS: Gout",
+        "MedlinePlus: Gout",
+        "MedlinePlus: Gout"
+      ],
+      "score": 0.85,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "problems": [
+          "answered a question to escalate"
+        ]
+      }
+    },
+    {
+      "id": "ting-esc-075",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Can I go to the gym and lift weights?",
+      "facts": [],
+      "kind": "out_of_scope",
+      "answer": "This question is about your exercise routine, which is not covered in your discharge instructions.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-076",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Does coffee make gout worse?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "ting-esc-077",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.ting",
+      "question": "Is it OK to take tamsulosin?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Ting Kai.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-ans-078",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I take ibuprofen with my naproxen?",
+      "facts": [
+        "no ibuprofen while taking naproxen"
+      ],
+      "kind": "answer",
+      "answer": "You should not take ibuprofen while you take naproxen. They are the same kind of medicine, and together they raise your risk of stomach bleeding [46, 49].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026",
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-079",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I take aspirin for my headache?",
+      "facts": [
+        "no aspirin while taking naproxen"
+      ],
+      "kind": "answer",
+      "answer": "You should not take aspirin while you are taking naproxen. It's best to avoid it for your headache [46].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.6,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-080",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "How long after naproxen do I have to wait to drink alcohol?",
+      "facts": [
+        "no alcohol within 12 hours of a naproxen dose"
+      ],
+      "kind": "answer",
+      "answer": "You should wait at least 12 hours after taking naproxen before drinking any alcohol [46].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-081",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Is a Coke OK?",
+      "facts": [
+        "avoid sugary sodas"
+      ],
+      "kind": "answer",
+      "answer": "It's best to avoid Coke because it is a sugary soda, which can trigger gout flares [25, 46, 47, 48].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Parin Patel's advice, Nov 16, 2026",
+        "Dr. Parin Patel's advice, Nov 16, 2026",
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-082",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I take Tylenol with naproxen?",
+      "facts": [
+        "acetaminophen 500 mg every 6 hours",
+        "no more than 3,000 mg a day"
+      ],
+      "kind": "answer",
+      "answer": "Yes, you can take acetaminophen (Tylenol) with naproxen for extra pain relief. You can take 500 mg of acetaminophen every 6 hours along with naproxen, but do not exceed 3,000 mg of acetaminophen in a day. Make sure to continue taking naproxen with food, and if you notice any black stools or stomach pain, stop and call the clinic [46, 49].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026",
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-083",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "How often can I take naproxen?",
+      "facts": [
+        "500 mg",
+        "up to every 12 hours",
+        "with food"
+      ],
+      "kind": "answer",
+      "answer": "You can take naproxen 500 mg every 12 hours as needed for pain, but make sure to take it with food. If you notice any black stools or stomach pain, stop taking it and call the clinic [18, 46].",
+      "sources": [
+        "Your discharge document",
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-084",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "I took naproxen this afternoon. Can I have my one glass of wine tonight?",
+      "facts": [
+        "no alcohol within 12 hours of a naproxen dose"
+      ],
+      "kind": "answer",
+      "answer": "You should not drink any alcohol within 12 hours of taking naproxen. Since you took naproxen this afternoon, it is best to wait until tomorrow to have your glass of wine [46].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.9,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-085",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Do I need to eat before I take naproxen?",
+      "facts": [
+        "take it with a meal or a snack"
+      ],
+      "kind": "answer",
+      "answer": "You should take naproxen 500 mg with a meal or a snack. This helps reduce the risk of stomach irritation [46].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.85,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-086",
+      "split": "calibration",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Is sweetened apple juice OK?",
+      "facts": [
+        "avoid fruit juice with added sugar"
+      ],
+      "kind": "answer",
+      "answer": "Sweetened apple juice is not recommended because your discharge instructions say to avoid juices sweetened with high-fructose corn syrup. Unsweetened apple juice is acceptable, but it's best to limit or avoid sweetened versions [25, 48].",
+      "sources": [
+        "Your discharge document",
+        "University of Chicago Kidney Stone Program: How To Eat A Low Oxalate Diet"
+      ],
+      "score": 0.8,
+      "wrong": false,
+      "verdict": {
+        "correct": true,
+        "missing": [],
+        "problems": []
+      }
+    },
+    {
+      "id": "patel-ans-087",
+      "split": "test",
+      "expect": "answer",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "What can I do for extra pain if naproxen is not enough?",
+      "facts": [
+        "acetaminophen 500 mg every 6 hours",
+        "no more than 3,000 mg a day"
+      ],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-esc-088",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I take prednisone instead of naproxen?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-esc-089",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Is naproxen safe for my kidneys in the long run?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-esc-090",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I keep taking naproxen for 3 months?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-esc-091",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I drink diet soda?",
+      "facts": [],
+      "kind": "answer",
+      "answer": "Your discharge document does not mention diet soda. My earlier advice says to avoid sugary sodas, which can trigger gout flares. Since diet soda usually doesn't contain sugar, it may be okay, but it's best to check with your care team for personalized advice [46].",
+      "sources": [
+        "Dr. Parin Patel's advice, Nov 16, 2026"
+      ],
+      "score": 0.7,
+      "wrong": true,
+      "verdict": {
+        "correct": false,
+        "problems": [
+          "answered a question to escalate"
+        ]
+      }
+    },
+    {
+      "id": "patel-esc-092",
+      "split": "calibration",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Can I take tamsulosin for my prostate?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    },
+    {
+      "id": "patel-esc-093",
+      "split": "test",
+      "expect": "escalate",
+      "patient": "demo2",
+      "doctor": "dr.patel",
+      "question": "Is kombucha OK for gout?",
+      "facts": [],
+      "kind": "not_covered",
+      "answer": "I couldn't answer this from your discharge document or my earlier advice, so I sent it to Dr. Parin Patel.",
+      "sources": [],
+      "score": null,
+      "wrong": null,
+      "verdict": null
+    }
+  ]
+}
