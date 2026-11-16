@@ -1204,3 +1204,24 @@ async def test_fixed_texts_are_not_checked(store, foods, document, items):
     assert result.kind == "emergency" and result.answer == agent.EMERGENCY_ANSWER
     assert agent.get_lexicon().find(agent.EMERGENCY_ANSWER) == set()
     assert agent.get_lexicon().find(agent.fallback_answer("Dr. Ting Kai")) == set()
+
+
+def test_demo_tamsulosin_item_allows_its_brand_and_ingredient():
+    lex = get_lexicon()
+    item = med_item("Take tamsulosin 0.4 mg by mouth once a day at bedtime for 14 days.",
+                    "Tamsulosin")
+    allowed = frozenset(allowed_drug_names([item], [], "When should I call 911?", lex))
+    assert {"tamsulosin", "flomax"} <= allowed
+    ev = evidence("Go to the emergency room if you faint.")
+    for answer in ("If you faint while taking tamsulosin, call 911 [1].",
+                   "If you faint while taking Flomax, call 911 [1]."):
+        assert validate(raw(answer=answer, citations=[1]), ev, allowed_drugs=allowed,
+                        lexicon=lex)[0] == "answer"
+
+
+def test_document_named_drug_allows_its_equivalents():
+    lex = get_lexicon()
+    ev = evidence("Do not take Advil.")
+    assert validate(raw(answer="Skip ibuprofen [1].", citations=[1]), ev, lexicon=lex)[0] == "answer"
+    ev = evidence("Do not take ibuprofen.")
+    assert validate(raw(answer="Skip Advil [1].", citations=[1]), ev, lexicon=lex)[0] == "answer"

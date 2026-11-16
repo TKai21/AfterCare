@@ -448,8 +448,9 @@ def validate(
         raise ValueError(MEDICATION_CHANGE_ERROR)
     delivered = kind == "answer" or (kind == "not_covered" and answer.startswith(GENERAL_INFO))
     if lexicon is not None and delivered:
-        in_documents = set().union(
+        named = set().union(
             *(lexicon.find(evidence[n].content) for n in cited if evidence[n].kind == "document"))
+        in_documents = named.union(*(lexicon.equivalents(name) for name in named))
         stray = sorted(lexicon.find(MARKER.sub(" ", answer)) - allowed_drugs - in_documents)
         if stray:
             raise ValueError(

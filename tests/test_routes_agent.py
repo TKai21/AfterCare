@@ -209,6 +209,18 @@ async def test_ask_blocks_volunteered_naproxen(client, fake_llm):
     ]
 
 
+async def test_ask_allows_a_prescribed_drug_without_a_cited_paragraph_naming_it(client, fake_llm):
+    # Amoxicillin is prescribed (item text and name) but the cited paragraph [3] is the
+    # fever line; no resolved RxCUIs are needed, and a brand spelling is allowed too.
+    h = await confirmed(client, fake_llm)
+    fake_llm.script(answer("Call if your fever is above 101 F, even while taking amoxicillin [3].", [3]))
+    body = (await post_ask(client, h, "When should I call?")).json()
+    assert body["kind"] == "answer" and "amoxicillin" in body["answer"]
+    fake_llm.script(answer("Call if your fever is above 101 F, even while taking Amoxil [3].", [3]))
+    body = (await post_ask(client, h, "When should I call?")).json()
+    assert body["kind"] == "answer" and "Amoxil" in body["answer"]
+
+
 async def test_ask_validates_question_length(client, fake_llm):
     h = await confirmed(client, fake_llm)
     for question in ("", "   \n ", "x" * 2001):
