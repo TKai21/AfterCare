@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from models import ExtractedItem
-from safety import EMERGENCY_TERMS, detect_emergency, warning_terms
+from safety import EMERGENCY_TERMS, detect_emergency, match_terms, negated_terms, warning_terms
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -224,3 +224,59 @@ def test_modifier_fragments_of_a_warning_line_do_not_fire_alone():
         assert detect_emergency(message, terms) == [], message
     assert detect_emergency("my heartbeat is irregular", terms)
     assert detect_emergency("I have a very fast heartbeat", terms)
+
+
+TERMS = ["fever", "vomiting", "threw up", "chest pain", "burning urination"]
+
+
+def test_match_terms_subset_and_detect_emergency_unchanged():
+    msgs = {
+        "I have a fever and keep vomiting": ["fever", "vomiting"],
+        "The pain got worse": [],
+        "burning urination since last night": ["burning urination"],
+        "I threw up twice": ["threw up"],
+        "no appetite": [],
+    }
+    for msg, want in msgs.items():
+        assert match_terms(msg, TERMS) == want
+        # Output recorded from the pre-refactor detect_emergency.
+        old = ["vomiting that won't stop"] + want if "keep vomiting" in msg else want
+        assert detect_emergency(msg, TERMS) == old
+    assert detect_emergency("I have chest pain and a fever", ["fever"]) == ["chest pain", "fever"]
+
+
+@pytest.mark.parametrize("msg,term", [
+    ("No fever", "fever"),
+    ("I don't have any vomiting", "vomiting"),
+    ("without chest pain", "chest pain"),
+    ("I never had a fever", "fever"),
+    ("She denies fever", "fever"),
+    ("no severe chest pain", "chest pain"),
+])
+def test_simple_negations(msg, term):
+    assert negated_terms(msg, TERMS) == {term}
+
+
+def test_mixed_clause_is_not_negated():
+    assert negated_terms("no fever, but I threw up twice", TERMS) == {"fever"}
+    assert negated_terms("no fever but vomiting", TERMS) == {"fever"}
+
+
+@pytest.mark.parametrize("msg", [
+    "No, the pain got worse and I have a fever",
+    "I have a fever",
+    "no pain at all in my legs but today I woke up with a fever",
+    "no fever yesterday and a fever today",
+    "not sure if I have a fever",
+    "I don't think I have a fever",
+    "no idea whether I have a fever",
+    "not without a fever",
+    "I do not know about the fever",
+])
+def test_not_negated(msg):
+    assert negated_terms(msg, TERMS) == set()
+
+
+def test_negated_is_subset_of_matched():
+    assert negated_terms("no rash", TERMS) == set()
+    assert negated_terms("no fever and I feel fine", TERMS) <= set(match_terms("no fever and I feel fine", TERMS))

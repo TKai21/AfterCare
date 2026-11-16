@@ -268,14 +268,82 @@ def detect_emergency(message: str, extra_terms: list[str]) -> list[str]:
         if rx.pattern not in seen_patterns and rx.search(text):
             seen_patterns.add(rx.pattern)
             hits.append(label)
+    for label in match_terms(message, extra_terms):
+        if label not in hits:
+            hits.append(label)
+    return hits
+
+
+def match_terms(message: str, terms: list[str]) -> list[str]:
+    """The document terms whose content words are all in the message (any order),
+    as readable labels, longest term first. A term whose words are all covered by
+    a longer term that already matched is not reported again."""
     words = set(_words(message))
     matched: list[frozenset[str]] = []
-    terms = [(term, _content(term)) for term in extra_terms]
-    for term, content in sorted(terms, key=lambda t: -len(t[1])):
+    out: list[str] = []
+    entries = [(term, _content(term)) for term in terms]
+    for term, content in sorted(entries, key=lambda t: -len(t[1])):
         if not content or not content <= words or any(content <= m for m in matched):
             continue
         matched.append(content)
         label = _canon(term)
-        if label not in hits:
-            hits.append(label)
-    return hits
+        if label not in out:
+            out.append(label)
+    return out
+
+
+_CLAUSE_SPLIT = re.compile(r"[.;,!?:\n]|\bbut\b|\bhowever\b|\balthough\b", re.IGNORECASE)
+_NEGATOR_STEMS = frozenset({"not", "deny", "without", "non"})  # no/n't/never fold to "not"
+_HEDGE_STEMS = frozenset(_stem(w) for w in (
+    "sure", "idea", "think", "know", "certain", "clue", "wonder", "whether", "if",
+    "unsure", "doubt", "suppose", "guess", "believe", "maybe", "perhaps", "possibly",
+    "might", "may", "could", "seem", "almost", "barely", "hardly",
+    "question", "but", "except", "only", "also", "still",
+))
+_NEGATION_REACH = 2  # at most 2 words between a negator and the term's word
+
+
+def _negated_in_clause(words: list[str], content: frozenset[str]) -> bool:
+    """True only if every occurrence of the term's words in this clause follows a
+    plain negator closely and nothing in the clause hedges. Doubt means False."""
+    hits = [i for i, w in enumerate(words) if w in content]
+    if not hits:
+        return True
+    if any(w in _HEDGE_STEMS for w in words):
+        return False
+    negators = [i for i, w in enumerate(words) if w in _NEGATOR_STEMS]
+    covered: set[int] = set()
+    for i in hits:
+        near = [j for j in negators if 0 < i - j <= _NEGATION_REACH + 1]
+        if near:
+            j = max(near)
+            # a second negator right before the first is a double negative
+            if any(0 < j - k <= _NEGATION_REACH + 1 for k in negators):
+                return False
+            covered.add(i)
+        elif i - 1 in covered and words[i - 1] != words[i]:
+            covered.add(i)  # "no chest pain": "pain" follows the covered "chest"
+        else:
+            return False
+    return True
+
+
+def negated_terms(message: str, terms: list[str]) -> set[str]:
+    """The matched terms (labels from match_terms) the patient plainly denies.
+
+    A term is negated only when every occurrence of its content words sits in a
+    clause (split on . ; , and "but") where a negator comes at most 2 words
+    before it, with no hedge ("not sure", "don't think") and no double negative.
+    It errs toward not negated: a missed negation only sends a case to the
+    doctor, a false one could let a warning sign through."""
+    matched = set(match_terms(message, terms))
+    clauses = [_words(c) for c in _CLAUSE_SPLIT.split(message)]
+    out: set[str] = set()
+    for term in terms:
+        label = _canon(term)
+        if label not in matched or label in out:
+            continue
+        content = _content(term) - {"not"}
+        if content and all(_negated_in_clause(c, content) for c in clauses):
+            out.add(label)
+    return out
