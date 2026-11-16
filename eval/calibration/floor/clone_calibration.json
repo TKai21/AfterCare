@@ -4,15 +4,15 @@
   "date": "2026-11-16",
   "review_overrides": 0,
   "alpha": 0.1,
-  "threshold": 0.75,
+  "threshold": 0.8,
   "calibration": {
     "n": 47,
-    "risk": 0.0638,
-    "answer_rate": 0.4468,
-    "coverage": 0.5806,
-    "wrong_answers": 3,
-    "escalated": 26,
-    "bound": 0.0833
+    "risk": 0.0426,
+    "answer_rate": 0.383,
+    "coverage": 0.5161,
+    "wrong_answers": 2,
+    "escalated": 29,
+    "bound": 0.0625
   },
   "test": {
     "n": 46,
@@ -24,10 +24,10 @@
   },
   "test_without_gate": {
     "n": 46,
-    "risk": 0.087,
-    "answer_rate": 0.6087,
-    "coverage": 0.75,
-    "wrong_answers": 4,
-    "escalated": 18
+    "risk": 0.1087,
+    "answer_rate": 0.6957,
+    "coverage": 0.8438,
+    "wrong_answers": 5,
+    "escalated": 14
   }
 }

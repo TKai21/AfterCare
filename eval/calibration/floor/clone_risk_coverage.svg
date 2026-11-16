@@ -3,9 +3,9 @@
 <line x1="64" x2="536" y1="288.0" y2="288.0" stroke="#d9d3c7"/><text x="56" y="292.0" text-anchor="end">0%</text><line x1="64" x2="536" y1="223.0" y2="223.0" stroke="#d9d3c7"/><text x="56" y="227.0" text-anchor="end">5%</text><line x1="64" x2="536" y1="158.0" y2="158.0" stroke="#d9d3c7"/><text x="56" y="162.0" text-anchor="end">10%</text><line x1="64" x2="536" y1="93.0" y2="93.0" stroke="#d9d3c7"/><text x="56" y="97.0" text-anchor="end">15%</text><line x1="64" x2="536" y1="28.0" y2="28.0" stroke="#d9d3c7"/><text x="56" y="32.0" text-anchor="end">20%</text><text x="64.0" y="306" text-anchor="middle">0%</text><text x="182.0" y="306" text-anchor="middle">25%</text><text x="300.0" y="306" text-anchor="middle">50%</text><text x="418.0" y="306" text-anchor="middle">75%</text><text x="536.0" y="306" text-anchor="middle">100%</text>
 <line x1="64" x2="536" y1="158.0" y2="158.0" stroke="#e07b4f" stroke-dasharray="5 4"/>
 <text x="536" y="152.0" text-anchor="end" fill="#a8481f">alpha = 10%</text>
-<path d="M64.0,288.0 L84.5,259.8 L105.1,259.8 L146.1,259.8 L258.9,231.5 L341.1,203.2 L351.3,174.9 L351.3,174.9" fill="none" stroke="#12634f" stroke-width="2"/>
+<path d="M64.0,288.0 L135.8,259.8 L207.6,231.5 L258.9,231.5 L371.8,174.9 L392.4,146.7 L392.4,146.7" fill="none" stroke="#12634f" stroke-width="2"/>
 <circle cx="258.9" cy="231.5" r="5" fill="#12634f"/>
-<text x="267.9" y="223.5" fill="#0b4436">t* = 0.75</text>
+<text x="267.9" y="223.5" fill="#0b4436">t* = 0.80</text>
 <text x="300.0" y="328" text-anchor="middle" fill="#15241f">Share of test questions answered</text>
 <text transform="translate(16 158.0) rotate(-90)" text-anchor="middle" fill="#15241f">Wrong answers delivered</text>
 </svg>
