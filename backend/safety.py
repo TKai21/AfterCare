@@ -292,7 +292,7 @@ def match_terms(message: str, terms: list[str]) -> list[str]:
     return out
 
 
-_CLAUSE_SPLIT = re.compile(r"[.;,!?:\n]|\bbut\b|\bhowever\b|\balthough\b", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[.;,!?:\n]|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b", re.IGNORECASE)
 _NEGATOR_STEMS = frozenset({"not", "deny", "without", "non"})  # no/n't/never fold to "not"
 _HEDGE_STEMS = frozenset(_stem(w) for w in (
     "sure", "idea", "think", "know", "certain", "clue", "wonder", "whether", "if",
@@ -332,7 +332,7 @@ def negated_terms(message: str, terms: list[str]) -> set[str]:
     """The matched terms (labels from match_terms) the patient plainly denies.
 
     A term is negated only when every occurrence of its content words sits in a
-    clause (split on . ; , and "but") where a negator comes at most 2 words
+    clause (split on . ; , and "but", "and", "or", "nor") where a negator comes at most 2 words
     before it, with no hedge ("not sure", "don't think") and no double negative.
     It errs toward not negated: a missed negation only sends a case to the
     doctor, a false one could let a warning sign through."""

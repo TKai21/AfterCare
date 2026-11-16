@@ -280,3 +280,13 @@ def test_not_negated(msg):
 def test_negated_is_subset_of_matched():
     assert negated_terms("no rash", TERMS) == set()
     assert negated_terms("no fever and I feel fine", TERMS) <= set(match_terms("no fever and I feel fine", TERMS))
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("no fever and vomiting", {"fever"}),
+    ("no fever or chills", {"fever"}),
+    ("no fever nor chills", {"fever"}),
+    ("I have no fever, no vomiting", {"fever", "vomiting"}),
+])
+def test_and_or_end_the_negation_clause(msg, want):
+    assert negated_terms(msg, TERMS + ["chills"]) == want
