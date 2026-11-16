@@ -120,7 +120,9 @@ class PortalLLM(FakeLLM):
         if self.first == "emergency":
             return final("emergency", "Call 911 now.", [])
         if self.first == "not_covered":
-            if any(r["message"] in prompt for r in MIXED_ROWS):
+            # Only this turn's question: an earlier one may be joined above it.
+            asked = prompt.rsplit("Patient question:", 1)[-1]
+            if any(r["message"] in asked for r in MIXED_ROWS):
                 return final("not_covered", "I will ask the doctor.", [], care_team_question="Knee pain")
             return final("answer", "Your document lists your medicines [1].", [1])
         if number["ask"] is not None:
