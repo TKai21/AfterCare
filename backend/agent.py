@@ -644,7 +644,8 @@ def validate(
     if kind == "answer" and all(evidence[n].kind == "habit" for n in cited):
         raise ValueError(HABIT_ONLY_ERROR)
     if kind == "clarify":
-        _check_clarify(answer, [evidence[n] for n in cited], frozenset(asked_before))
+        _check_clarify(answer, [evidence[n] for n in cited], frozenset(asked_before),
+                       known=[e for e in evidence.values() if e.kind == "habit" and e.habit_type == "ask"])
     if kind == "close":
         _check_close(answer, [evidence[n] for n in cited])
     if GENERAL_INFO_MARK in answer.lower() and not any(
@@ -1112,8 +1113,14 @@ def question_set(text: str) -> frozenset[str]:
     return frozenset(_normal(body) for body, end in found if body and _is_question(end))
 
 
+def _loose(text: str) -> str:
+    """_normal without punctuation: "symptoms, such as fever" equals "symptoms such as fever"."""
+    return " ".join(re.sub(r"[^\w\s]", " ", _normal(text)).split())
+
+
 def _check_clarify(answer: str, cited: list[Evidence],
-                   asked_before: frozenset[str] = frozenset()) -> None:
+                   asked_before: frozenset[str] = frozenset(),
+                   known: Sequence[Evidence] = ()) -> None:
     """A clarify asks questions and states nothing. It cites only "ask" habits
     (a question of the clone's own cites nothing). Each question is either a
     whole question of a cited ask habit's quote (case and whitespace aside) or
@@ -1126,6 +1133,9 @@ def _check_clarify(answer: str, cited: list[Evidence],
     MEDICATION_CHANGE_QUESTION allows, no numbers (not even 911), and each
     question starts with _QUESTION_OPENER and has none of _QUESTION_BANNED.
     Drug names are checked by validate against the allowed names.
+    A question that equals, punctuation aside, any ask habit in `known` (the
+    turn's ask habits, cited or not) is the doctor's own too: near-duplicate
+    habits differ only by a comma, and citing the twin must not reject it.
     `answer` is already cleaned (clean_text)."""
     if any(e.kind != "habit" or e.habit_type != "ask" for e in cited):
         raise ValueError("A clarify may cite only my \"Questions I usually ask\" entries; a "
@@ -1144,20 +1154,20 @@ def _check_clarify(answer: str, cited: list[Evidence],
         raise ValueError("A clarify must not contain numbers, not even 911.")
     if leftover or not any(_is_question(end) for _, end in sentences):
         raise ValueError("A clarify must be questions, each ending with \"?\".")
-    own = _ask_questions(cited)
-    seen = set(asked_before)
+    own = {_loose(q) for q in _ask_questions([*cited, *known])}
+    seen = {_loose(q) for q in asked_before}
     for index, (body, end) in enumerate(sentences):
         if _is_question(end):
             if (not re.search(r"\w", body) or not _QUESTION_OPENER.match(body)
                     or _QUESTION_BANNED.search(body)):
                 raise ValueError(ONLY_QUESTIONS_ERROR)
-            if _normal(body) not in own and (
+            if _loose(body) not in own and (
                     len(body.split()) > CLONE_QUESTION_MAX_WORDS
                     or not _CLONE_QUESTION.match(body) or _CLONE_BANNED.search(body)):
                 raise ValueError(OWN_QUESTIONS_ERROR)
-            if _normal(body) in seen:
+            if _loose(body) in seen:
                 raise ValueError(REPEAT_ERROR)
-            seen.add(_normal(body))
+            seen.add(_loose(body))
         elif index != 0 or end not in (".", "!") or _normal(body) not in _OPENER_BODIES:
             raise ValueError(OPENER_ERROR)
     if text.count("?") > CLARIFY_MAX_QUESTIONS:
@@ -1781,9 +1791,9 @@ You get the patient's original question, every round of questions the doctor ask
 Reply with only one JSON object:
 {"replies_to_questions": true or false, "warning_signs": [{"term": "...", "status": "present" | "absent" | "unclear"}], "other_concerns": true or false, "close": a closing habit number or null}
 - "replies_to_questions": true when the newest message answers at least one of the questions asked, or gives any information about the original problem (a reply to only some of the questions still counts). False only when it is clearly a new, unrelated question.
-- "warning_signs": one entry for every warning term, copied exactly. "absent" only if the patient clearly said they do not have it; a term is "present" if the original question or ANY reply says the patient has it (an earlier round counts too) and "unclear" otherwise.
+- "warning_signs": one entry for every warning term, copied exactly. "present" if the original question or ANY reply says the patient has it (an earlier round counts too); "unclear" if the patient mentions it but it is not clear whether they have it; "absent" if the patient says they do not have it or does not mention it at all. (A program separately checks every term the patient wrote.)
 - "other_concerns": true if the original question or any reply mentions anything else a doctor should see (a new or worse symptom, a problem, a worry); false only if it clearly does not.
-- "close": the number of the closing habit that fits best, or null if none fits."""
+- "close": the number of the closing habit that fits this patient best. Choose one whenever any closing habit could be said to this patient; null only if every closing habit would be wrong for them."""
 
 
 @dataclass

@@ -1820,6 +1820,29 @@ def test_clarify_of_verbatim_questions_and_errors():
         clarify_check("Any chills?", [6])
 
 
+def test_clarify_question_of_an_uncited_twin_habit_is_the_doctors_own():
+    # Two ask habits differ only by a comma; the model cites one and copies the
+    # other. Seen end to end: the question was rejected as a clone-written one.
+    with_comma = "Have you had any additional symptoms, such as fever, chills, nausea, or vomiting?"
+    without = "Have you had any additional symptoms such as fever, chills, nausea, or vomiting?"
+    ev = {1: Evidence(1, "habit", "t", None, with_comma, with_comma, habit_type="ask"),
+          2: Evidence(2, "habit", "t", None, "How long have you had it?", "How long have you had it?",
+                      habit_type="ask")}
+    out = validate(raw(kind="clarify", answer=f"{without} [2]", citations=[2]), ev,
+                   lexicon=get_lexicon())
+    assert out[0] == "clarify"
+    # and a punctuation-only variant of an earlier round's question is a repeat
+    with pytest.raises(ValueError):
+        validate(raw(kind="clarify", answer=f"{without} [1]", citations=[1]), ev,
+                 lexicon=get_lexicon(), asked_before=[with_comma.rstrip("?")])
+
+
+def test_the_judge_prompt_treats_an_unmentioned_term_as_absent_and_prefers_a_close():
+    prompt = agent.REPLY_JUDGE_PROMPT
+    assert "does not mention it at all" in prompt
+    assert "null only if every closing habit would be wrong" in prompt
+
+
 def test_cleaning_strips_format_characters_for_every_kind():
     ev = {1: Evidence(1, "document", "t", None, "Drink 2 liters of water.",
                       "Drink 2 liters of water.")}
