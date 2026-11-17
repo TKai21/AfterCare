@@ -119,6 +119,9 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
     return handoff_result(doctor_name), Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER)
 
 
+SETTLED_MEANWHILE = "Case was settled before this reply"
+
+
 async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
                          pending: PendingClarify, reply: str, user_id: int,
                          document_id: int, doctor_id: int) -> Optional[int]:
@@ -130,12 +133,14 @@ async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
     reply fills that same card, resolves it on a close, or reopens it as
     waiting when the clone asks another round, so the doctor never sees two
     cards. When it is no longer waiting (the doctor answered it, or another
-    reply settled it), a handoff becomes a new open question and another round
-    a new waiting one, so a reply is never lost; a resolving outcome then only
-    delivers its answer.
+    reply settled it, say a double-tapped send), a handoff or another round
+    becomes a new open question for the doctor with every round, so a reply is
+    never lost and a settled case is never interviewed again; a resolving
+    outcome then only delivers its answer.
 
     Returns the id of the row waiting for the patient's next reply (another
-    round), else None."""
+    round), else None: for another round, None means the case went to the
+    doctor instead, and the caller must not deliver the questions."""
     rounds = [{"asked": strip_markers(r["asked"]), "reply": r["reply"]}
               for r in pending.all_rounds(reply)]
     values = {"status": settle.status, "patient_reply": reply, "stopped_by": settle.stopped_by,
@@ -161,20 +166,14 @@ async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
     )
     if done.rowcount == 1:
         return waiting_id if settle.status == WAITING else None
-    if settle.status == WAITING:
-        row = await add_question(
-            session, user_id, document_id, question=pending.question, reason="", source="agent",
-            doctor_id=doctor_id, status=WAITING, asked=settle.asked)
-        row.intake = rounds
-        return row.id
-    if settle.status != "open":
+    if settle.status not in ("open", WAITING):
         return None
     row = await add_question(
         session, user_id, document_id, question=pending.question,
-        reason=settle.reason or NEEDS_DOCTOR, source="agent", doctor_id=doctor_id,
-        asked=strip_markers(pending.asked))
+        reason=(settle.reason if settle.status == "open" else None) or NEEDS_DOCTOR,
+        source="agent", doctor_id=doctor_id, asked=strip_markers(pending.asked))
     row.patient_reply = reply
-    row.stopped_by = settle.stopped_by
+    row.stopped_by = settle.stopped_by if settle.status == "open" else SETTLED_MEANWHILE
     row.intake = rounds
     return None
 
@@ -449,6 +448,11 @@ async def ask(
     if waiting_id is not None and settle is not None and pending is not None:
         next_waiting_id = await settle_waiting(session, waiting_id, settle, pending,
                                                body.question, user_id, doc_id, doctor_id)
+        if settle.status == WAITING and next_waiting_id is None:
+            # The case was settled meanwhile (the doctor answered it, or a
+            # concurrent reply won): it went to the doctor, so no more questions.
+            result = handoff_result(name)
+            payload = answer_payload(result, terms, doctor_id, name, gate_score)
     if result.kind == "clarify":
         if pending is None:  # the first round: the waiting question is the clone's own
             waiting_row = await add_question(

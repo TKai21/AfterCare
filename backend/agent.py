@@ -435,6 +435,9 @@ def _markers(answer: str) -> set[int]:
     return {n for group in MARKER.findall(answer) for n in _marker_numbers(group)}
 
 
+MARKER_BEFORE_MARK = re.compile(r"\s*(\[\d+(?:,\s*\d+)*\])\s*(\?)")
+
+
 def _normalize_markers(answer: str) -> str:
     """"[ 2 ]", "[2 ,3]" and "[2-4]" become "[2]", "[2, 3]" and "[2, 3, 4]", the
     forms the page renders."""
@@ -616,6 +619,9 @@ def validate(
     # Numbers cited through a range ("[41-45]"), read before the ranges are expanded.
     ranged = {n for group in MARKER.findall(clean_text(answer)) for n in _marker_ranges(group)}
     answer = _normalize_markers(clean_text(answer))
+    # "...abdominal pain [45, 70]?" reads as part of the question: the marker
+    # goes after the question mark, as "pain? [45, 70]" (statements keep "daily [2].").
+    answer = MARKER_BEFORE_MARK.sub(r"\2 \1", answer)
     if not answer:
         raise ValueError("The answer is empty.")
     citations = data.get("citations")
@@ -1050,7 +1056,9 @@ _CLONE_QUESTION = re.compile(
 # question, are never in a question the clone writes itself.
 _CLONE_BANNED = re.compile(
     r"[,;:\u2014\u2013\"\[\]{}]|\b(?:should|must|ought|need|needs|better|advise|recommend|suggest"
-    r"|consider|avoid|rest|call|visit|seek|go to|emergency|er)\b", re.IGNORECASE)
+    r"|consider|avoid|rest|call|visit|seek|go to|emergency|er"
+    # advice by suggestion: "Have you tried icing it?", "taking more ibuprofen?"
+    r"|try|tried|trying|more|less|extra|again|instead)\b", re.IGNORECASE)
 
 
 def _normal(text: str) -> str:
@@ -1794,7 +1802,7 @@ You get the patient's original question, every round of questions the doctor ask
 Reply with only one JSON object:
 {"replies_to_questions": true or false, "warning_signs": [{"term": "...", "status": "present" | "absent" | "unclear"}], "other_concerns": true or false, "close": a closing habit number or null}
 - "replies_to_questions": true when the newest message answers at least one of the questions asked, or gives any information about the original problem (a reply to only some of the questions still counts). False only when it is clearly a new, unrelated question.
-- "warning_signs": one entry for every warning term, copied exactly. "present" if the original question or ANY reply says the patient has it (an earlier round counts too); "unclear" if the patient mentions it but it is not clear whether they have it; "absent" if the patient says they do not have it or does not mention it at all. (A program separately checks every term the patient wrote.)
+- "warning_signs": one entry for every warning term, copied exactly. "present" if the original question or ANY reply says the patient has it, in these words or in other words ("I can't catch my breath" is shortness of breath; an earlier round counts too); "unclear" if a reply describes something close to it or it is not clear whether they have it; "absent" only if the patient says they do not have it, or neither the term nor anything like it appears anywhere. When in doubt, "unclear". (A program separately checks every term the patient wrote.)
 - "other_concerns": true if the original question or any reply mentions anything else a doctor should see (a new or worse symptom, a problem, a worry); false only if it clearly does not.
 - "close": the number of the closing habit that fits this patient best. Choose one whenever any closing habit could be said to this patient; null only if every closing habit would be wrong for them."""
 

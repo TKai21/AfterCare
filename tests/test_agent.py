@@ -1714,7 +1714,7 @@ def test_clarify_lead_in_errors_name_the_rule():
     with pytest.raises(ValueError, match="only open with"):
         clarify_check("Do you have a fever? Thanks for letting me know.")
     with pytest.raises(ValueError, match="drug"):
-        clarify_check("Have you tried ibuprofen?")
+        clarify_check("Do you take ibuprofen?")
     with pytest.raises(ValueError, match="link"):
         clarify_check("Please visit https://evil.example.com? Any fever?")
 
@@ -1839,8 +1839,27 @@ def test_clarify_question_of_an_uncited_twin_habit_is_the_doctors_own():
 
 def test_the_judge_prompt_treats_an_unmentioned_term_as_absent_and_prefers_a_close():
     prompt = agent.REPLY_JUDGE_PROMPT
-    assert "does not mention it at all" in prompt
+    assert "in other words" in prompt and "When in doubt, \"unclear\"" in prompt
     assert "null only if every closing habit would be wrong" in prompt
+
+
+@pytest.mark.parametrize("question", [
+    "Have you tried elevating your leg?", "Have you tried icing it?",
+    "Are you taking more naproxen?", "Do you take less naproxen now?",
+    "Did you take an extra naproxen?", "Did you take naproxen again?",
+    "Do you take naproxen instead?", "Would you try a warm compress?",
+])
+def test_a_clone_question_may_not_suggest_advice(question):
+    with pytest.raises(ValueError):
+        clarify_check(question)
+
+
+def test_a_marker_before_the_question_mark_moves_after_it():
+    ev = {1: Evidence(1, "habit", "t", None, "Any fever?", "Any fever?", habit_type="ask"),
+          2: Evidence(2, "habit", "t", None, "Any pain?", "Any pain?", habit_type="ask")}
+    out = validate(raw(kind="clarify", answer="Any fever? Any pain [1, 2]?", citations=[1, 2]), ev,
+                   lexicon=get_lexicon())
+    assert out[1] == "Any fever? Any pain? [1, 2]"
 
 
 def test_cleaning_strips_format_characters_for_every_kind():

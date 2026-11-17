@@ -1990,10 +1990,11 @@ async def test_a_reply_after_the_doctor_answered_a_round_2_clarify_is_never_lost
     await set_waiting(client, status="answered", answer="Please send a photo.")
     fake_llm.script(own_clarify(OWN_Q2), judge_message(signs=absent("fever", "threw up"), close=None))
     body = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
-    assert body["kind"] == "clarify"
+    # The case was settled meanwhile: no more questions, the reply goes to the doctor.
+    assert body["kind"] == "not_covered" and not body.get("pending")
     qs = await all_questions(client)
-    assert [q.status for q in qs] == ["answered", "waiting_on_patient"]  # the doctor's stays
-    assert body["waiting_question_id"] == qs[1].id
+    assert [q.status for q in qs] == ["answered", "open"]  # the doctor's stays
+    assert qs[1].stopped_by == "Case was settled before this reply"
     assert [r["reply"] for r in qs[1].intake] == [REPLY1, REPLY2]
 
 
