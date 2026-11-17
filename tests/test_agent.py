@@ -3016,3 +3016,60 @@ async def test_the_judge_prompt_lists_each_warning_term_once(store, foods, docum
                     warning_terms=["chest pain", "Chest pain", "fever"])
     block = json.dumps(llm.calls[1][0]).split("<warning-terms-")[1].split("</warning-terms-")[0]
     assert block.count("hest pain") == 1 and "fever" in block
+
+
+def test_the_judge_prompt_counts_a_partial_or_informative_reply_as_a_reply():
+    prompt = agent.REPLY_JUDGE_PROMPT
+    assert "at least one of the questions" in prompt
+    assert "any information about the original problem" in prompt
+    assert "clearly a new, unrelated question" in prompt
+
+
+async def test_the_intake_prompt_lists_every_question_already_asked(
+        store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []), judge_reply())
+    await ask_reply(llm, store, foods, document, items)
+    text = llm.calls[0][0][-1]["content"]
+    assert "Already asked - never ask these again" in text
+    block = text.split("Already asked - never ask these again")[1]
+    assert "- Do you have a fever?" in block and "- Is it draining?" in block
+    assert "answer the original question from the evidence" in block
+    assert "genuinely new information" in block
+    assert "Already asked - never ask these again" in agent.system_prompt("Dr. X")
+
+
+@pytest.mark.parametrize("bad", ["", "Do you have a fever? [5]"])
+async def test_a_rejected_clarify_on_an_intake_turn_is_told_what_was_asked(
+        store, foods, document, items, bad):
+    llm = FakeLLM()
+    llm.script(pending_reply("clarify", bad, [5]), pending_reply("not_covered", "x", []),
+               judge_reply())
+    await ask_reply(llm, store, foods, document, items)
+    nudge = llm.calls[1][0][-1]["content"]
+    assert "was rejected" in nudge
+    assert "- Do you have a fever?" in nudge and "- Is it draining?" in nudge
+    assert "answer the original question" in nudge and "close" in nudge
+
+
+async def test_an_empty_clarify_is_a_validation_error(store, foods, document, items):
+    with pytest.raises(ValueError, match="empty"):
+        validate(raw(answer="", kind="clarify", citations=[]), evidence("x"), pending=True,
+                 clarify_allowed=True)
+
+
+async def test_a_nudge_for_a_non_clarify_error_adds_no_question_list(
+        store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("answer", "Drink water [9].", [9]),
+               pending_reply("not_covered", "x", []), judge_reply())
+    await ask_reply(llm, store, foods, document, items)
+    assert "already asked" not in llm.calls[1][0][-1]["content"]
+
+
+async def test_an_empty_clarify_twice_then_a_clean_judge_closes(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("clarify", "", []), pending_reply("clarify", "", []), judge_reply())
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "close" and agent.strip_markers(result.answer) == CLOSE_QUOTE
+    assert result.care_team_question is None and result.replies_to_questions is True
