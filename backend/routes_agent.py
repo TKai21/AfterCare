@@ -408,8 +408,10 @@ async def ask(
         threshold = request.app.state.clone_threshold
         # The gate never runs when the backstop saw an emergency term: that
         # answer must not wait on another model call. A clarify delivers no
-        # medical fact and is not scored; a close is scored like an answer.
+        # medical fact and is not scored; a close is scored like an answer,
+        # except the judge's close, which is the doctor's own words built by code.
         if (threshold is not None and result.kind in ("answer", "close") and not terms
+                and not result.doctor_words_only
                 and not (result.kind == "close" and blocker is not None)):
             scored = body.question
             if pending is not None:  # a reply is read with the question it answers

@@ -1086,6 +1086,24 @@ async def test_reply_judge_close_resolves_after_the_model_hands_off(client, fake
     assert q.intake == [{"asked": ASK_QUESTIONS, "reply": reply}]
 
 
+async def test_the_judges_close_is_not_scored_by_the_gate(client, fake_llm):
+    # The doctor's own closing words, built by code: a failing gate must not
+    # turn them into a handoff (seen end to end: "Low confidence").
+    gate_on(client, fake_llm, score=10)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(final("not_covered", "x", []), judge_json())
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and gate_calls(fake_llm) == 0
+    # a close the model wrote itself is still scored
+    h2 = await confirmed(client, fake_llm, headers=await auth_headers(client, "p.model"))
+    await start_clarify(client, fake_llm, h2, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h2, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] != "close" and gate_calls(fake_llm) == 1
+
+
 async def test_reply_judge_with_a_present_term_keeps_the_handoff(client, fake_llm):
     gate_on(client, fake_llm)
     h = await confirmed(client, fake_llm)

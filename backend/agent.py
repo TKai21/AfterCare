@@ -344,6 +344,9 @@ class AgentResult:
     warning_signs: list[dict] = field(default_factory=list)
     replies_to_questions: Optional[bool] = None
     other_concerns: Optional[bool] = None
+    # Built by code from the doctor's own words (the reply judge's close): no
+    # model-written sentence, so the confidence gate has nothing to score.
+    doctor_words_only: bool = False
 
 
 def _strip_fences(raw: str) -> str:
@@ -1908,7 +1911,7 @@ async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
         kind=kind, answer=answer, sources=sources, flagged=False, care_team_question=None,
         habit_rule_ids=[e.rule_id for e in sources if e.rule_id is not None],
         seen=list(turn.evidence.values()), warning_signs=judged.signs,
-        replies_to_questions=True, other_concerns=False,
+        replies_to_questions=True, other_concerns=False, doctor_words_only=True,
     )
 
 
