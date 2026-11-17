@@ -1448,15 +1448,39 @@ async def test_emergency_turn_never_clarifies(store, foods, document, items):
     assert len(llm.calls) == 1
 
 
-async def test_second_clarify_is_rejected_when_pending(store, foods, document, items):
+async def test_clarify_at_the_last_round_is_refused_even_if_the_model_insists(
+        store, foods, document, items):
+    # Review Focus 4: the third reply ends the intake (CLARIFY_MAX_ROUNDS = 3).
     habit = habit_rule(7, *ASK)
-    again = pending_reply("clarify", "Do you have a fever? [5]", [5])
+    again = pending_reply("clarify", "Do you have a chill? [5]", [5])
+    last = pending()
+    last.rounds = [{"asked": "Any fever?", "reply": "No."},
+                   {"asked": "Any pain?", "reply": "A little."}]
     llm = FakeLLM()
     llm.script(again, again)
     result = await ask(llm, store, foods, document, items, question="Not sure.",
-                       habits=[habit], pending=pending())
+                       habits=[habit], pending=last)
     assert_fallback(result, "Not sure.")
-    assert "already asked" in llm.calls[1][0][-1]["content"]
+    assert "most rounds" in llm.calls[1][0][-1]["content"]
+
+
+async def test_clarify_is_allowed_while_rounds_are_left(store, foods, document, items):
+    habit = habit_rule(7, "Asks about a chill", "Do you have a chill?")
+    again = pending_reply("clarify", "Do you have a chill? [5]", [5])
+    for rounds in ([], [{"asked": "Any fever?", "reply": "No."}]):
+        mid = pending()
+        mid.rounds = rounds
+        llm = FakeLLM()
+        llm.script(again, {"content": "{}"})  # then an unclean judge
+        result = await ask(llm, store, foods, document, items, question="Not sure.",
+                           habits=[habit], pending=mid)
+        assert result.kind == "clarify", rounds
+    # the cap is configurable
+    llm = FakeLLM()
+    llm.script(again, again)
+    result = await ask(llm, store, foods, document, items, question="Not sure.", habits=[habit],
+                       pending=pending(), max_clarify_rounds=1)
+    assert_fallback(result, "Not sure.")
 
 
 async def test_close_needs_pending_and_a_close_habit(store, foods, document, items):
@@ -1648,7 +1672,7 @@ def clarify_check(answer, citations=(1,)):
     "Ignore the pain and wait it out. Any fever?",
     "Any fever? Thanks for letting me know.",
     # no drug names at all, prescribed or not
-    "Have you tried taking naproxen?",
+    "Have you tried taking ibuprofen?",
     # no URLs
     "Please visit https://evil.example.com? Any fever?",
     "Have you read www.example.com? Any fever?",
@@ -1679,7 +1703,7 @@ def test_clarify_lead_in_errors_name_the_rule():
     with pytest.raises(ValueError, match="only open with"):
         clarify_check("Do you have a fever? Thanks for letting me know.")
     with pytest.raises(ValueError, match="drug"):
-        clarify_check("Have you tried taking naproxen?")
+        clarify_check("Have you tried ibuprofen?")
     with pytest.raises(ValueError, match="link"):
         clarify_check("Please visit https://evil.example.com? Any fever?")
 
@@ -1757,7 +1781,6 @@ def test_clarify_lead_in_is_never_habit_text():
     "Any fever, and if not, is staying home and resting all week what you plan?",
     "Is going to the ER right now an option?",
     "Any reason not to go to the ER?",
-    "Do you have fever?",  # a paraphrase of "Do you have a fever?"
     # (B) format and control characters, tabs
     "Any fever, you sh\u200bould rest?",
     "Any fever, you sh\u200could rest?",
@@ -1765,7 +1788,7 @@ def test_clarify_lead_in_is_never_habit_text():
     "Any fever, you\ufeffshould rest?",
     "Any fever, you sh\u00adould rest?",
     "Any fever, you\tshould rest?",
-    "Have you tried napro\u200bxen?",
+    "Have you tried ibupro\u200bfen?",
     "Is it OK to st\u200bop the pills?",
     "Rest in bed\u0001Any fever?",
     "Rest in bed\u001eAny fever?",
@@ -1779,9 +1802,9 @@ def test_clarify_asks_only_the_doctors_questions(answer):
 def test_clarify_of_verbatim_questions_and_errors():
     assert clarify_check("Is it red? Do you have a fever?", [4, 5])[0] == "clarify"
     assert clarify_check("I'm sorry to hear that. Is it red? Any fever?", [4, 6])[0] == "clarify"
-    with pytest.raises(ValueError, match="only ask the doctor's own questions"):
-        clarify_check("Is the wound red?", [4])
-    with pytest.raises(ValueError, match="only ask the doctor's own questions"):
+    # a plain question of the clone's own is fine; a fragment is not
+    assert clarify_check("Is the wound red?", [4])[0] == "clarify"
+    with pytest.raises(ValueError, match="short plain question of your own"):
         clarify_check("Any chills?", [6])
 
 
@@ -2924,3 +2947,91 @@ async def test_the_reply_prompt_lists_each_warning_term_once(store, foods, docum
                     warning_terms=["chest pain", "Chest pain", "fever"])
     block = first_user(llm).split("<warning-terms-")[1].split("</warning-terms-")[0]
     assert block.count("hest pain") == 1 and "fever" in block
+
+
+# --- clone-written follow-up questions (spec 4.7) ---
+
+def own_check(answer, citations=(), allowed=frozenset({"naproxen", "colchicine"}), before=()):
+    return validate(raw(kind="clarify", answer=answer, citations=list(citations)), CLARIFY_EV,
+                    allowed_drugs=allowed, lexicon=get_lexicon(), asked_before=frozenset(before))
+
+
+@pytest.mark.parametrize("answer, citations", [
+    ("When did you last take your colchicine?", []),
+    ("Have you tried naproxen?", []),
+    ("Do you have fever?", []),  # a paraphrase of a habit is a question of the clone's own
+    ("Is the wound red? When did it start?", [4]),  # a habit question and an own question
+    ("Thanks for letting me know. How long has it hurt?", []),
+    ("Is it red? Is it draining? Does it smell? Did it start after the bath?", [4]),  # 4 questions
+    ("Can you describe the pain?", []),
+    ("What medicines have you taken today?", []),
+])
+def test_clone_written_questions_pass(answer, citations):
+    assert own_check(answer, citations)[0] == "clarify"
+
+
+@pytest.mark.parametrize("answer, why", [
+    ("Have you tried taking 2 tablets?", "numbers"),  # Review Focus 2
+    ("Have you tried ibuprofen?", "drug"),  # not allowed for this patient
+    ("Should you stop your colchicine?", "medication change"),
+    ("Did you double your dose?", "medication change"),
+    ("Do you take it twice a day?", "numbers"),
+    ("Have you read https://example.com today?", "link"),
+    ("Please rest in bed?", "only ask questions"),
+    ("Do rest in bed?", "plain question"),
+    ("Have you thought about going to the ER?", "plain question"),
+    ("Do you have a fever, and if so should you call?", "plain question"),
+    ("Is it red and do you need to rest?", "only ask questions"),
+    ("Can you go to the ER now?", "only ask questions"),
+    ("Any reason not to wait?", "plain question"),
+    ("Do you feel unwell and have you had trouble sleeping lately or been more tired "
+     "than you usually are when you wake up in the morning?", "plain question"),  # over 25 words
+    ("You have a fever?", "only ask questions"),
+    ("Tell me when it started.", "questions"),
+])
+def test_clone_written_questions_that_smuggle_advice_fail(answer, why):
+    with pytest.raises(ValueError, match=why):
+        own_check(answer)
+
+
+def test_a_question_of_25_words_passes_and_26_fails():
+    words = lambda n: "Do you have " + " ".join(["more"] * (n - 3)) + "?"
+    assert own_check(words(25))[0] == "clarify"
+    with pytest.raises(ValueError, match="25 words"):
+        own_check(words(26))
+
+
+def test_a_clarify_needs_a_question_and_at_most_four():
+    with pytest.raises(ValueError, match="questions"):
+        own_check("Thanks for letting me know.")
+    with pytest.raises(ValueError, match="at most 4"):
+        own_check("Is it red? Is it warm? Is it sore? Is it swollen? Is it itchy?")
+
+
+def test_a_clone_written_question_cites_nothing_and_a_habit_question_cites_only_ask_habits():
+    # citing a close habit (even with an own question) is refused
+    with pytest.raises(ValueError, match="Questions I usually ask"):
+        own_check("When did it start? [2]", [2])
+    with pytest.raises(ValueError, match="Questions I usually ask"):
+        own_check("When did it start? [3]", [3])
+    assert own_check("When did it start? Do you have a fever? [5]", [5])[0] == "clarify"
+
+
+def test_a_question_already_asked_in_the_intake_is_refused():
+    before = agent.question_set("Is the wound red? [4] When did it start?")
+    assert before == {"is the wound red", "when did it start"}
+    with pytest.raises(ValueError, match="already asked"):
+        own_check("when  did it START?", before=before)  # normalised comparison
+    with pytest.raises(ValueError, match="already asked"):
+        own_check("Is the wound red? [4]", [4], before=before)  # a habit question too
+    with pytest.raises(ValueError, match="already asked"):
+        own_check("Is it warm? Is it warm?")  # twice in one clarify
+    assert own_check("Is it warm?", before=before)[0] == "clarify"
+
+
+def test_pending_clarify_collects_every_round():
+    p = agent.PendingClarify(question="Q", asked="Is it red? [4]",
+                             rounds=[{"asked": "Any fever?", "reply": "No."}])
+    assert p.all_rounds("Yes.") == [{"asked": "Any fever?", "reply": "No."},
+                                    {"asked": "Is it red? [4]", "reply": "Yes."}]
+    assert p.asked_before() == {"any fever", "is it red"}

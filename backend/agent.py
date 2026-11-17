@@ -19,7 +19,7 @@ import secrets
 import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Awaitable, Callable, NamedTuple, Optional, Sequence
+from typing import Awaitable, Callable, Collection, NamedTuple, Optional, Sequence
 
 from documents import evidence_paragraphs
 from drugnames import DrugLexicon, get_lexicon
@@ -42,6 +42,10 @@ class GuidanceUnavailable(Exception):
 DEFAULT_DOCTOR_NAME = "your doctor"
 HABIT_ONLY_ERROR = "An answer needs a source other than the doctor's usual practice."
 CLARIFY_MAX_QUESTIONS = 4
+# Rounds of questions per case (config.clarify_max_rounds overrides it).
+CLARIFY_MAX_ROUNDS = 3
+# A question the clone writes itself: one sentence, at most this many words.
+CLONE_QUESTION_MAX_WORDS = 25
 # The only sentence a clarify may open with. Never taken from habit text: a
 # sentence of a habit's quote can be the doctor's instruction out of context.
 CLARIFY_OPENERS = (
@@ -300,11 +304,22 @@ class Evidence:
 
 @dataclass
 class PendingClarify:
-    """The clone's open clarify: the patient's original question and the
-    questions the clone asked (the clarify text). The next patient message is
-    the reply to it."""
+    """The clone's open clarify: the patient's original question, the questions
+    the clone asked last (the clarify text) and the rounds completed before it
+    ([{asked, reply}], oldest first). The next patient message is the reply to
+    `asked`."""
     question: str
     asked: str
+    rounds: list[dict] = field(default_factory=list)
+
+    def all_rounds(self, reply: str) -> list[dict]:
+        """Every round so far, the one this message replies to included."""
+        return [*self.rounds, {"asked": self.asked, "reply": reply}]
+
+    def asked_before(self) -> frozenset[str]:
+        """Every question already asked in this intake, normalised."""
+        return frozenset().union(*(question_set(r["asked"])
+                                   for r in [*self.rounds, {"asked": self.asked}]))
 
 
 @dataclass
@@ -566,6 +581,8 @@ def validate(
     lexicon: Optional[DrugLexicon] = None,
     pending: bool = False,
     emergency: bool = False,
+    clarify_allowed: bool = False,
+    asked_before: Collection[str] = (),
 ) -> tuple[str, str, list[int], Optional[str]]:
     """Check the model's final JSON against the evidence. Raises ValueError.
 
@@ -582,9 +599,10 @@ def validate(
         raise ValueError(f"Unknown kind {kind!r}.")
     if kind == "clarify" and emergency:
         raise ValueError("Never ask questions when a possible emergency was detected.")
-    if kind == "clarify" and pending:
-        raise ValueError("You already asked the patient questions; do not use kind \"clarify\" "
-                         "again. Answer, close, or use kind \"not_covered\".")
+    if kind == "clarify" and pending and not clarify_allowed:
+        raise ValueError("You have asked the patient the most rounds of questions allowed; do "
+                         "not use kind \"clarify\" again. Answer the original question in the "
+                         "light of the replies, close, or use kind \"not_covered\".")
     if kind == "close" and not pending:
         raise ValueError("Kind \"close\" is allowed only when the patient is replying to my "
                          "questions.")
@@ -628,7 +646,7 @@ def validate(
     if kind == "answer" and all(evidence[n].kind == "habit" for n in cited):
         raise ValueError(HABIT_ONLY_ERROR)
     if kind == "clarify":
-        _check_clarify(answer, [evidence[n] for n in cited], lexicon)
+        _check_clarify(answer, [evidence[n] for n in cited], frozenset(asked_before))
     if kind == "close":
         _check_close(answer, [evidence[n] for n in cited])
     if GENERAL_INFO_MARK in answer.lower() and not any(
@@ -1009,10 +1027,28 @@ _QUESTION_OPENER = re.compile(
 _QUESTION_BANNED = re.compile(r"\byou should\b|\byou need to\b|\bplease\b|[()]", re.IGNORECASE)
 ONLY_QUESTIONS_ERROR = "A clarify may only ask questions."
 OWN_QUESTIONS_ERROR = (
-    "A clarify may only ask the doctor's own questions: copy whole questions word for word "
-    "from my cited \"Questions I usually ask\" entries.")
+    "Each question of a clarify must be one of my cited \"Questions I usually ask\" copied word "
+    "for word, or a short plain question of your own: one sentence ending with \"?\", at most "
+    f"{CLONE_QUESTION_MAX_WORDS} words, no commas, no advice or instruction, starting like "
+    "\"Do you ...\", \"Have you ...\", \"Is it ...\" or \"When did you ...\".")
+REPEAT_ERROR = "Do not ask a question that was already asked in this conversation."
 OPENER_ERROR = ("A clarify may only open with one of these sentences, or with none: "
                 + " ".join(f'"{o}"' for o in CLARIFY_OPENERS))
+# A question the clone writes itself must read as a plain history question: an
+# auxiliary and a subject, or a question word and an auxiliary. A command or an
+# "any ..." fragment ("Do rest in bed?", "Any reason not to go to the ER?")
+# never matches. Defence in depth, like _QUESTION_BANNED.
+_AUX = r"(?:do|does|did|have|has|had|is|are|was|were|will|would)"
+_CLONE_QUESTION = re.compile(
+    rf"(?:{_AUX}\s+(?:you|your|it|its|there|the|this|that|these|those|they|he|she|my|his|her"
+    r"|anyone|anything|someone|something|a|an)\b"
+    rf"|(?:how|when|where|what|which|who)\s+(?:\w+\s+)?(?:{_AUX}|can|could)\b"
+    r"|(?:can|could) you (?:tell|describe|say|remember)\b)", re.IGNORECASE)
+# Advice and instructions, and punctuation that chains a second clause onto the
+# question, are never in a question the clone writes itself.
+_CLONE_BANNED = re.compile(
+    r"[,;:\u2014\u2013\"\[\]{}]|\b(?:should|must|ought|need|needs|better|advise|recommend|suggest"
+    r"|consider|avoid|rest|call|visit|seek|go to|emergency|er)\b", re.IGNORECASE)
 
 
 def _normal(text: str) -> str:
@@ -1048,25 +1084,34 @@ def _ask_questions(cited: list[Evidence]) -> set[str]:
             for body, end in _sentences(clean_text(e.content))[0] if body and _is_question(end)}
 
 
-def _check_clarify(answer: str, cited: list[Evidence], lexicon: Optional[DrugLexicon]) -> None:
-    """A clarify asks the doctor's own questions and states nothing. It cites
-    only habits, at least one "ask" habit, and every question equals a whole
-    question of a cited ask habit's quote (case and whitespace aside). It may
-    open with one sentence of CLARIFY_OPENERS and nothing else, has at most
-    CLARIFY_MAX_QUESTIONS "?", and, as defence in depth: no link, no drug name
-    at all (prescribed or not), no medication-change wording other than the
-    question MEDICATION_CHANGE_QUESTION allows, no numbers (not even 911), and
-    each question starts with _QUESTION_OPENER and has none of
-    _QUESTION_BANNED. `answer` is already cleaned (clean_text)."""
-    if not cited or any(e.kind != "habit" for e in cited):
-        raise ValueError("A clarify must cite only my \"How I usually respond\" habits.")
-    if not any(e.habit_type == "ask" for e in cited):
-        raise ValueError("A clarify must cite at least one of my \"Questions I usually ask\".")
+def question_set(text: str) -> frozenset[str]:
+    """Each question of `text` (a clarify's text, markers allowed), normalised
+    and without its "?"."""
+    found, _ = _sentences(clean_text(strip_markers(text)))
+    return frozenset(_normal(body) for body, end in found if body and _is_question(end))
+
+
+def _check_clarify(answer: str, cited: list[Evidence],
+                   asked_before: frozenset[str] = frozenset()) -> None:
+    """A clarify asks questions and states nothing. It cites only "ask" habits
+    (a question of the clone's own cites nothing). Each question is either a
+    whole question of a cited ask habit's quote (case and whitespace aside) or
+    a clone-written one: at most CLONE_QUESTION_MAX_WORDS words, shaped by
+    _CLONE_QUESTION and free of _CLONE_BANNED. No question repeats one in
+    `asked_before` (an earlier round of this intake) or another of this
+    clarify. It may open with one sentence of CLARIFY_OPENERS and nothing else,
+    has at most CLARIFY_MAX_QUESTIONS "?" and at least one, and, as defence in
+    depth: no link, no medication-change wording other than the question
+    MEDICATION_CHANGE_QUESTION allows, no numbers (not even 911), and each
+    question starts with _QUESTION_OPENER and has none of _QUESTION_BANNED.
+    Drug names are checked by validate against the allowed names.
+    `answer` is already cleaned (clean_text)."""
+    if any(e.kind != "habit" or e.habit_type != "ask" for e in cited):
+        raise ValueError("A clarify may cite only my \"Questions I usually ask\" entries; a "
+                         "question of your own cites nothing.")
     text = strip_markers(answer)
     if _LINK.search(text):
         raise ValueError("A clarify must not contain a link.")
-    if lexicon is not None and (named := lexicon.find(text)):
-        raise ValueError(f"A clarify must not name any drug: {', '.join(sorted(named))}.")
     sentences, leftover = _sentences(text)
     # Before the number check: "double your dose" is also a number word.
     rest = " ".join([f"{b}{e}" for b, e in sentences
@@ -1079,13 +1124,19 @@ def _check_clarify(answer: str, cited: list[Evidence], lexicon: Optional[DrugLex
     if leftover or not any(_is_question(end) for _, end in sentences):
         raise ValueError("A clarify must be questions, each ending with \"?\".")
     own = _ask_questions(cited)
+    seen = set(asked_before)
     for index, (body, end) in enumerate(sentences):
         if _is_question(end):
             if (not re.search(r"\w", body) or not _QUESTION_OPENER.match(body)
                     or _QUESTION_BANNED.search(body)):
                 raise ValueError(ONLY_QUESTIONS_ERROR)
-            if _normal(body) not in own:
+            if _normal(body) not in own and (
+                    len(body.split()) > CLONE_QUESTION_MAX_WORDS
+                    or not _CLONE_QUESTION.match(body) or _CLONE_BANNED.search(body)):
                 raise ValueError(OWN_QUESTIONS_ERROR)
+            if _normal(body) in seen:
+                raise ValueError(REPEAT_ERROR)
+            seen.add(_normal(body))
         elif index != 0 or end not in (".", "!") or _normal(body) not in _OPENER_BODIES:
             raise ValueError(OPENER_ERROR)
     if text.count("?") > CLARIFY_MAX_QUESTIONS:
@@ -1784,7 +1835,8 @@ async def run_agent(
     habits: Sequence[GuidanceRule] = (),
     pending: Optional[PendingClarify] = None,
     warning_terms: Sequence[str] = (),
-    first_turn_terms: Optional[Sequence[str]] = ()
+    first_turn_terms: Optional[Sequence[str]] = (),
+    max_clarify_rounds: int = CLARIFY_MAX_ROUNDS,
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -1825,6 +1877,8 @@ async def run_agent(
     (the doctor sees it), and None (the terms could not be loaded) turns
     ask-first off."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
+    clarify_allowed = pending is not None and len(pending.rounds) + 1 < max_clarify_rounds
+    asked_before = pending.asked_before() if pending is not None else frozenset()
     user_content = _document_context(turn.paragraphs, items)
     if habits:
         user_content += "\n\n" + _habits_context([turn.habit_entry(h) for h in habits])
@@ -1880,7 +1934,8 @@ async def run_agent(
             try:
                 kind, answer, cited, final_question = validate(
                     raw, turn.evidence, allowed_drugs=allowed_drugs, lexicon=get_lexicon(),
-                    pending=pending is not None, emergency=bool(emergency_terms))
+                    pending=pending is not None, emergency=bool(emergency_terms),
+                    clarify_allowed=clarify_allowed, asked_before=asked_before)
             except ValueError as exc:
                 emergency = bool(emergency_terms) or _claimed_kind(raw) == "emergency"
                 # A reply with no JSON object gets its own retry, so a format slip
