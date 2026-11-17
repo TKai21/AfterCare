@@ -232,7 +232,7 @@
     {
       "dimension": "D3",
       "question": "My first question about a possible side effect",
-      "answer": "When you notice any new symptom or change in how you feel after beginning a gout medicine, I first ask whether the same reaction happened before: have you had this before, with this medicine or another one?",
+      "answer": "When you notice any new symptom or change in how you feel after beginning a gout medicine, I first ask whether the same reaction happened before: have you had this before, with this medicine or another medicine?",
       "scope": "general",
       "condition_tags": [
         "gout"
