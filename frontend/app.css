@@ -1832,6 +1832,17 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .answer-text { font-size: 16.5px; line-height: 1.65; }
 .answer-text > * + * { margin-top: 12px; }
 .reply-hint { margin-top: 12px; color: var(--text-subtle); font-size: 13px; }
+.clarify-list { display: flex; flex-direction: column; gap: 10px; list-style: none; padding: 0; }
+.clarify-q {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+}
+.clarify-q.is-doctor { border-left-color: var(--accent); }
+.clarify-q-text { overflow-wrap: anywhere; }
+.clarify-q-tag { color: var(--text-subtle); font-size: 12.5px; letter-spacing: 0.02em; }
 .answer-list { padding-left: 22px; list-style: disc; }
 .answer-list li::marker { color: var(--accent); }
 .answer-list li + li { margin-top: 6px; }

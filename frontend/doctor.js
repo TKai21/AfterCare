@@ -211,15 +211,24 @@ function questionHtml(q) {
   return `<p class="doctor-question">${q.asked ? '<span class="visually-hidden">Patient asked: </span>' : ''}${esc(q.question)}</p>`;
 }
 
+// Every round of the clone's intake: what it asked and what the patient replied.
+function roundsOf(q) {
+  if (Array.isArray(q.rounds) && q.rounds.length) return q.rounds;
+  return q.asked ? [{asked: q.asked, reply: q.patient_reply || null}] : [];
+}
+
 function threadHtml(q, {reply = true, note = true} = {}) {
   const block = (label, text) => `
     <div class="doctor-thread-block"><p class="doctor-thread-label">${label}</p>
       <p class="doctor-thread-text">${esc(text)}</p></div>`;
+  const rounds = roundsOf(q);
+  const many = rounds.length > 1;
+  const blocks = rounds.map((r, i) => {
+    const n = many ? `Round ${i + 1}: ` : '';
+    return block(n + 'My clone asked', r.asked) + (reply && r.reply ? block(n + 'Patient replied', r.reply) : '');
+  }).join('');
   return `
-    <div class="doctor-thread">
-      ${block('My clone asked', q.asked)}
-      ${reply && q.patient_reply ? block('Patient replied', q.patient_reply) : ''}
-    </div>
+    <div class="doctor-thread">${blocks}</div>
     ${note && q.stopped_by ? `<p class="doctor-stop-note">${esc(q.stopped_by)}</p>` : ''}`;
 }
 

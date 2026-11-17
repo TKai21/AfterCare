@@ -183,6 +183,21 @@ function answerTextHtml(text, numbers) {
   }).join('');
 }
 
+// A clarify's questions, each marked as the doctor's own (a habit of theirs) or
+// the clone's follow-up. An older clarify has no per-question list: plain text.
+function clarifyHtml(payload) {
+  const doctor = esc(String(payload.doctor_name || doctorName()));
+  const items = payload.questions.map(q => {
+    const mine = q.source === 'doctor';
+    return `<li class="clarify-q ${mine ? 'is-doctor' : 'is-clone'}">
+      <span class="clarify-q-text">${esc(q.text)}</span>
+      <span class="clarify-q-tag">${mine ? doctor + '\u2019s usual question' : 'Follow-up from the clone'}</span>
+    </li>`;
+  }).join('');
+  const opener = payload.opener ? `<p>${esc(payload.opener)}</p>` : '';
+  return `${opener}<ul class="clarify-list">${items}</ul>`;
+}
+
 function sourceLabel(source) {
   if (source.kind === 'document') return 'Your discharge document';
   if (source.kind === 'library') return 'Education library: ' + (source.title || 'Untitled');
@@ -254,7 +269,8 @@ function assistantHtml(message, index) {
       ${emergency ? emergencyHtml() : ''}
       <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AI clone answer">
         <p class="clone-label">AI clone of ${esc(cloneName(payload))}</p>
-        <div class="answer-text">${answerTextHtml(payload.answer, numbers)}</div>
+        <div class="answer-text">${payload.kind === 'clarify' && Array.isArray(payload.questions) && payload.questions.length
+          ? clarifyHtml(payload) : answerTextHtml(payload.answer, numbers)}</div>
         ${payload.kind === 'clarify' && payload.pending === true ? '<p class="reply-hint">Reply below</p>' : ''}
         ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
         ${sourcesHtml(index, sources)}
