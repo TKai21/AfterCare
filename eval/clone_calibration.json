@@ -1,33 +1,33 @@
 {
   "chat_model": "gpt-4o-mini",
   "embedding_model": "text-embedding-3-small",
-  "date": "2026-11-15",
-  "review_overrides": 4,
+  "date": "2026-11-17",
+  "review_overrides": 0,
   "alpha": 0.1,
   "threshold": 0.7,
   "calibration": {
     "n": 47,
-    "risk": 0.0,
-    "answer_rate": 0.5319,
-    "coverage": 0.8065,
-    "wrong_answers": 0,
-    "escalated": 22,
-    "bound": 0.0208
+    "risk": 0.0638,
+    "answer_rate": 0.5106,
+    "coverage": 0.6774,
+    "wrong_answers": 3,
+    "escalated": 23,
+    "bound": 0.0833
   },
   "test": {
     "n": 46,
-    "risk": 0.0435,
-    "answer_rate": 0.6087,
-    "coverage": 0.8125,
-    "wrong_answers": 2,
-    "escalated": 18
+    "risk": 0.087,
+    "answer_rate": 0.5217,
+    "coverage": 0.625,
+    "wrong_answers": 4,
+    "escalated": 22
   },
   "test_without_gate": {
     "n": 46,
-    "risk": 0.0652,
-    "answer_rate": 0.6522,
-    "coverage": 0.8438,
-    "wrong_answers": 3,
-    "escalated": 16
+    "risk": 0.087,
+    "answer_rate": 0.5217,
+    "coverage": 0.625,
+    "wrong_answers": 4,
+    "escalated": 22
   }
 }
