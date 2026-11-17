@@ -137,7 +137,9 @@ async def list_questions(
     timed_out = await session.execute(
         update(CareTeamQuestion)
         .where(CareTeamQuestion.status == "waiting_on_patient",
-               CareTeamQuestion.doctor_id == user.id, CareTeamQuestion.created_at < cutoff)
+               CareTeamQuestion.doctor_id == user.id,
+               # The clock restarts with each round the clone asks.
+               func.coalesce(CareTeamQuestion.last_asked_at, CareTeamQuestion.created_at) < cutoff)
         .values(status="open", reason=NOT_ANSWERED, stopped_by=NOT_ANSWERED)
     )
     if timed_out.rowcount:

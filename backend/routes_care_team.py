@@ -19,6 +19,18 @@ MAX_QUESTION_CHARS = 2000
 router = APIRouter()
 
 
+def intake_rounds(q: CareTeamQuestion) -> list[dict]:
+    """Every round of the clone's intake, in order: the completed rounds
+    ([{asked, reply}], `intake`) and the round still waiting for a reply or
+    just answered (`asked`, `patient_reply`) when `intake` does not end with it.
+    A row from before rounds has no `intake`: its one round is asked/patient_reply."""
+    rounds = [{"asked": r.get("asked"), "reply": r.get("reply")}
+              for r in (q.intake or []) if isinstance(r, dict)]
+    if q.asked and not (rounds and rounds[-1]["asked"] == q.asked):
+        rounds.append({"asked": q.asked, "reply": q.patient_reply})
+    return rounds
+
+
 def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = None,
                   voices: dict | None = None) -> dict:
     result = {
@@ -30,6 +42,8 @@ def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = Non
         "answer": q.answer,
         "asked": q.asked,
         "patient_reply": q.patient_reply,
+        "intake": list(q.intake or []),
+        "rounds": intake_rounds(q),
         "stopped_by": q.stopped_by,
         "answered_by_name": (doctor_names or {}).get(q.answered_by) if q.answered_by else None,
         "doctor_id": q.doctor_id,

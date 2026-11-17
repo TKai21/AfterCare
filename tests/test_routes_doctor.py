@@ -618,9 +618,10 @@ async def add_clarify(client, doctor_username="dr.ting", created_at=None, **kw):
         doctor_id = await s.scalar(select(User.id).where(User.username == doctor_username))
         alice_id = (await s.scalar(select(User).where(User.username == "alice"))).id
         kw.setdefault("question", "Can I drive?")
+        kw.setdefault("asked", "Are you dizzy? Any new pills?")
         q = CareTeamQuestion(
             user_id=alice_id, doctor_id=doctor_id, reason="Clone asked",
-            source="agent", status="waiting_on_patient", asked="Are you dizzy? Any new pills?",
+            source="agent", status="waiting_on_patient",
             created_at=created_at or routes_doctor.utcnow(), **kw)
         s.add(q)
         await s.commit()
@@ -659,6 +660,59 @@ async def test_waiting_question_times_out_on_read(client, fake_llm, monkeypatch)
     async with client.app.state.session_factory() as s:
         assert (await s.get(CareTeamQuestion, old)).status == "open"
         assert (await s.get(CareTeamQuestion, fresh)).status == "waiting_on_patient"
+
+
+async def test_a_new_round_restarts_the_timeout_clock(client, fake_llm, monkeypatch):
+    from datetime import datetime, timedelta
+    import routes_doctor
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    now = datetime(2026, 1, 10, 12, 0)
+    monkeypatch.setattr(routes_doctor, "utcnow", lambda: now)
+    # Started 30 h ago, but round 2 was asked 2 h ago: still waiting.
+    later = await add_clarify(client, created_at=now - timedelta(hours=30),
+                              last_asked_at=now - timedelta(hours=2))
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert [q["id"] for q in data["waiting"]] == [later] and data["open"] == []
+    # Round 2 asked 25 h ago: the doctor's now.
+    stale = await add_clarify(client, created_at=now - timedelta(hours=30),
+                              last_asked_at=now - timedelta(hours=25))
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert [q["id"] for q in data["waiting"]] == [later]
+    assert [q["id"] for q in data["open"]] == [stale]
+
+
+async def test_question_view_lists_every_round(client, fake_llm):
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    rounds = [{"asked": "Any fever?", "reply": "No."},
+              {"asked": "When did it start?", "reply": "Two days ago."}]
+    qid = await add_clarify(client, intake=rounds, asked="Any chills?")
+    legacy = await add_clarify(client, patient_reply="No pills.")
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    by_id = {q["id"]: q for q in data["waiting"]}
+    # completed rounds, then the round still waiting for a reply
+    assert by_id[qid]["rounds"] == rounds + [{"asked": "Any chills?", "reply": None}]
+    assert by_id[qid]["intake"] == rounds
+    # a row from before rounds: one round from asked and patient_reply
+    assert by_id[legacy]["rounds"] == [
+        {"asked": "Are you dizzy? Any new pills?", "reply": "No pills."}]
+
+
+async def test_rounds_do_not_repeat_the_last_round_of_a_handoff(client, fake_llm):
+    from models import CareTeamQuestion
+    await auth_headers(client)
+    dh = await doctor_headers(client)
+    rounds = [{"asked": "Any fever?", "reply": "No."},
+              {"asked": "When did it start?", "reply": "Two days ago."}]
+    qid = await add_clarify(client, intake=rounds, asked="When did it start?",
+                            patient_reply="Two days ago.")
+    async with client.app.state.session_factory() as s:
+        q = await s.get(CareTeamQuestion, qid)
+        q.status, q.reason = "open", "Needs doctor after questions"
+        await s.commit()
+    data = (await client.get("/api/doctor/questions", headers=dh)).json()
+    assert data["open"][0]["rounds"] == rounds
 
 
 async def test_open_count_excludes_waiting(client, fake_llm):

@@ -73,6 +73,8 @@ class Settings:
     voice_storage_path: str = "private/voice"
     # A clone question the patient has not answered in this many hours goes to the doctor.
     clarify_timeout_hours: float = 24
+    # Rounds of questions the clone may ask before it must answer, close or hand off.
+    clarify_max_rounds: int = 3
 
     def __post_init__(self):
         if self.llm_json_with_tools is None:
@@ -127,4 +129,5 @@ def get_settings() -> Settings:
         voice_storage_path=env.get("VOICE_STORAGE_PATH", defaults.voice_storage_path),
         clarify_timeout_hours=float(
             env.get("CLARIFY_TIMEOUT_HOURS") or defaults.clarify_timeout_hours),
+        clarify_max_rounds=int(env.get("CLARIFY_MAX_ROUNDS") or defaults.clarify_max_rounds),
     )

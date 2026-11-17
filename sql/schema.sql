@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS care_team_questions (
   asked TEXT NULL,                                        -- the clone's clarify questions
   patient_reply TEXT NULL,                                -- the patient's reply to them
   stopped_by VARCHAR(100) NULL,                           -- why the clone did not close
+  intake JSON NULL,                                       -- the completed rounds [{asked, reply}]
   answered_by INT NULL,
   answered_at DATETIME NULL,
   doctor_id INT NULL,

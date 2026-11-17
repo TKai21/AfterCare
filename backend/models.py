@@ -157,6 +157,10 @@ class CareTeamQuestion(Base):
     asked: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     patient_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stopped_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # The clone's intake: the completed rounds [{asked, reply}] in order.
+    # `asked` is the latest round's questions (waiting for a reply while the
+    # status is waiting_on_patient) and `patient_reply` the last reply.
+    intake: Mapped[list] = mapped_column(JSONList(), nullable=True)
     answered_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -168,6 +172,8 @@ class CareTeamQuestion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # The patient asking the same open question again bumps this row instead of
     # adding a copy; last_asked_at is when it was last asked.
+    # (A waiting clarify's new round also sets it: the timeout counts from the
+    # latest round.)
     asked_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     last_asked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
