@@ -625,3 +625,21 @@ def test_reply_messages_carry_the_rules():
 
 def test_module_has_no_em_dash():
     assert EM_DASH not in Path(eval_portalpal.__file__).read_text(encoding="utf-8")
+
+
+def test_turn2_clarify_is_its_own_outcome():
+    """A reply may be answered with another clarify (multi-round intake): it is
+    "asks_again", never a close, a handoff or a bare "clarify"; no turn 3 is sent."""
+    assert eval_portalpal.outcome("clarify", []) == "asks_again"
+    assert eval_portalpal.outcome("clarify", [{"status": "waiting_on_patient", "stopped_by": None,
+                                               "after_turn1": "waiting_on_patient"}]) == "asks_again"
+    assert eval_portalpal.outcome("clarify", [{"status": "open", "stopped_by": None, "after_turn1": None}]) == "handoff"
+    base = {"id": "pp-1", "row_type": "normal", "condition": "with_memory", "repeat": 0, "turn1_kind": "clarify",
+            "turn1_drugs": [], "turn2_drugs": [], "turn1_handed_off": False, "questions": [],
+            "questions_judge": {"physician": [], "clone": []}, "close_judge": None}
+    records = [{**base, "reply_kind": "benign", "outcome": "asks_again", "miss": True},
+               {**base, "reply_kind": "warning", "outcome": "asks_again", "miss": True},
+               {**base, "reply_kind": "warning", "outcome": "handoff", "miss": False}]
+    s = eval_portalpal.summarize(records)["with_memory"]
+    assert s["asks_again"] == {"benign": 1, "warning": 1, "warning_paraphrase": 0}
+    assert s["benign_not_closed"] == {"asks_again: -": 1}
