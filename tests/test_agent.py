@@ -1566,7 +1566,7 @@ def test_new_symptom_is_in_scope():
 async def test_pending_context_lists_original_question_and_asked(store, foods, document, items):
     habit = habit_rule(8, *CLOSE, habit_type="close")
     llm = FakeLLM()
-    llm.script(pending_reply("not_covered", "x", []))
+    llm.script(pending_reply("not_covered", "x", []), {"content": "{}"})  # then an unclean judge
     result = await ask(llm, store, foods, document, items, question="No fever, a little pus.",
                        habits=[habit], pending=pending(), warning_terms=["fever", "pus"])
     assert result.kind == "not_covered"
@@ -2771,3 +2771,156 @@ async def test_near_duplicate_picks_keep_only_the_first(store, foods, document, 
     bug_shape(llm, picker_reply([5, 8]))
     result = await ask(llm, store, foods, document, items, question=RUNNY, habits=habits)
     assert result.habit_rule_ids == [41, 44]
+
+
+# --- the reply judge: a structural close on a reply turn ---
+
+JUDGE_TERMS = ["fever", "chest pain", "Chest  pain!", "pus"]
+CLOSE_QUOTE = "Keep your follow-up visit and call me if it changes."
+
+
+def reply_habits():
+    return [habit_rule(41, "Asks sick contacts", CONTACTS),
+            habit_rule(58, "Closes with the visit", CLOSE_QUOTE, habit_type="close")]  # [5], [6]
+
+
+def judge_reply(close=6, status="absent", replies=True, concerns=False, terms=("fever", "chest pain", "pus"),
+                **overrides):
+    body = {"replies_to_questions": replies, "other_concerns": concerns, "close": close,
+            "warning_signs": [{"term": t, "status": status} for t in terms]}
+    body.update(overrides)
+    return {"content": json.dumps(body)}
+
+
+def reply_shape(llm, judge):
+    """The reproduced shape: the model re-handles the original question and omits
+    the reply fields, twice; then the judge."""
+    bad = final("x", [], kind="not_covered", care_team_question="What should I do?")
+    llm.script(bad, bad)
+    if judge is not None:
+        llm.script(judge)
+
+
+async def ask_reply(llm, store, foods, document, items, **kw):
+    kw.setdefault("habits", reply_habits())
+    kw.setdefault("warning_terms", JUDGE_TERMS)
+    return await ask(llm, store, foods, document, items, question="No sick contacts, no allergies.",
+                     pending=pending(), **kw)
+
+
+async def test_reply_judge_builds_the_close_from_the_doctors_words(store, foods, document, items):
+    llm = FakeLLM()
+    reply_shape(llm, judge_reply())
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "close" and agent.strip_markers(result.answer) == CLOSE_QUOTE
+    assert result.habit_rule_ids == [58] and result.care_team_question is None
+    assert result.replies_to_questions is True and result.other_concerns is False
+    assert {s["status"] for s in result.warning_signs} == {"absent"}
+    assert {agent_key(s["term"]) for s in result.warning_signs} == {"fever", "chest pain", "pus"}
+    # the judge sees only the case, the reply and the close habits
+    messages, tools, json_mode = llm.calls[-1]
+    text = json.dumps(messages)
+    assert tools is None and json_mode is True
+    assert "No sick contacts" in text and CLOSE_QUOTE in text and "What should I do" not in text
+    assert "Limit high-oxalate" not in text and CONTACTS not in text.split("close habits")[-1]
+    # a main not_covered that carries valid fields is judged too
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []), judge_reply())
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "close"
+
+
+def agent_key(term):
+    from safety import _canon
+    return _canon(term).casefold()
+
+
+@pytest.mark.parametrize("judge", [
+    judge_reply(status="present"), judge_reply(status="unclear"), judge_reply(status="maybe"),
+    judge_reply(terms=("fever", "pus")),  # a term left out
+    judge_reply(concerns=True), judge_reply(concerns=None), judge_reply(concerns="false"),
+    judge_reply(replies=False), judge_reply(replies="true"),
+    judge_reply(close=5), judge_reply(close=99), judge_reply(close=None), judge_reply(close="6"),
+    judge_reply(close=True),
+    {"content": "not json"}, {"content": json.dumps({"close": 6})},
+    {"content": json.dumps([6])},
+])
+async def test_reply_judge_that_is_not_clean_keeps_the_handoff(store, foods, document, items, judge):
+    llm = FakeLLM()
+    reply_shape(llm, judge)
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "not_covered" and result.care_team_source == "validation_fallback"
+
+
+async def test_one_unclean_term_among_many_keeps_the_handoff(store, foods, document, items):
+    judge = judge_reply()
+    body = json.loads(judge["content"])
+    body["warning_signs"][1]["status"] = "unclear"
+    llm = FakeLLM()
+    reply_shape(llm, {"content": json.dumps(body)})
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "not_covered"
+
+
+async def test_reply_judge_error_keeps_the_handoff(store, foods, document, items):
+    class Boom(FakeLLM):
+        async def chat(self, messages, tools=None, json_mode=False):
+            if tools is None and len(self.calls) == 2:
+                self.calls.append((messages, tools, json_mode))
+                raise LLMError("down")
+            return await super().chat(messages, tools, json_mode)
+
+    llm = Boom()
+    reply_shape(llm, None)
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "not_covered" and len(llm.calls) == 3
+
+
+async def test_reply_judge_is_not_called_for_an_emergency_a_conflict_or_a_first_turn(
+        store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    result = await ask_reply(llm, store, foods, document, items, emergency_terms=["chest pain"])
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+    llm = FakeLLM()
+    bad = final("x", [], kind="not_covered")
+    llm.script(bad, bad)
+    result = await ask_reply(llm, store, foods, document, items, emergency_terms=["chest pain"])
+    assert result.kind == "emergency" and len(llm.calls) == 1
+    llm = FakeLLM()
+    llm.script(call_msg("add_care_team_question", question="Which?", reason="Sources disagree"),
+               pending_reply("not_covered", "x", []))
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == "not_covered" and len(llm.calls) == 2
+    llm = FakeLLM()  # a first turn never uses the judge
+    llm.script(final("x", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question=RUNNY, habits=[reply_habits()[1]],
+                       warning_terms=JUDGE_TERMS)
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+
+
+async def test_reply_judge_needs_a_close_habit_and_terms(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    result = await ask_reply(llm, store, foods, document, items, habits=[reply_habits()[0]])
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    result = await ask_reply(llm, store, foods, document, items, warning_terms=[])
+    assert result.kind == "not_covered" and len(llm.calls) == 1
+
+
+def test_warning_terms_are_deduped_in_order():
+    assert agent.dedupe_terms(["Chest pain", "fever", "chest  pain!", "FEVER", "pus"]) == [
+        "Chest pain", "fever", "pus"]
+    assert agent.dedupe_terms(["worsen acutely", "symptoms worsen acutely"]) == [
+        "worsen acutely", "symptoms worsen acutely"]
+
+
+async def test_the_reply_prompt_lists_each_warning_term_once(store, foods, document, items):
+    llm = FakeLLM()
+    llm.script(pending_reply("not_covered", "x", []))
+    await ask_reply(llm, store, foods, document, items, habits=[reply_habits()[0]],
+                    warning_terms=["chest pain", "Chest pain", "fever"])
+    block = first_user(llm).split("<warning-terms-")[1].split("</warning-terms-")[0]
+    assert block.count("hest pain") == 1 and "fever" in block
