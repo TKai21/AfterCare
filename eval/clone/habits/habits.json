@@ -1,0 +1,204 @@
+{
+  "builds": [
+    {
+      "started": "2026-11-17T01:51:03+00:00",
+      "habits": {
+        "dr.ting": [
+          {
+            "rule_id": 12,
+            "guidance_id": 8,
+            "habit_type": "ask",
+            "statement": "I first ask about your past experience with it: have you taken it before, and how did it go?",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 13,
+            "guidance_id": 8,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking it.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 10,
+            "guidance_id": 7,
+            "habit_type": "ask",
+            "statement": "I first ask about your past experience with the medicine in question: have you taken it before, and how did it go?",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 11,
+            "guidance_id": 7,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking anything new.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 9,
+            "guidance_id": 6,
+            "habit_type": "ask",
+            "statement": "When did it begin, and how does it line up with your doses?",
+            "dimension": "D3"
+          },
+          {
+            "rule_id": 8,
+            "guidance_id": 5,
+            "habit_type": "ask",
+            "statement": "I first ask about timing: when did it begin compared with when you took your doses?",
+            "dimension": "D3"
+          }
+        ],
+        "dr.patel": [
+          {
+            "rule_id": 25,
+            "guidance_id": 16,
+            "habit_type": "ask",
+            "statement": "what other health conditions do you have, and what other medicines do you take?",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 26,
+            "guidance_id": 16,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking it.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 23,
+            "guidance_id": 15,
+            "habit_type": "ask",
+            "statement": "I first ask about your other health conditions and the other medicines you take.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 24,
+            "guidance_id": 15,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking anything new.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 22,
+            "guidance_id": 14,
+            "habit_type": "ask",
+            "statement": "I first ask to go through your whole medication list with you, including anything recently started, stopped or changed.",
+            "dimension": "D3"
+          },
+          {
+            "rule_id": 21,
+            "guidance_id": 13,
+            "habit_type": "ask",
+            "statement": "which medicines do you take now, and has anything been started, stopped or changed recently?",
+            "dimension": "D3"
+          },
+          {
+            "rule_id": 20,
+            "guidance_id": 12,
+            "habit_type": "close",
+            "statement": "Call the clinic first when a flare begins.",
+            "dimension": "D2"
+          },
+          {
+            "rule_id": 19,
+            "guidance_id": 11,
+            "habit_type": "close",
+            "statement": "call the clinic first, and then we confirm the plan together before you act on it",
+            "dimension": "D2"
+          },
+          {
+            "rule_id": 18,
+            "guidance_id": 10,
+            "habit_type": "warning",
+            "statement": "Be aware of kidney disease when considering medications.",
+            "dimension": "D1"
+          }
+        ],
+        "dr.renny": [
+          {
+            "rule_id": 40,
+            "guidance_id": 24,
+            "habit_type": "ask",
+            "statement": "I first ask to confirm your current prescription and existing plan.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 41,
+            "guidance_id": 24,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking it.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 38,
+            "guidance_id": 23,
+            "habit_type": "ask",
+            "statement": "which medicines are on your prescription now, and do you have a flare plan?",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 39,
+            "guidance_id": 23,
+            "habit_type": "close",
+            "statement": "Contact the clinic before taking anything new.",
+            "dimension": "D4"
+          },
+          {
+            "rule_id": 37,
+            "guidance_id": 22,
+            "habit_type": "ask",
+            "statement": "Has the same reaction happened to you before?",
+            "dimension": "D3"
+          },
+          {
+            "rule_id": 36,
+            "guidance_id": 21,
+            "habit_type": "ask",
+            "statement": "I first ask whether the same reaction happened before: have you had this before, with this medicine or another medicine?",
+            "dimension": "D3"
+          },
+          {
+            "rule_id": 34,
+            "guidance_id": 20,
+            "habit_type": "ask",
+            "statement": "If it does not fit, or there is no plan, contact the clinic.",
+            "dimension": "D2"
+          },
+          {
+            "rule_id": 32,
+            "guidance_id": 19,
+            "habit_type": "ask",
+            "statement": "I follow that plan.",
+            "dimension": "D2"
+          },
+          {
+            "rule_id": 33,
+            "guidance_id": 19,
+            "habit_type": "close",
+            "statement": "contact the clinic.",
+            "dimension": "D2"
+          },
+          {
+            "rule_id": 29,
+            "guidance_id": 18,
+            "habit_type": "ask",
+            "statement": "I first ask which medicines are on your current prescription and what your plan is.",
+            "dimension": "D1"
+          },
+          {
+            "rule_id": 30,
+            "guidance_id": 18,
+            "habit_type": "close",
+            "statement": "You contact the clinic before taking anything new.",
+            "dimension": "D1"
+          },
+          {
+            "rule_id": 28,
+            "guidance_id": 17,
+            "habit_type": "ask",
+            "statement": "Confirm your current prescription and plan with you.",
+            "dimension": "D1"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1663 @@
+{
+  "meta": {
+    "clone_model": "gpt-4o-mini",
+    "judge_model": "gpt-4o-mini",
+    "started": "2026-11-17T01:42:35+00:00"
+  },
+  "written": "2026-11-17T02:39:39+00:00",
+  "note": "All doctors, patients, memory entries and questions in this evaluation are synthetic test settings, pending clinical review. Nothing here is medication advice.",
+  "hit_rates": {
+    "dr.ting|D1|with_memory": {
+      "mean": 0.6666666666666666,
+      "min": 0.6666666666666666,
+      "max": 0.6666666666666666,
+      "n": 6
+    },
+    "dr.patel|D1|with_memory": {
+      "mean": 0.5,
+      "min": 0.5,
+      "max": 0.5,
+      "n": 6
+    },
+    "dr.renny|D1|with_memory": {
+      "mean": 0.3,
+      "min": 0.3,
+      "max": 0.3,
+      "n": 6
+    },
+    "dr.ting|D2|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.patel|D2|with_memory": {
+      "mean": 0.2,
+      "min": 0.2,
+      "max": 0.2,
+      "n": 5
+    },
+    "dr.renny|D2|with_memory": {
+      "mean": 0.4,
+      "min": 0.4,
+      "max": 0.4,
+      "n": 5
+    },
+    "dr.ting|D3|with_memory": {
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "n": 5
+    },
+    "dr.patel|D3|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.renny|D3|with_memory": {
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "n": 5
+    },
+    "dr.ting|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.patel|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.renny|D4|with_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.ting|D1|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 6
+    },
+    "dr.patel|D1|without_memory": {
+      "mean": 0.16666666666666666,
+      "min": 0.16666666666666666,
+      "max": 0.16666666666666666,
+      "n": 6
+    },
+    "dr.renny|D1|without_memory": {
+      "mean": 0.1,
+      "min": 0.1,
+      "max": 0.1,
+      "n": 6
+    },
+    "dr.ting|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.patel|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.renny|D2|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.ting|D3|without_memory": {
+      "mean": 0.2,
+      "min": 0.2,
+      "max": 0.2,
+      "n": 5
+    },
+    "dr.patel|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.renny|D3|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.ting|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.patel|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    },
+    "dr.renny|D4|without_memory": {
+      "mean": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "n": 5
+    }
+  },
+  "following": {
+    "dr.ting|D1": {
+      "cited": {
+        "answers": 2,
+        "met": 2,
+        "items": 2,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 4,
+        "met": 2,
+        "items": 4,
+        "rate": 0.5
+      }
+    },
+    "dr.ting|all": {
+      "cited": {
+        "answers": 2,
+        "met": 2,
+        "items": 2,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 19,
+        "met": 7,
+        "items": 19,
+        "rate": 0.3684210526315789
+      }
+    },
+    "all|all": {
+      "cited": {
+        "answers": 5,
+        "met": 5,
+        "items": 5,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 58,
+        "met": 18,
+        "items": 62,
+        "rate": 0.2903225806451613
+      }
+    },
+    "dr.patel|D1": {
+      "cited": {
+        "answers": 3,
+        "met": 3,
+        "items": 3,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 3,
+        "met": 0,
+        "items": 3,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|all": {
+      "cited": {
+        "answers": 3,
+        "met": 3,
+        "items": 3,
+        "rate": 1.0
+      },
+      "not_cited": {
+        "answers": 18,
+        "met": 1,
+        "items": 18,
+        "rate": 0.05555555555555555
+      }
+    },
+    "dr.renny|D1": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 6,
+        "met": 3,
+        "items": 10,
+        "rate": 0.3
+      }
+    },
+    "dr.renny|all": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 21,
+        "met": 10,
+        "items": 25,
+        "rate": 0.4
+      }
+    },
+    "dr.ting|D2": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 0,
+        "items": 5,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D2": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 1,
+        "items": 5,
+        "rate": 0.2
+      }
+    },
+    "dr.renny|D2": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 2,
+        "items": 5,
+        "rate": 0.4
+      }
+    },
+    "dr.ting|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 5,
+        "items": 5,
+        "rate": 1.0
+      }
+    },
+    "dr.patel|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 0,
+        "items": 5,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D3": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 5,
+        "items": 5,
+        "rate": 1.0
+      }
+    },
+    "dr.ting|D4": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 0,
+        "items": 5,
+        "rate": 0.0
+      }
+    },
+    "dr.patel|D4": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 0,
+        "items": 5,
+        "rate": 0.0
+      }
+    },
+    "dr.renny|D4": {
+      "cited": {
+        "answers": 0,
+        "met": 0,
+        "items": 0,
+        "rate": null
+      },
+      "not_cited": {
+        "answers": 5,
+        "met": 0,
+        "items": 5,
+        "rate": 0.0
+      }
+    }
+  },
+  "retrieval": {
+    "floor": 0.4,
+    "margin": 0.05,
+    "limit": 6,
+    "embedding_model": "text-embedding-3-small",
+    "rows": [
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.408
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c01",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.49
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.585
+          ],
+          [
+            "D2",
+            0.545
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c02",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.526
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.453
+          ],
+          [
+            "D2",
+            0.413
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.545
+          ],
+          [
+            "D1",
+            0.517
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c03",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.507
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.445
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.51
+          ],
+          [
+            "D2",
+            0.507
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c04",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.51
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.423
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.477
+          ],
+          [
+            "D1",
+            0.453
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c05",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.459
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.501
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.564
+          ],
+          [
+            "D1",
+            0.537
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c06",
+        "dimension": "D1",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.542
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.482
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.537
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c07",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.589
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D2",
+            0.479
+          ],
+          [
+            "D2",
+            0.456
+          ],
+          [
+            "D2",
+            0.445
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.533
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c08",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D2",
+            0.442
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.642
+          ],
+          [
+            "D1",
+            0.592
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c09",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.504
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c10",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D2",
+            0.443
+          ],
+          [
+            "D1",
+            0.412
+          ]
+        ],
+        "own": true
+      },
+      {
+        "case": "c11",
+        "dimension": "D2",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.44
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.451
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.438
+          ],
+          [
+            "D1",
+            0.425
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c12",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.442
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.533
+          ],
+          [
+            "D1",
+            0.489
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c13",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c14",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c15",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c16",
+        "dimension": "D3",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c17",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.408
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c18",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.403
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.429
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c19",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [
+          [
+            "D1",
+            0.486
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [
+          [
+            "D1",
+            0.544
+          ],
+          [
+            "D1",
+            0.52
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c20",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [
+          [
+            "D1",
+            0.502
+          ]
+        ],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.ting",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.patel",
+        "hits": [],
+        "own": false
+      },
+      {
+        "case": "c21",
+        "dimension": "D4",
+        "doctor": "dr.renny",
+        "hits": [],
+        "own": false
+      }
+    ]
+  },
+  "distinctness": {
+    "c01|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c01|dr.patel": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c01|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c02|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c02|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c02|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c03|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c03|dr.patel": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c03|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c04|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c04|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c04|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c05|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c05|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c05|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c06|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c06|dr.patel": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c06|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c07|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c07|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c07|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c08|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c08|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c08|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c09|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c09|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c09|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c11|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c11|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c11|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c12|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c12|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c12|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c13|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c13|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c13|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c14|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c14|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c14|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c15|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c15|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c15|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c16|dr.ting": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c16|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c16|dr.renny": {
+      "distinct": 1.0,
+      "n": 1
+    },
+    "c17|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c17|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c17|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c18|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c18|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c18|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c19|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c19|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c19|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c20|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c20|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c20|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c21|dr.ting": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c21|dr.patel": {
+      "distinct": 0.0,
+      "n": 1
+    },
+    "c21|dr.renny": {
+      "distinct": 0.0,
+      "n": 1
+    }
+  },
+  "safety": {
+    "unprescribed_recommendations": 0,
+    "no_memory_cases_citing_guidance": 0,
+    "blocked": 77
+  },
+  "safety_flags": [],
+  "blocked": {
+    "dr.ting|with_memory": {
+      "answers": 25,
+      "blocked": 7,
+      "fallback": 7,
+      "not_covered": 7,
+      "items_not_followed": 7,
+      "no_eligible_entry": 0,
+      "items_blocked": 5
+    },
+    "dr.patel|with_memory": {
+      "answers": 25,
+      "blocked": 18,
+      "fallback": 18,
+      "not_covered": 18,
+      "items_not_followed": 2,
+      "no_eligible_entry": 0,
+      "items_blocked": 15
+    },
+    "dr.renny|with_memory": {
+      "answers": 25,
+      "blocked": 4,
+      "fallback": 4,
+      "not_covered": 4,
+      "items_not_followed": 11,
+      "no_eligible_entry": 0,
+      "items_blocked": 4
+    },
+    "dr.ting|without_memory": {
+      "answers": 25,
+      "blocked": 17,
+      "fallback": 17,
+      "not_covered": 17,
+      "items_blocked": 15,
+      "no_eligible_entry": 0,
+      "items_not_followed": 5
+    },
+    "dr.patel|without_memory": {
+      "answers": 25,
+      "blocked": 17,
+      "fallback": 17,
+      "not_covered": 17,
+      "items_not_followed": 6,
+      "no_eligible_entry": 0,
+      "items_blocked": 14
+    },
+    "dr.renny|without_memory": {
+      "answers": 25,
+      "blocked": 14,
+      "fallback": 14,
+      "not_covered": 14,
+      "items_not_followed": 9,
+      "no_eligible_entry": 0,
+      "items_blocked": 15
+    }
+  },
+  "kinds": {
+    "dr.ting|D1": {
+      "answer": 2,
+      "clarify": 4,
+      "not_covered": 6,
+      "other": 0
+    },
+    "dr.patel|D1": {
+      "answer": 3,
+      "clarify": 2,
+      "not_covered": 7,
+      "other": 0
+    },
+    "dr.renny|D1": {
+      "answer": 0,
+      "clarify": 7,
+      "not_covered": 5,
+      "other": 0
+    },
+    "dr.ting|D2": {
+      "answer": 0,
+      "clarify": 5,
+      "not_covered": 5,
+      "other": 0
+    },
+    "dr.patel|D2": {
+      "answer": 1,
+      "clarify": 0,
+      "not_covered": 9,
+      "other": 0
+    },
+    "dr.renny|D2": {
+      "answer": 2,
+      "clarify": 4,
+      "not_covered": 4,
+      "other": 0
+    },
+    "dr.ting|D3": {
+      "answer": 0,
+      "clarify": 10,
+      "not_covered": 0,
+      "other": 0
+    },
+    "dr.patel|D3": {
+      "answer": 0,
+      "clarify": 7,
+      "not_covered": 3,
+      "other": 0
+    },
+    "dr.renny|D3": {
+      "answer": 0,
+      "clarify": 10,
+      "not_covered": 0,
+      "other": 0
+    },
+    "dr.ting|D4": {
+      "answer": 0,
+      "clarify": 1,
+      "not_covered": 9,
+      "other": 0
+    },
+    "dr.patel|D4": {
+      "answer": 0,
+      "clarify": 0,
+      "not_covered": 10,
+      "other": 0
+    },
+    "dr.renny|D4": {
+      "answer": 0,
+      "clarify": 4,
+      "not_covered": 6,
+      "other": 0
+    },
+    "dr.ting|none": {
+      "answer": 4,
+      "clarify": 0,
+      "not_covered": 4,
+      "other": 0
+    },
+    "dr.patel|none": {
+      "answer": 2,
+      "clarify": 0,
+      "not_covered": 6,
+      "other": 0
+    },
+    "dr.renny|none": {
+      "answer": 3,
+      "clarify": 2,
+      "not_covered": 3,
+      "other": 0
+    }
+  },
+  "habits": {
+    "builds": [
+      {
+        "started": "2026-11-17T01:51:03+00:00",
+        "habits": {
+          "dr.ting": [
+            {
+              "rule_id": 12,
+              "guidance_id": 8,
+              "habit_type": "ask",
+              "statement": "I first ask about your past experience with it: have you taken it before, and how did it go?",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 13,
+              "guidance_id": 8,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking it.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 10,
+              "guidance_id": 7,
+              "habit_type": "ask",
+              "statement": "I first ask about your past experience with the medicine in question: have you taken it before, and how did it go?",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 11,
+              "guidance_id": 7,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking anything new.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 9,
+              "guidance_id": 6,
+              "habit_type": "ask",
+              "statement": "When did it begin, and how does it line up with your doses?",
+              "dimension": "D3"
+            },
+            {
+              "rule_id": 8,
+              "guidance_id": 5,
+              "habit_type": "ask",
+              "statement": "I first ask about timing: when did it begin compared with when you took your doses?",
+              "dimension": "D3"
+            }
+          ],
+          "dr.patel": [
+            {
+              "rule_id": 25,
+              "guidance_id": 16,
+              "habit_type": "ask",
+              "statement": "what other health conditions do you have, and what other medicines do you take?",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 26,
+              "guidance_id": 16,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking it.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 23,
+              "guidance_id": 15,
+              "habit_type": "ask",
+              "statement": "I first ask about your other health conditions and the other medicines you take.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 24,
+              "guidance_id": 15,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking anything new.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 22,
+              "guidance_id": 14,
+              "habit_type": "ask",
+              "statement": "I first ask to go through your whole medication list with you, including anything recently started, stopped or changed.",
+              "dimension": "D3"
+            },
+            {
+              "rule_id": 21,
+              "guidance_id": 13,
+              "habit_type": "ask",
+              "statement": "which medicines do you take now, and has anything been started, stopped or changed recently?",
+              "dimension": "D3"
+            },
+            {
+              "rule_id": 20,
+              "guidance_id": 12,
+              "habit_type": "close",
+              "statement": "Call the clinic first when a flare begins.",
+              "dimension": "D2"
+            },
+            {
+              "rule_id": 19,
+              "guidance_id": 11,
+              "habit_type": "close",
+              "statement": "call the clinic first, and then we confirm the plan together before you act on it",
+              "dimension": "D2"
+            },
+            {
+              "rule_id": 18,
+              "guidance_id": 10,
+              "habit_type": "warning",
+              "statement": "Be aware of kidney disease when considering medications.",
+              "dimension": "D1"
+            }
+          ],
+          "dr.renny": [
+            {
+              "rule_id": 40,
+              "guidance_id": 24,
+              "habit_type": "ask",
+              "statement": "I first ask to confirm your current prescription and existing plan.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 41,
+              "guidance_id": 24,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking it.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 38,
+              "guidance_id": 23,
+              "habit_type": "ask",
+              "statement": "which medicines are on your prescription now, and do you have a flare plan?",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 39,
+              "guidance_id": 23,
+              "habit_type": "close",
+              "statement": "Contact the clinic before taking anything new.",
+              "dimension": "D4"
+            },
+            {
+              "rule_id": 37,
+              "guidance_id": 22,
+              "habit_type": "ask",
+              "statement": "Has the same reaction happened to you before?",
+              "dimension": "D3"
+            },
+            {
+              "rule_id": 36,
+              "guidance_id": 21,
+              "habit_type": "ask",
+              "statement": "I first ask whether the same reaction happened before: have you had this before, with this medicine or another medicine?",
+              "dimension": "D3"
+            },
+            {
+              "rule_id": 34,
+              "guidance_id": 20,
+              "habit_type": "ask",
+              "statement": "If it does not fit, or there is no plan, contact the clinic.",
+              "dimension": "D2"
+            },
+            {
+              "rule_id": 32,
+              "guidance_id": 19,
+              "habit_type": "ask",
+              "statement": "I follow that plan.",
+              "dimension": "D2"
+            },
+            {
+              "rule_id": 33,
+              "guidance_id": 19,
+              "habit_type": "close",
+              "statement": "contact the clinic.",
+              "dimension": "D2"
+            },
+            {
+              "rule_id": 29,
+              "guidance_id": 18,
+              "habit_type": "ask",
+              "statement": "I first ask which medicines are on your current prescription and what your plan is.",
+              "dimension": "D1"
+            },
+            {
+              "rule_id": 30,
+              "guidance_id": 18,
+              "habit_type": "close",
+              "statement": "You contact the clinic before taking anything new.",
+              "dimension": "D1"
+            },
+            {
+              "rule_id": 28,
+              "guidance_id": 17,
+              "habit_type": "ask",
+              "statement": "Confirm your current prescription and plan with you.",
+              "dimension": "D1"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "agreement": null
+}
