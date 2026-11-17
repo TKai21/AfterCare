@@ -12,6 +12,7 @@ from sqlalchemy import select
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import agent  # noqa: E402
 import config  # noqa: E402
 import eval_portalpal  # noqa: E402
 import rules  # noqa: E402
@@ -103,6 +104,15 @@ class PortalLLM(FakeLLM):
             return await super().chat(messages, tools, json_mode)
         self.calls.append((messages, tools, json_mode))
         prompt = messages[-1]["content"]
+        if messages[0]["content"] == agent.REPLY_JUDGE_PROMPT:
+            # The reply judge, like the model, never notices a sign: every term absent.
+            block = re.search(r"<warning-terms-\w+>\n(.*?)\n</warning-terms-", prompt, re.S)
+            terms = [t for t in (block.group(1).split("\n") if block else []) if t.strip()]
+            close = re.search(r"^\[(\d+)\] ", prompt.split("<close-habits-")[-1], re.M)
+            return {"content": json.dumps({
+                "replies_to_questions": True, "other_concerns": False,
+                "close": int(close.group(1)) if close else None,
+                "warning_signs": [{"term": t, "status": "absent"} for t in terms]})}
         number = {t: re.search(rf"^\[(\d+)\] {re.escape(s)}", prompt, re.M)
                   for t, s in (("ask", "Asks how long"), ("close", "Closes with a visit"))}
         if "The patient is replying to my questions" in prompt:
