@@ -200,3 +200,9 @@ def test_library_index_check_builds_no_model_client(tmp_path, monkeypatch):
     monkeypatch.setattr(calibrate_clone, "get_settings",
                         lambda: replace(real(), rag_db_path=str(tmp_path / "index.sqlite3")))
     assert "0 documents" in calibrate_clone.library_index_problem()
+
+
+def test_judge_model_option_defaults_to_the_chat_model():
+    parser = calibrate_clone.build_parser()
+    assert parser.parse_args([]).judge_model is None
+    assert parser.parse_args(["--judge-model", "gpt-4o"]).judge_model == "gpt-4o"

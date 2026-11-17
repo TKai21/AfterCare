@@ -242,7 +242,7 @@ async def history_world():
             yield app, llm, settings
 
 
-async def run_questions(questions: list[dict]):
+async def run_questions(questions: list[dict], judge_model: str | None = None):
     import httpx
     from sqlalchemy import delete, select
 
@@ -250,6 +250,8 @@ async def run_questions(questions: list[dict]):
 
     runs: list[dict] = []
     async with history_world() as (app, llm, settings):
+        from llm import LLMClient
+        judge_llm = LLMClient(replace(settings, llm_model=judge_model)) if judge_model else llm
         async with app.state.session_factory() as session:
             users = {u.username: u for u in await session.scalars(select(User))}
             docs = {d.active_user_id: d.id for d in await session.scalars(select(DischargeDocument))
@@ -283,7 +285,7 @@ async def run_questions(questions: list[dict]):
                         run["wrong"] = True
                         run["verdict"] = {"correct": False, "problems": ["answered a question to escalate"]}
                     else:
-                        verdict = await judge(llm, item["question"], item["facts"], body["answer"])
+                        verdict = await judge(judge_llm, item["question"], item["facts"], body["answer"])
                         run["wrong"], run["verdict"] = not verdict["correct"], verdict
                 print(f"[{i}/{len(questions)}] {item['id']}: {body['kind']}"
                       + (f", score {run['score']:.2f}, {'WRONG' if run['wrong'] else 'right'}"
@@ -315,7 +317,7 @@ async def main_async(args) -> int:
         runs, chat_model, embedding_model = saved["runs"], saved["chat_model"], saved["embedding_model"]
     else:
         questions = json.loads(QUESTIONS.read_text())["questions"][: args.limit or None]
-        runs, settings = await run_questions(questions)
+        runs, settings = await run_questions(questions, args.judge_model)
         chat_model, embedding_model = settings.llm_model, settings.embedding_model
         if args.limit:
             print("Smoke run: nothing written.")
@@ -373,6 +375,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out-dir", default=str(OUT_DIR),
                         help="where to write the runs, calibration and figure (default eval/)")
     parser.add_argument("--runs", default=None, help="saved runs for --from-runs (default OUT_DIR/clone_runs.json)")
+    parser.add_argument("--judge-model", default=None,
+                        help="the model that grades each answer (default: the chat model, LLM_MODEL)")
     parser.add_argument("--no-review", action="store_true",
                         help="keep the judge's verdicts as they are (apply no review overrides)")
     parser.add_argument("--review", default=str(REVIEW), help="human review overrides")
