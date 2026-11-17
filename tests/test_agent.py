@@ -2875,7 +2875,6 @@ def agent_key(term):
 
 UNCLEAN_JUDGES = [
     judge_reply(status="present"), judge_reply(status="unclear"), judge_reply(status="maybe"),
-    judge_reply(terms=("fever", "pus")),  # a term left out
     judge_reply(concerns=True), judge_reply(concerns=None), judge_reply(concerns="false"),
     judge_reply(replies=False), judge_reply(replies="true"),
     judge_reply(close=5), judge_reply(close=99), judge_reply(close=None), judge_reply(close="6"),
@@ -2893,6 +2892,23 @@ async def test_reply_judge_that_is_not_clean_keeps_the_handoff(
     shape(llm, judge)
     result = await ask_reply(llm, store, foods, document, items)
     assert result.kind == "not_covered"
+
+
+@pytest.mark.parametrize("again, kind", [
+    (judge_reply(terms=("pus",)), "not_covered"),  # still left out: blocks
+    (judge_reply(terms=("chest pain",), status="present"), "not_covered"),
+    ({"content": "not json"}, "not_covered"),
+    (judge_reply(terms=("chest pain",)), "close"),  # asked again: now absent
+])
+async def test_a_term_the_judge_left_out_is_asked_about_once_more(
+        store, foods, document, items, again, kind):
+    llm = FakeLLM()
+    handoff_shape(llm, judge_reply(terms=("fever", "pus")))  # "chest pain" left out
+    llm.script(again)
+    result = await ask_reply(llm, store, foods, document, items)
+    assert result.kind == kind
+    follow_up = json.dumps(llm.calls[-1][0]).split("<warning-terms-")[1].split("</warning-terms-")[0]
+    assert "chest pain" in follow_up and "fever" not in follow_up
 
 
 async def test_one_unclean_term_among_many_keeps_the_handoff(store, foods, document, items):

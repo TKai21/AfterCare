@@ -1838,6 +1838,17 @@ def _judge_messages(pending: "PendingClarify", reply_text: str, terms: list[str]
     ]
 
 
+async def _judge_once(llm, pending: "PendingClarify", reply_text: str, terms: list[str],
+                      close_evidence: list[Evidence]) -> Optional[Judged]:
+    """One reply-judge call; None when it fails or its JSON is malformed."""
+    try:
+        reply = await llm.chat(_judge_messages(pending, reply_text, terms, close_evidence),
+                               tools=None, json_mode=True)
+        return _judged(json.loads(_strip_fences(reply.get("content") or "")))
+    except (LLMError, ValueError, TypeError, AttributeError):
+        return None
+
+
 async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
                        pending: "PendingClarify", warning_terms: Sequence[str], *,
                        allowed_drugs: frozenset[str], build_close: bool) -> AgentResult:
@@ -1855,14 +1866,20 @@ async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
     terms = dedupe_terms(warning_terms)
     close_evidence = [e for e in turn.evidence.values()
                       if e.kind == "habit" and e.habit_type == "close"]
-    try:
-        reply = await llm.chat(_judge_messages(pending, reply_text, terms, close_evidence),
-                               tools=None, json_mode=True)
-        judged = _judged(json.loads(_strip_fences(reply.get("content") or "")))
-    except (LLMError, ValueError, TypeError, AttributeError):
-        return result
+    judged = await _judge_once(llm, pending, reply_text, terms, close_evidence)
     if judged is None:
         return result
+    # gpt-4o-mini drops terms from a list of 20 or more (seen end to end: 16 of
+    # 24 came back). One more call asks about the left-out terms only; a term
+    # still missing stays missing, and close_blocker then blocks (fail closed).
+    listed = {_canon(s["term"]).casefold() for s in judged.signs}
+    missing = [t for t in terms if _canon(t).casefold() not in listed]
+    if missing:
+        again = await _judge_once(llm, pending, reply_text, missing, close_evidence)
+        if again is not None:
+            wanted = {_canon(t).casefold() for t in missing}
+            judged = replace(judged, signs=judged.signs + [
+                s for s in again.signs if _canon(s["term"]).casefold() in wanted])
     result = replace(result, warning_signs=judged.signs, replies_to_questions=judged.replies,
                      other_concerns=judged.concerns)
     if not build_close or not terms or not close_evidence:

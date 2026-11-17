@@ -910,13 +910,17 @@ class Reply(dict):
     judge: dict
 
 
-def reply_final(kind, text, citations, replies=True, signs=(), concerns=False, close=5):
+def reply_final(kind, text, citations, replies=True, signs=(), concerns=False, close=5,
+                again=False):
     """The main model's message (it no longer carries reply fields) plus the judge
-    reading that follows it: `signs` are the judge's warning_signs."""
+    reading that follows it: `signs` are the judge's warning_signs. With `again`
+    the judge left terms out and is asked once more about them; it leaves them
+    out again."""
     message = Reply(final(kind, text, citations))
     message.judge = {"content": json.dumps({
         "replies_to_questions": replies, "warning_signs": list(signs),
         "other_concerns": concerns, "close": close})}
+    message.again = message.judge if again else None
     return message
 
 
@@ -930,6 +934,8 @@ def judge_follows_the_reply(fake_llm):
             queued.append(message)
             if isinstance(message, Reply):
                 queued.append(message.judge)
+                if getattr(message, "again", None) is not None:
+                    queued.append(message.again)
         original(*queued)
 
     fake_llm.script = script
@@ -1405,7 +1411,7 @@ async def test_a_term_the_model_left_out_hands_off(client, fake_llm):
         h = await confirmed(client, fake_llm, headers=await auth_headers(client, f"p.{kind}"))
         doctor_id = await ask_first_doctor(client, fake_llm, f"dr.{kind}", f"Dr. {kind}")
         await start_clarify(client, fake_llm, h, doctor_id)
-        fake_llm.script(reply_final(kind, text, cites, signs=absent("fever")))
+        fake_llm.script(reply_final(kind, text, cites, signs=absent("fever"), again=True))
         body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
         q = [q for q in await all_questions(client) if q.doctor_id == doctor_id][0]
         assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
@@ -1420,7 +1426,7 @@ async def test_empty_warning_signs_block_the_close(client, fake_llm):
     h = await confirmed(client, fake_llm)
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
-    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=[]))
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5], signs=[], again=True))
     body = (await post_ask(client, h, "It looks fine.", doctor_id=doctor_id)).json()
     assert body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
@@ -1432,7 +1438,7 @@ async def test_a_new_question_names_the_blocker_when_one_applies(client, fake_ll
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
     fake_llm.script(reply_final("answer", "Take amoxicillin 500 mg three times daily [2].", [2],
-                                replies=False, signs=absent("fever")))
+                                replies=False, signs=absent("fever"), again=True))
     await post_ask(client, h, "I threw up. How often do I take amoxicillin?", doctor_id=doctor_id)
     (q,) = await all_questions(client)
     assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Warning sign: threw up")
