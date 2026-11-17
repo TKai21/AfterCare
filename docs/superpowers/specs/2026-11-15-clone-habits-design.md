@@ -134,6 +134,22 @@ The lexicon is also used by the habit validator (4.1) and the close conditions (
 
 Advice-rule retrieval keeps embedding ranking after the gate. The fixed floor `GUIDANCE_MIN_SIMILARITY` is replaced by: the top `GUIDANCE_TOP_K` rules (default 6, as today's limit) whose score is at least `GUIDANCE_FLOOR` (low absolute floor) and within `GUIDANCE_MARGIN` of the best score. Defaults are chosen by a sweep on the **tuning** split only (section 5.3). Both the prefetch and the tool use it.
 
+### 4.7 Multi-round intake (added 2026-11-16, team decision "B")
+
+**Why.** The team wants the clone to take a history the way the doctor does: ask follow-up details over a few turns ("When did you last take your colchicine?"), build up the patient's state, and then **answer the patient's question**, not only close with the doctor's closing words or hand off. This amends 4.2-4.4; everything there not named below stays.
+
+**Approaches considered.** (A) only the doctor's own ask habits, over several rounds: safest, but a doctor with no ask habits (Dr. Ting Kai) never asks, and drug-specific questions are impossible. (B, chosen) the doctor's own questions first, plus **clone-written follow-up questions** under strict program checks. (C) a fixed intake template: generic, not the doctor's voice.
+
+**Rounds.** A clarify may follow a clarify. At most `CLARIFY_MAX_ROUNDS` rounds (default 3) per case; after the last reply, `clarify` is not allowed. A new patient question that is not a reply ends the intake as today (4.3, "Patient did not answer the clone's questions").
+
+**Intake state.** The waiting care-team question keeps the whole intake: the original question and an ordered list of rounds `[{asked, reply}]` (new nullable JSON column `intake` via ADDED_COLUMNS and schema.sql; `asked`/`patient_reply` keep the last round for the existing inbox). Every turn of the intake gets the original question and all rounds so far in context, and the doctor's handoff shows all rounds.
+
+**Clarify questions (amends 4.2).** Each question is either (a) a doctor `ask` habit quote, word for word, cited; or (b) a **clone-written question**, uncited, which must: be one sentence ending in "?", at most 25 words, contain no numbers, links or medication-change wording, contain no advice (no imperative sentence; nothing but the opener and questions), name only drugs from the allowed names of 4.5, and not repeat a question already asked in this intake (normalised comparison). The doctor's habits come first: the prompt asks for fitting ask habits before writing its own, and at least one question per round must be a habit quote when the doctor has a fitting one. At most 4 questions per round; the opener list is unchanged. The citation for (b) is the clarify itself; the Ask page labels doctor-habit questions as the doctor's and clone-written ones as the clone's follow-up.
+
+**Ending the intake.** On a reply turn the agent chooses: `clarify` (another round, if rounds remain and something needed for the answer is still unknown), `answer`, `close`, or `not_covered`. An `answer` here answers the **original question** in the light of the replies and is grounded exactly as any answer (citations, numbers, drug binding, drug names). Both `answer` and `close` on any intake turn pass the 4.4 gate (no warning sign in any reply or the original question, no medication change, other_concerns false, replies_to_questions true); anything else is a handoff with all rounds. After the last round, an answer that fails validation falls back to the structural close of the reply judge, then to the handoff.
+
+**Unchanged.** The emergency backstop runs first on every message; the 24 h timeout; the fail-closed defaults; the confidence gate scores answers and closes, not clarifies.
+
 ## 5. Evaluation
 
 ### 5.1 Data and splits
