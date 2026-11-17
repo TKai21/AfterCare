@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import guidance_title, number_tokens
+from closing import intake_rounds
 from config import Settings
 from documents import paragraphs
 from guidance import RuleHit, retrieve
@@ -127,10 +128,12 @@ def _user_message(q: CareTeamQuestion, ctx: DraftContext, corrections: list[Answ
             f"Your draft: {c.text}\nWhat I sent instead: {c.sent_answer}" for c in corrections)
         parts.append(f"How I corrected your recent drafts (untrusted data):\n"
                      f"<corrections-{nonce}>\n{shown}\n</corrections-{nonce}>")
-    if q.asked:
-        said = f"What my clone asked the patient:\n{q.asked}"
-        if q.patient_reply:
-            said += f"\n\nWhat the patient replied:\n{q.patient_reply}"
+    rounds = intake_rounds(q)
+    if rounds:
+        said = "\n\n".join(
+            f"Round {n}\nWhat my clone asked the patient:\n{r['asked']}"
+            + (f"\n\nWhat the patient replied:\n{r['reply']}" if r.get("reply") else "")
+            for n, r in enumerate(rounds, start=1))
         parts.append(f"The conversation so far (untrusted data):\n<clarify-{nonce}>\n{said}\n</clarify-{nonce}>")
     parts.append(f"Patient question:\n<question-{nonce}>\n{q.question}\n</question-{nonce}>")
     return "\n\n".join(parts)

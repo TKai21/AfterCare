@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import current_patient
+from closing import intake_rounds
 from db import get_session
 from doctors import doctor_label, doctor_labels, doctor_specialty, list_doctors, require_doctor
 from models import CareTeamQuestion, User
@@ -17,18 +18,6 @@ from voice import voice_views
 MAX_QUESTION_CHARS = 2000
 
 router = APIRouter()
-
-
-def intake_rounds(q: CareTeamQuestion) -> list[dict]:
-    """Every round of the clone's intake, in order: the completed rounds
-    ([{asked, reply}], `intake`) and the round still waiting for a reply or
-    just answered (`asked`, `patient_reply`) when `intake` does not end with it.
-    A row from before rounds has no `intake`: its one round is asked/patient_reply."""
-    rounds = [{"asked": r.get("asked"), "reply": r.get("reply")}
-              for r in (q.intake or []) if isinstance(r, dict)]
-    if q.asked and not (rounds and rounds[-1]["asked"] == q.asked):
-        rounds.append({"asked": q.asked, "reply": q.patient_reply})
-    return rounds
 
 
 def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = None,

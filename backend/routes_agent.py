@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,8 +9,8 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
-    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, PendingClarify, emergency_result,
-    fallback_answer, run_agent, strip_markers,
+    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, PendingClarify, clarify_questions,
+    emergency_result, fallback_answer, rounds_text, run_agent, strip_markers,
 )
 from auth import current_patient
 from closing import (
@@ -47,10 +48,11 @@ STOPPED_BY_CHARS = 100
 @dataclass
 class Settle:
     """What a reply turn does to the waiting question."""
-    status: str  # open | resolved
+    status: str  # open | resolved | waiting_on_patient (the clone asks another round)
     reason: Optional[str] = None  # set when it becomes open
     stopped_by: Optional[str] = None
     answer: Optional[str] = None  # set when the clone resolved it
+    asked: Optional[str] = None  # the new round's questions, when it keeps waiting
 
 
 def handoff_result(doctor_name: str) -> AgentResult:
@@ -84,10 +86,19 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
         # summary for the doctor; otherwise the patient simply moved on.
         settle = (Settle("open", NEEDS_DOCTOR, blocker) if blocker is not None
                   else Settle("open", NOT_ANSWERED, NOT_ANSWERED))
-        if result.kind == "close":  # a close that is not a reply is never delivered
+        if result.kind in ("close", "clarify"):  # neither is a reply to a new question
             return handoff_result(doctor_name), settle
         # The new question is answered as usual (its own gate and question).
         return result, settle
+    if result.kind == "clarify":
+        # Another round only while nothing in the intake so far could stop a
+        # close: a warning sign, a medication change, another concern or an
+        # unreadable judge hands the case to the doctor now.
+        if blocker is not None or result.replies_to_questions is not True:
+            return handoff_result(doctor_name), Settle(
+                "open", NEEDS_DOCTOR, blocker or COULD_NOT_ANSWER)
+        return (replace(result, care_team_question=None, flagged=False),
+                Settle(WAITING, asked=strip_markers(result.answer)))
     if result.kind == "close":
         stop = blocker or (None if gate_passed else LOW_CONFIDENCE_STOP)
         if stop is not None:
@@ -110,20 +121,33 @@ def settle_reply(result: AgentResult, terms: list[str], blocker: Optional[str],
 
 async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
                          pending: PendingClarify, reply: str, user_id: int,
-                         document_id: int, doctor_id: int) -> None:
+                         document_id: int, doctor_id: int) -> Optional[int]:
     """Settle the waiting question, only while it is still waiting: a
     conditional UPDATE, so of two concurrent replies only the first owns it.
-    A question the inbox timed out (open, unanswered, reason NOT_ANSWERED and
-    no reply yet) still counts as waiting for this reply: the reply fills that
-    same card, or resolves it on a close, so the doctor never sees two cards.
-    When it is no longer waiting (the doctor answered it, or another reply
-    settled it), a handoff becomes a new open question so a reply is never
-    lost; a resolving outcome then only delivers its answer."""
-    values = {"status": settle.status, "patient_reply": reply, "stopped_by": settle.stopped_by}
+    The reply is appended to the question's rounds (`intake`), whatever the
+    outcome. A question the inbox timed out (open, unanswered, reason
+    NOT_ANSWERED and no reply yet) still counts as waiting for this reply: the
+    reply fills that same card, resolves it on a close, or reopens it as
+    waiting when the clone asks another round, so the doctor never sees two
+    cards. When it is no longer waiting (the doctor answered it, or another
+    reply settled it), a handoff becomes a new open question and another round
+    a new waiting one, so a reply is never lost; a resolving outcome then only
+    delivers its answer.
+
+    Returns the id of the row waiting for the patient's next reply (another
+    round), else None."""
+    rounds = [{"asked": strip_markers(r["asked"]), "reply": r["reply"]}
+              for r in pending.all_rounds(reply)]
+    values = {"status": settle.status, "patient_reply": reply, "stopped_by": settle.stopped_by,
+              "intake": rounds}
     if settle.reason is not None:
         values["reason"] = settle.reason
     if settle.answer is not None:
         values["answer"] = settle.answer
+    if settle.status == WAITING:
+        # The next round: its questions wait for a reply, and the timeout restarts.
+        values.update(asked=settle.asked, patient_reply=None, reason="",
+                      last_asked_at=datetime.now(timezone.utc).replace(tzinfo=None))
     still_waiting = or_(
         CareTeamQuestion.status == WAITING,
         and_(CareTeamQuestion.status == "open", CareTeamQuestion.answer.is_(None),
@@ -135,14 +159,24 @@ async def settle_waiting(session: AsyncSession, waiting_id: int, settle: Settle,
         .values(**values)
         .execution_options(synchronize_session=False)
     )
-    if done.rowcount == 1 or settle.status != "open":
-        return
+    if done.rowcount == 1:
+        return waiting_id if settle.status == WAITING else None
+    if settle.status == WAITING:
+        row = await add_question(
+            session, user_id, document_id, question=pending.question, reason="", source="agent",
+            doctor_id=doctor_id, status=WAITING, asked=settle.asked)
+        row.intake = rounds
+        return row.id
+    if settle.status != "open":
+        return None
     row = await add_question(
         session, user_id, document_id, question=pending.question,
         reason=settle.reason or NEEDS_DOCTOR, source="agent", doctor_id=doctor_id,
         asked=strip_markers(pending.asked))
     row.patient_reply = reply
     row.stopped_by = settle.stopped_by
+    row.intake = rounds
+    return None
 
 
 class AskBody(BaseModel):
@@ -255,10 +289,12 @@ async def ask(
         clarify_message, waiting = found
         clarify_id, waiting_id = clarify_message.id, waiting.id
         pending = PendingClarify(question=waiting.question,
-                                 asked=waiting.asked or clarify_message.content)
+                                 asked=waiting.asked or clarify_message.content,
+                                 rounds=[r for r in (waiting.intake or []) if isinstance(r, dict)])
     # On a reply turn the patient's original message also names drugs they
     # asked about (with the lexicon's equivalents).
-    asked_text = body.question if pending is None else f"{body.question}\n{pending.question}"
+    asked_text = body.question if pending is None else "\n".join(
+        [body.question, pending.question, *(r.get("reply") or "" for r in pending.rounds)])
     allowed_drugs = frozenset(
         allowed_drug_names(items, library_rxcuis, asked_text, get_lexicon()))
     gate_score: Optional[float] = None  # the confidence gate's score, when it ran
@@ -347,6 +383,7 @@ async def ask(
                 habits=habits, pending=pending,
                 warning_terms=[*doctor_terms, *document_terms] if pending is not None else (),
                 first_turn_terms=(None if terms_failed else [*doctor_terms, *document_terms]),
+                max_clarify_rounds=request.app.state.settings.clarify_max_rounds,
             )
         except LLMError as exc:
             if not terms:
@@ -361,8 +398,10 @@ async def ask(
             # (4.4); the same checks decide whether an answer settles the case,
             # and name what the doctor must see when the patient asked something else.
             lexicon = get_lexicon()
+            # Every reply of the intake counts, not only this one.
+            replies = "\n".join(r["reply"] for r in pending.all_rounds(body.question))
             blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
-                pending.question, body.question, terms, doctor_terms, document_terms,
+                pending.question, replies, terms, doctor_terms, document_terms,
                 result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
                 lexicon, other_concerns=result.other_concerns)
 
@@ -375,8 +414,8 @@ async def ask(
             scored = body.question
             if pending is not None:  # a reply is read with the question it answers
                 scored = (f"Original question: {pending.question}\n"
-                          f"The clone asked: {strip_markers(pending.asked)}\n"
-                          f"The patient replied: {body.question}")
+                          f"The clone asked and the patient replied:\n"
+                          f"{rounds_text(pending.all_rounds(body.question))}")
             try:
                 confidence = await score_answer(llm, scored, result.answer, result.sources,
                                                 result.seen)
@@ -398,12 +437,7 @@ async def ask(
         result = replace(result, care_team_question=None, flagged=False)
 
     payload = answer_payload(result, terms, doctor_id, name, gate_score)
-    if result.kind == "clarify":
-        waiting_row = await add_question(
-            session, user_id, doc_id, question=body.question, reason="", source="agent",
-            doctor_id=doctor_id, status=WAITING, asked=strip_markers(result.answer))
-        payload["pending"] = True
-        payload["waiting_question_id"] = waiting_row.id
+    next_waiting_id: Optional[int] = None
     if clarify_id is not None:
         # Any reply turn ends the clarify; a new dict so the JSON change is saved.
         # Every writer sets the same value, so a concurrent reply cannot undo it.
@@ -411,8 +445,18 @@ async def ask(
         if message is not None:
             message.payload = {**(message.payload or {}), "pending": False}
     if waiting_id is not None and settle is not None and pending is not None:
-        await settle_waiting(session, waiting_id, settle, pending, body.question,
-                             user_id, doc_id, doctor_id)
+        next_waiting_id = await settle_waiting(session, waiting_id, settle, pending,
+                                               body.question, user_id, doc_id, doctor_id)
+    if result.kind == "clarify":
+        if pending is None:  # the first round: the waiting question is the clone's own
+            waiting_row = await add_question(
+                session, user_id, doc_id, question=body.question, reason="", source="agent",
+                doctor_id=doctor_id, status=WAITING, asked=strip_markers(result.answer))
+            next_waiting_id = waiting_row.id
+        payload["pending"] = True
+        payload["waiting_question_id"] = next_waiting_id
+        # Each question marked as the doctor's (a habit) or the clone's own.
+        payload.update(clarify_questions(result.answer, result.sources))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",

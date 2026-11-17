@@ -124,6 +124,18 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     return None
 
 
+def intake_rounds(q: CareTeamQuestion) -> list[dict]:
+    """Every round of the clone's intake, in order: the completed rounds
+    ([{asked, reply}], `intake`) and the round still waiting for a reply or
+    just answered (`asked`, `patient_reply`) when `intake` does not end with it.
+    A row from before rounds has no `intake`: its one round is asked/patient_reply."""
+    rounds = [{"asked": r.get("asked"), "reply": r.get("reply")}
+              for r in (q.intake or []) if isinstance(r, dict)]
+    if q.asked and not (rounds and rounds[-1]["asked"] == q.asked):
+        rounds.append({"asked": q.asked, "reply": q.patient_reply})
+    return rounds
+
+
 async def pending_clarify(session: AsyncSession, document_id: int,
                           doctor_id: int) -> Optional[tuple[ChatMessage, CareTeamQuestion]]:
     """The clone's open clarify in this patient-doctor conversation: the latest

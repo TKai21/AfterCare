@@ -14,7 +14,7 @@ from conftest import auth_headers
 from guidance import embed_entry
 from knowledge import KnowledgeStore
 from llm import LLMClient, LLMError
-from models import ChatMessage, DoctorGuidance, DrugLabel, User
+from models import CareTeamQuestion, ChatMessage, DoctorGuidance, DrugLabel, User
 from test_routes_documents import DOC, upload_text
 
 # DOC paragraphs: [1] discharge date, [2] amoxicillin 500 mg, [3] fever above 101 F.
@@ -826,7 +826,11 @@ async def seed_habit(client, entry, statement, quote, habit_type="ask", **kw):
 
 
 def first_user_message(fake_llm, call_index=-1):
-    return [m for m in fake_llm.calls[call_index][0] if m["role"] == "user"][-1]["content"]
+    """The user message of a main-model call (the last one by default; the reply
+    judge's calls are skipped)."""
+    import agent
+    calls = [c for c in fake_llm.calls if c[0][0]["content"] != agent.REPLY_JUDGE_PROMPT]
+    return [m for m in calls[call_index][0] if m["role"] == "user"][-1]["content"]
 
 
 async def test_habit_of_another_patients_entry_reaches_this_patient(client, fake_llm):
@@ -899,9 +903,36 @@ def final(kind, text, citations, **extra):
     return {"content": json.dumps(body)}
 
 
-def reply_final(kind, text, citations, replies=True, signs=(), concerns=False):
-    return final(kind, text, citations, replies_to_questions=replies, warning_signs=list(signs),
-                 other_concerns=concerns)
+class Reply(dict):
+    """A main-model reply on an intake turn. The reply judge, not the model,
+    reports the reply fields, so the reply carries the judge's answer that the
+    scripting helper queues right after it."""
+    judge: dict
+
+
+def reply_final(kind, text, citations, replies=True, signs=(), concerns=False, close=5):
+    """The main model's message (it no longer carries reply fields) plus the judge
+    reading that follows it: `signs` are the judge's warning_signs."""
+    message = Reply(final(kind, text, citations))
+    message.judge = {"content": json.dumps({
+        "replies_to_questions": replies, "warning_signs": list(signs),
+        "other_concerns": concerns, "close": close})}
+    return message
+
+
+@pytest.fixture(autouse=True)
+def judge_follows_the_reply(fake_llm):
+    original = fake_llm.script
+
+    def script(*messages):
+        queued = []
+        for message in messages:
+            queued.append(message)
+            if isinstance(message, Reply):
+                queued.append(message.judge)
+        original(*queued)
+
+    fake_llm.script = script
 
 
 def absent(*terms):
@@ -1030,18 +1061,23 @@ def judge_json(status="absent", close=5, concerns=False):
         "warning_signs": [{"term": t, "status": status} for t in ("fever", "threw up")]})}
 
 
-async def test_reply_judge_close_resolves_after_the_model_hands_off(client, fake_llm):
+@pytest.mark.parametrize("model", ["handoff", "fallback"])
+async def test_reply_judge_close_resolves_after_the_model_hands_off(client, fake_llm, model):
     gate_on(client, fake_llm)
     h = await confirmed(client, fake_llm)
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
-    bad = reply_final("not_covered", "x", [], replies=None)
-    fake_llm.script(bad, bad, judge_json())
+    if model == "handoff":
+        fake_llm.script(final("not_covered", "x", []), judge_json())
+    else:  # the model's answer fails validation twice
+        bad = final("answer", "Drink 9 liters [2].", [2])
+        fake_llm.script(bad, bad, judge_json())
     reply = "No fever, never threw up."
     body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
     assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]", body
     (q,) = await all_questions(client)
     assert (q.status, q.answer, q.patient_reply) == ("resolved", CLOSE_TEXT, reply)
+    assert q.intake == [{"asked": ASK_QUESTIONS, "reply": reply}]
 
 
 async def test_reply_judge_with_a_present_term_keeps_the_handoff(client, fake_llm):
@@ -1049,8 +1085,7 @@ async def test_reply_judge_with_a_present_term_keeps_the_handoff(client, fake_ll
     h = await confirmed(client, fake_llm)
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
-    bad = reply_final("not_covered", "x", [], replies=None)
-    fake_llm.script(bad, bad, judge_json(status="unclear"))
+    fake_llm.script(final("not_covered", "x", []), judge_json(status="unclear"))
     body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
     assert body["kind"] == "not_covered"
     (q,) = await all_questions(client)
@@ -1097,9 +1132,8 @@ async def test_not_covered_reply_hands_off(client, fake_llm):
     h = await confirmed(client, fake_llm)
     doctor_id = await ask_first_doctor(client, fake_llm)
     await start_clarify(client, fake_llm, h, doctor_id)
-    fake_llm.script(reply_final("not_covered", "I can't say.", [],
+    fake_llm.script(reply_final("not_covered", "I can't say.", [], close=None,
                                 signs=absent("fever", "threw up")))
-    fake_llm.script({"content": "{}"})  # the reply judge is not clean
     body = (await post_ask(client, h, "Nope, neither.", doctor_id=doctor_id)).json()
     assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
@@ -1325,6 +1359,8 @@ async def test_a_late_close_never_overwrites_a_handoff(client, fake_llm):
         await session.execute(update(ChatMessage).where(ChatMessage.id == message.id)
                               .values(payload={**message.payload, "pending": True}))
         await session.execute(delete(ChatMessage).where(ChatMessage.id > message.id))
+        # ... which read the rounds before the first turn saved its reply
+        await session.execute(update(CareTeamQuestion).values(intake=None))
         await session.commit()
     fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
                                 signs=absent("fever", "threw up")))
@@ -1448,7 +1484,7 @@ async def test_other_concerns_hand_off(client, fake_llm):
     assert body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "Other concerns")
-    assert "other_concerns" in first_user_message(fake_llm)
+    assert "other_concerns" not in first_user_message(fake_llm)  # the judge's field, not the model's
 
 
 async def test_free_text_close_never_resolves_with_the_gate_off(client, fake_llm):
@@ -1475,7 +1511,8 @@ async def test_reply_turn_may_name_a_drug_from_the_original_question(client, fak
     before = len(fake_llm.calls)
     body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
     assert body["kind"] == "answer" and body["answer"] == text, body
-    assert len(fake_llm.calls) == before + 1  # no repair: "ibuprofen" is Advil's ingredient
+    assert len(fake_llm.calls) == before + 2  # the model once (no repair: "ibuprofen" is Advil's
+    # ingredient) and the judge
     (q,) = await all_questions(client)
     assert (q.status, q.stopped_by) == ("open", "Drug not on the prescription: advil")
 
@@ -1487,6 +1524,9 @@ async def time_out_waiting(client):
     async with client.app.state.session_factory() as session:
         await session.execute(update(CareTeamQuestion).values(
             created_at=utcnow() - timedelta(hours=30)))
+        await session.execute(update(CareTeamQuestion).where(
+            CareTeamQuestion.last_asked_at.is_not(None)).values(
+            last_asked_at=utcnow() - timedelta(hours=30)))
         await session.commit()
 
 
@@ -1614,3 +1654,336 @@ async def test_history_leaves_out_fixed_server_answers(client, fake_llm):
     # The patient's own conversation still shows the fixed sentence.
     shown = (await get_conversation(client, h)).json()["messages"]
     assert any(m["content"].startswith("I couldn't answer this") for m in shown)
+
+
+# --- multi-round intake (spec 4.7) ---
+
+OWN_Q = "When did it start?"
+OWN_Q2 = "Has it changed since yesterday?"
+REPLY1 = "No fever, never threw up."
+REPLY2 = "It started two days ago."
+
+
+def own_clarify(text=OWN_Q, cites=()):
+    """The model's clarify with a question of its own (it cites nothing)."""
+    return final("clarify", text, list(cites))
+
+
+async def second_round(client, fake_llm, h, doctor_id, text=OWN_Q, cites=()):
+    """Reply 1 (clean) and the clone's second round of questions."""
+    fake_llm.script(own_clarify(text, cites), judge_message(signs=absent("fever", "threw up"), close=None))
+    return (await post_ask(client, h, REPLY1, doctor_id=doctor_id)).json()
+
+
+def judge_message(replies=True, signs=(), concerns=False, close=5):
+    return {"content": json.dumps({"replies_to_questions": replies, "warning_signs": list(signs),
+                                   "other_concerns": concerns, "close": close})}
+
+
+async def test_a_reply_appends_a_round_and_a_new_clarify_updates_the_waiting_row(
+        client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    first = await start_clarify(client, fake_llm, h, doctor_id)
+    body = await second_round(client, fake_llm, h, doctor_id)
+    assert body["kind"] == "clarify" and body["pending"] is True and body["flagged"] is False
+    (q,) = await all_questions(client)  # the same card, no new row
+    assert body["waiting_question_id"] == q.id == first["waiting_question_id"]
+    assert (q.status, q.question, q.asked, q.patient_reply, q.reason, q.stopped_by) == (
+        "waiting_on_patient", ORIGINAL, OWN_Q, None, "", None)
+    assert q.intake == [{"asked": ASK_QUESTIONS, "reply": REPLY1}]
+    assert q.last_asked_at is not None
+    assert body["questions"] == [{"text": OWN_Q, "source": "clone", "habit_id": None}]
+    assert body["opener"] is None and body["sources"] == []
+    # the first clarify ended; the new one is the pending one
+    messages = (await get_conversation(client, h, doctor_id)).json()["messages"]
+    clarifies = [m for m in messages if (m["payload"] or {}).get("kind") == "clarify"]
+    assert [m["payload"]["pending"] for m in clarifies] == [False, True]
+    assert await care_team(client, h) == []  # still not the care team's
+    # every round reaches the next turn's context
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
+    text = first_user_message(fake_llm)
+    assert ("Round 1 - I asked: " + ASK_QUESTIONS in text and "the patient replied: " + REPLY1 in text
+            and "Round 2 - I asked: " + OWN_Q in text and "Round 2 of 3" in text)
+    assert body["kind"] == "close"
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer, q.patient_reply) == ("resolved", CLOSE_TEXT, REPLY2)
+    assert q.intake == [{"asked": ASK_QUESTIONS, "reply": REPLY1}, {"asked": OWN_Q, "reply": REPLY2}]
+
+
+async def test_the_clarify_payload_marks_each_question_as_the_doctors_or_the_clones(
+        client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)
+    assert [(x["text"], x["source"]) for x in body["questions"]] == [
+        ("Do you have a fever?", "doctor"), ("Have you thrown up?", "doctor")]
+    assert all(isinstance(x["habit_id"], int) for x in body["questions"])
+    assert body["habit_rule_ids"] == [x["habit_id"] for x in body["questions"]][:1]
+    # an opener, a habit question and a question of the clone's own
+    h2 = await confirmed(client, fake_llm, headers=await auth_headers(client, "pat-two"))
+    d2 = await ask_first_doctor(client, fake_llm, "dr.two", "Dr. Two")
+    fake_llm.script(own_clarify("Thanks for letting me know. Have you thrown up? [4] " + OWN_Q,
+                                cites=[4]))
+    mixed = (await post_ask(client, h2, ORIGINAL, doctor_id=d2)).json()
+    assert mixed["kind"] == "clarify", mixed
+    assert mixed["opener"] == "Thanks for letting me know."
+    assert [(x["text"], x["source"]) for x in mixed["questions"]] == [
+        ("Have you thrown up?", "doctor"), (OWN_Q, "clone")]
+
+
+async def test_a_warning_sign_only_in_round_2_blocks_the_close_and_the_answer(client, fake_llm):
+    # Review Focus 1
+    for kind, text, cites in (("close", CLOSE_TEXT + " [5]", [5]),
+                              ("answer", "Take amoxicillin 500 mg three times daily [2].", [2])):
+        h = await confirmed(client, fake_llm, headers=await auth_headers(client, f"pat-{kind}"))
+        doctor_id = await ask_first_doctor(client, fake_llm, f"dr.{kind}", f"Dr. {kind}")
+        await start_clarify(client, fake_llm, h, doctor_id)
+        await second_round(client, fake_llm, h, doctor_id)
+        gate_on(client, fake_llm)
+        # the judge reads round 2 (and says the fever is absent in this reply) - but
+        # round 1's "threw up" was never denied: the close_blocker sees every reply
+        reply = "It started two days ago and I threw up twice."
+        fake_llm.script(reply_final(kind, text, cites, signs=absent("fever", "threw up")))
+        body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+        assert body["answer"] == fallback_answer(f"Dr. {kind}") or body["kind"] == "answer"
+        q = [q for q in await all_questions(client) if q.doctor_id == doctor_id][0]
+        assert (q.status, q.stopped_by) == ("open", "Warning sign: threw up")
+        assert [r["reply"] for r in q.intake] == [REPLY1, reply]
+
+
+async def test_a_warning_sign_in_the_first_reply_stops_the_intake_at_once(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    fake_llm.script(own_clarify(), judge_message(
+        signs=[{"term": "fever", "status": "present"}, {"term": "threw up", "status": "absent"}]))
+    body = (await post_ask(client, h, "I have a fever.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+async def test_an_unreadable_judge_blocks_every_kind(client, fake_llm):
+    for index, main in enumerate((own_clarify(),
+                                  final("close", CLOSE_TEXT + " [5]", [5]),
+                                  final("answer", "Take amoxicillin 500 mg three times daily [2].",
+                                        [2]))):
+        h = await confirmed(client, fake_llm, headers=await auth_headers(client, f"pat-{index}"))
+        doctor_id = await ask_first_doctor(client, fake_llm, f"dr.j{index}", f"Dr. J{index}")
+        await start_clarify(client, fake_llm, h, doctor_id)
+        fake_llm.script(main, {"content": "not json"})
+        body = (await post_ask(client, h, REPLY1, doctor_id=doctor_id)).json()
+        q = [q for q in await all_questions(client) if q.doctor_id == doctor_id][0]
+        assert q.status == "open" and q.answer is None, main
+        assert body["kind"] != "clarify" and body.get("pending") is None, main
+
+
+async def test_the_judge_erroring_blocks_the_close(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    import agent
+    fake_llm.route(agent.REPLY_JUDGE_PROMPT, lambda m: (_ for _ in ()).throw(LLMError("down")))
+    original = fake_llm.chat
+
+    async def chat(messages, tools=None, json_mode=False):
+        if messages[0]["content"] == agent.REPLY_JUDGE_PROMPT:
+            raise LLMError("down")
+        return await original(messages, tools, json_mode)
+
+    fake_llm.chat = chat
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    body = (await post_ask(client, h, REPLY1, doctor_id=doctor_id)).json()
+    assert body["answer"] == fallback_answer("Dr. Ting Kai")
+    (q,) = await all_questions(client)
+    assert q.status == "open" and q.answer is None
+
+
+async def test_a_round_3_clarify_is_refused_even_if_the_model_insists(client, fake_llm):
+    # Review Focus 4: the third reply ends the intake
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    fake_llm.script(own_clarify(OWN_Q2), judge_message(signs=absent("fever", "threw up"), close=None))
+    third = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
+    assert third["kind"] == "clarify" and third["pending"] is True
+    again = own_clarify("Is it getting better?")
+    # the model insists, twice; the judge is clean but names no close habit: handoff
+    fake_llm.script(again, again, judge_message(signs=absent("fever", "threw up"), close=None))
+    body = (await post_ask(client, h, "A little worse.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    assert "most rounds" in json.dumps(fake_llm.calls[-2][0])  # the repair round told it
+    (q,) = await all_questions(client)
+    assert q.status == "open" and len(q.intake) == 3
+    assert [r["reply"] for r in q.intake] == [REPLY1, REPLY2, "A little worse."]
+
+
+async def test_a_round_3_clarify_that_fails_falls_back_to_the_judges_close(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    fake_llm.script(own_clarify(OWN_Q2), judge_message(signs=absent("fever", "threw up"), close=None))
+    await post_ask(client, h, REPLY2, doctor_id=doctor_id)
+    again = own_clarify("Is it getting better?")
+    fake_llm.script(again, again, judge_message(signs=absent("fever", "threw up"), close=5))
+    body = (await post_ask(client, h, "About the same.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]"
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("resolved", CLOSE_TEXT)
+
+
+async def test_an_answer_after_the_intake_is_grounded_and_delivered(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    text = "Take amoxicillin 500 mg three times daily [2]."
+    fake_llm.script(reply_final("answer", text, [2], signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text
+    assert [s["number"] for s in body["sources"]] == [2]
+    assert gate_calls(fake_llm) == 1
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("resolved", "Take amoxicillin 500 mg three times daily.")
+    # an ungrounded number is not delivered
+    h2 = await confirmed(client, fake_llm, headers=await auth_headers(client, "pat-two"))
+    d2 = await ask_first_doctor(client, fake_llm, "dr.two", "Dr. Two")
+    await start_clarify(client, fake_llm, h2, d2)
+    bad = final("answer", "Take amoxicillin 900 mg three times daily [2].", [2])
+    fake_llm.script(bad, bad, judge_message(signs=absent("fever", "threw up"), close=None))
+    body = (await post_ask(client, h2, REPLY1, doctor_id=d2)).json()
+    assert body["kind"] == "not_covered"
+    assert [q.status for q in await all_questions(client) if q.doctor_id == d2] == ["open"]
+
+
+async def test_a_new_unrelated_question_mid_intake_ends_it_and_hands_the_symptom_off(
+        client, fake_llm):
+    # Review Focus 5
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    text = "Take amoxicillin 500 mg three times daily [2]."
+    fake_llm.script(reply_final("answer", text, [2], replies=False,
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "How often do I take amoxicillin?",
+                           doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and body["answer"] == text
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by, q.question) == (
+        "open", NOT_ANSWERED, NOT_ANSWERED, ORIGINAL)
+    assert q.patient_reply == "How often do I take amoxicillin?"
+    # a clarify for a message that is not a reply is not delivered either
+    h2 = await confirmed(client, fake_llm, headers=await auth_headers(client, "pat-two"))
+    d2 = await ask_first_doctor(client, fake_llm, "dr.two", "Dr. Two")
+    await start_clarify(client, fake_llm, h2, d2)
+    fake_llm.script(own_clarify(), judge_message(replies=False, signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h2, "What is a stent?", doctor_id=d2)).json()
+    assert body["kind"] == "not_covered" and body.get("pending") is None
+
+
+async def test_the_handoff_shows_every_round(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    reply = "It started two days ago and I threw up twice."
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    await post_ask(client, h, reply, doctor_id=doctor_id)
+    inbox = await doctor_inbox(client)
+    (card,) = inbox["open"]
+    assert card["rounds"] == [{"asked": ASK_QUESTIONS, "reply": REPLY1},
+                              {"asked": OWN_Q, "reply": reply}]
+    assert (card["asked"], card["patient_reply"], card["stopped_by"]) == (
+        OWN_Q, reply, "Warning sign: threw up")
+    (seen,) = await care_team(client, h)
+    assert seen["rounds"] == card["rounds"]
+    # and the draft context carries all of them
+    import drafts
+    async with client.app.state.session_factory() as session:
+        row = await session.get(CareTeamQuestion, card["id"])
+        message = drafts._user_message(row, drafts.DraftContext(evidence=[]), [])
+    for part in (ASK_QUESTIONS, REPLY1, OWN_Q, reply):
+        assert part in message
+
+
+async def test_the_timeout_and_a_late_reply_keep_one_card_in_round_2(client, fake_llm):
+    # Review Focus 3
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    inbox = await doctor_inbox(client)
+    assert [q["rounds"] for q in inbox["waiting"]] == [
+        [{"asked": ASK_QUESTIONS, "reply": REPLY1}, {"asked": OWN_Q, "reply": None}]]
+    await time_out_waiting(client)
+    inbox = await doctor_inbox(client)
+    assert [q["stopped_by"] for q in inbox["open"]] == [NOT_ANSWERED] and inbox["waiting"] == []
+    # a late reply asks round 3 of the same card
+    fake_llm.script(own_clarify(OWN_Q2), judge_message(signs=absent("fever", "threw up"), close=None))
+    body = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify" and body["pending"] is True
+    (q,) = await all_questions(client)  # never a second card
+    assert (q.status, q.asked, q.patient_reply, q.reason) == (
+        "waiting_on_patient", OWN_Q2, None, "")
+    assert body["waiting_question_id"] == q.id
+    inbox = await doctor_inbox(client)
+    assert inbox["open"] == [] and [x["id"] for x in inbox["waiting"]] == [q.id]
+    # and the third reply closes it on that card
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, "Better.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close"
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("resolved", CLOSE_TEXT) and len(q.intake) == 3
+
+
+async def test_a_round_asked_just_before_the_timeout_keeps_waiting(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await time_out_waiting(client)  # round 1 is 30 h old, the doctor's by now
+    await doctor_inbox(client)
+    fake_llm.script(own_clarify(), judge_message(signs=absent("fever", "threw up"), close=None))
+    await post_ask(client, h, REPLY1, doctor_id=doctor_id)  # round 2 asked just now
+    inbox = await doctor_inbox(client)
+    assert inbox["open"] == [] and len(inbox["waiting"]) == 1
+
+
+async def test_a_reply_after_the_doctor_answered_a_round_2_clarify_is_never_lost(
+        client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    await set_waiting(client, status="answered", answer="Please send a photo.")
+    fake_llm.script(own_clarify(OWN_Q2), judge_message(signs=absent("fever", "threw up"), close=None))
+    body = (await post_ask(client, h, REPLY2, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify"
+    qs = await all_questions(client)
+    assert [q.status for q in qs] == ["answered", "waiting_on_patient"]  # the doctor's stays
+    assert body["waiting_question_id"] == qs[1].id
+    assert [r["reply"] for r in qs[1].intake] == [REPLY1, REPLY2]
+
+
+async def test_the_confidence_gate_reads_every_round(client, fake_llm):
+    import confidence
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    await second_round(client, fake_llm, h, doctor_id)
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    await post_ask(client, h, REPLY2, doctor_id=doctor_id)
+    (verify,) = [c for c in fake_llm.routed_calls if c[0][0]["content"] == confidence.VERIFY_PROMPT]
+    text = json.dumps(verify[0])
+    for part in (ORIGINAL, ASK_QUESTIONS, REPLY1, OWN_Q, REPLY2):
+        assert part in text

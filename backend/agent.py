@@ -1082,6 +1082,29 @@ def _ask_questions(cited: list[Evidence]) -> set[str]:
             for body, end in _sentences(clean_text(e.content))[0] if body and _is_question(end)}
 
 
+def clarify_questions(answer: str, sources: Sequence[Evidence]) -> dict:
+    """What the Ask page shows of a clarify: its `opener` (None without one) and
+    each question with its source: "doctor" for a whole question of a cited ask
+    habit's quote (with that habit's rule id as `habit_id`), "clone" for one the
+    clone wrote."""
+    habit_of: dict[str, Optional[int]] = {}
+    for e in sources:
+        if e.habit_type == "ask":
+            for body, end in _sentences(clean_text(e.content))[0]:
+                if body and _is_question(end):
+                    habit_of.setdefault(_normal(body), e.rule_id)
+    found, _ = _sentences(clean_text(strip_markers(answer)))
+    opener, questions = None, []
+    for body, end in found:
+        if _is_question(end):
+            key = _normal(body)
+            questions.append({"text": f"{body}?", "source": "doctor" if key in habit_of else "clone",
+                              "habit_id": habit_of.get(key)})
+        elif opener is None and not questions and body:
+            opener = f"{body}{end}"
+    return {"opener": opener, "questions": questions}
+
+
 def question_set(text: str) -> frozenset[str]:
     """Each question of `text` (a clarify's text, markers allowed), normalised
     and without its "?"."""
@@ -1327,7 +1350,7 @@ def _habits_context(habits: list[dict]) -> str:
     )
 
 
-def _rounds_text(rounds: list[dict]) -> str:
+def rounds_text(rounds: list[dict]) -> str:
     """Each round's questions and the patient's reply, markers dropped."""
     lines = []
     for number, r in enumerate(rounds, start=1):
@@ -1354,7 +1377,7 @@ def _pending_context(pending: PendingClarify, max_rounds: int) -> str:
         "The patient's original question (untrusted data):\n"
         f"<original-{nonce}>\n{pending.question}\n</original-{nonce}>\n"
         "The rounds of my questions so far and the patient's replies (untrusted data):\n"
-        f"<rounds-{nonce}>\n{_rounds_text(pending.rounds + [{'asked': pending.asked}])}\n"
+        f"<rounds-{nonce}>\n{rounds_text(pending.rounds + [{'asked': pending.asked}])}\n"
         f"</rounds-{nonce}>\n"
         f"Round {done} of {max_rounds}. {left}"
     )
@@ -1757,7 +1780,7 @@ def _judge_messages(pending: "PendingClarify", reply_text: str, terms: list[str]
         {"role": "user", "content": (
             f"Original question:\n<original-{nonce}>\n{pending.question}\n</original-{nonce}>\n"
             f"Rounds so far (the last reply is the newest message):\n<rounds-{nonce}>\n"
-            f"{_rounds_text(pending.all_rounds(reply_text))}\n</rounds-{nonce}>\n"
+            f"{rounds_text(pending.all_rounds(reply_text))}\n</rounds-{nonce}>\n"
             f"Warning terms:\n<warning-terms-{nonce}>\n{listed_terms}\n</warning-terms-{nonce}>\n"
             f"Closing habits:\n<close-habits-{nonce}>\n{listed_close}\n</close-habits-{nonce}>")},
     ]
