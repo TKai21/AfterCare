@@ -1024,6 +1024,39 @@ async def test_benign_reply_closes_and_resolves(client, fake_llm):
     assert (await clarify_message(client, doctor_id)).payload["pending"] is False
 
 
+def judge_json(status="absent", close=5, concerns=False):
+    return {"content": json.dumps({
+        "replies_to_questions": True, "other_concerns": concerns, "close": close,
+        "warning_signs": [{"term": t, "status": status} for t in ("fever", "threw up")]})}
+
+
+async def test_reply_judge_close_resolves_after_the_model_hands_off(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    bad = reply_final("not_covered", "x", [], replies=None)
+    fake_llm.script(bad, bad, judge_json())
+    reply = "No fever, never threw up."
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]", body
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer, q.patient_reply) == ("resolved", CLOSE_TEXT, reply)
+
+
+async def test_reply_judge_with_a_present_term_keeps_the_handoff(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)
+    bad = reply_final("not_covered", "x", [], replies=None)
+    fake_llm.script(bad, bad, judge_json(status="unclear"))
+    body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered"
+    (q,) = await all_questions(client)
+    assert q.status == "open"
+
+
 async def test_warning_reply_hands_off_with_summary(client, fake_llm):
     # Review Focus 1: the denied fever does not hide the vomiting.
     gate_on(client, fake_llm)
@@ -1066,6 +1099,7 @@ async def test_not_covered_reply_hands_off(client, fake_llm):
     await start_clarify(client, fake_llm, h, doctor_id)
     fake_llm.script(reply_final("not_covered", "I can't say.", [],
                                 signs=absent("fever", "threw up")))
+    fake_llm.script({"content": "{}"})  # the reply judge is not clean
     body = (await post_ask(client, h, "Nope, neither.", doctor_id=doctor_id)).json()
     assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
     (q,) = await all_questions(client)
@@ -1423,10 +1457,10 @@ async def test_free_text_close_never_resolves_with_the_gate_off(client, fake_llm
     await start_clarify(client, fake_llm, h, doctor_id)
     free = reply_final("close", "You are fine, no need to see anyone [5].", [5],
                        signs=absent("fever", "threw up"))
-    fake_llm.script(free, free)
+    fake_llm.script(free, free, {"content": "{}"})  # then an unclean judge
     body = (await post_ask(client, h, "No fever, never threw up.", doctor_id=doctor_id)).json()
     assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
-    assert "only use the doctor's own closing words" in fake_llm.calls[-1][0][-1]["content"]
+    assert "only use the doctor's own closing words" in fake_llm.calls[-2][0][-1]["content"]
     (q,) = await all_questions(client)
     assert (q.status, q.answer) == ("open", None)
 
