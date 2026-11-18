@@ -16,6 +16,7 @@ from agent import _CLONE_BANNED, _loose, check_clone_question
 from drugnames import get_lexicon
 from guidance import _cosine
 from llm import LLMError
+from safety import _content
 from models import DoctorGuidance, GuidanceRule
 
 logger = logging.getLogger(__name__)
@@ -52,13 +53,17 @@ def load_interview(intake) -> Optional[Interview]:
         if not isinstance(raw, dict) or not isinstance(raw.get("label"), str):
             return None
         status = raw.get("status", "unknown")
+        try:
+            attempts = int(raw.get("attempts") or 0)
+        except (TypeError, ValueError):
+            return None
         items.append(Item(
             label=raw["label"],
             habits=[h for h in raw.get("habits") or [] if isinstance(h, int)],
             safety=bool(raw.get("safety")),
             status=status if status in ITEM_STATUSES else "unknown",
             quote=str(raw.get("quote") or ""),
-            attempts=int(raw.get("attempts") or 0),
+            attempts=attempts,
         ))
     rounds = [dict(r) for r in intake.get("rounds") or [] if isinstance(r, dict)]
     return Interview(items=items, rounds=rounds)
@@ -166,9 +171,11 @@ async def similar_case_habits(session: AsyncSession, llm, doctor_id: int, questi
         DoctorGuidance.active.is_(True),
         DoctorGuidance.embedding.is_not(None),
         DoctorGuidance.embedding_model == llm.embedding_model))).all()
+    if not rows or limit <= 0:
+        return [], []
     query = np.asarray((await llm.embed([question]))[0], dtype=float)
     norm = float(np.linalg.norm(query))
-    if not rows or norm == 0 or limit <= 0:
+    if norm == 0:
         return [], []
     scored = [(row, _cosine(row.embedding, query, norm)) for row in rows]
     scored = [(row, score) for row, score in scored if score is not None]
@@ -210,15 +217,19 @@ def _label_ok(label, allowed_drugs: Collection[str]) -> bool:
 
 
 def _safety_terms(warning_habits, document_terms: Sequence[str], taken: list[str],
-                  max_safety: int) -> list[str]:
+                  max_safety: int, allowed_drugs: Collection[str]) -> list[str]:
     """Warning terms of the habits, then of the document, deduped and not named
-    by an item label already (`taken`), at most `max_safety`."""
+    by an item label already (`taken`), at most `max_safety`. A term that fails
+    the label check (digit, drug name outside the allowed ones, advice word, too
+    long) is left out: it is never asked as a question, and dropping it is safe
+    because the close gate still checks every doctor and document warning term
+    and the static backstop still fires on any message."""
     out: list[str] = []
     candidates = [t for h in warning_habits for t in (h.warning_terms or [])] + list(document_terms)
     for term in candidates:
         if len(out) >= max_safety:
             break
-        if not isinstance(term, str) or not _loose(term):
+        if not _label_ok(term, allowed_drugs) or not _loose(term):
             continue
         key = _loose(term)
         if any(key in _loose(t) or _loose(t) in key for t in [*out, *taken]):
@@ -255,7 +266,7 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
         items.append(Item(" ".join(raw["label"].split()), list(dict.fromkeys(ids)), False))
     labels = [i.label for i in items]
     items += [Item(t, [], True) for t in
-              _safety_terms(warning_habits, document_terms, labels, max_safety)]
+              _safety_terms(warning_habits, document_terms, labels, max_safety, allowed_drugs)]
     return data["reports_symptom"], items
 
 
@@ -289,6 +300,20 @@ def _habit_questions(item: Item, habit_texts: dict[int, str],
     return [t for t in texts if t.endswith("?") and _loose(t) not in seen]
 
 
+_QUESTION_WORDS = frozenset({
+    "do", "does", "did", "have", "has", "had", "is", "are", "was", "were", "will", "would",
+    "can", "could", "tell", "describe", "say", "how", "when", "where", "what", "which", "who",
+    "any", "you", "your", "not", "feel", "start", "started"})
+
+
+def _on_item(question: str, item: Item, habit_texts: dict[int, str]) -> bool:
+    """A clone-written question must share a content word (stemmed, no stop or
+    question words) with the item's label or one of its habit texts."""
+    ref = _content(item.label).union(*(_content(habit_texts[h]) for h in item.habits
+                                       if h in habit_texts)) - _content(" ".join(_QUESTION_WORDS))
+    return bool(_content(question) & ref)
+
+
 async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_before: list[str],
                          allowed_drugs, doctor_name: str,
                          rephrase: bool) -> Optional[tuple[str, bool]]:
@@ -315,6 +340,8 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
             continue
         try:
             check_clone_question(text, asked_before, frozenset(allowed_drugs))
+            if not _on_item(text, item, habit_texts):
+                raise ValueError("The question must be about the item: use its words.")
         except ValueError as e:
             problem = str(e)
             continue

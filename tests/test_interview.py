@@ -174,7 +174,7 @@ async def test_extract_rejects_invented_quote():
         {"index": 1, "status": "answered", "quote": "no fever since Monday"}]}))
     iv = three_items()
     got = await iv_mod.extract(llm, iv, "my knee hurts", "It hurts when I walk, a lot")
-    assert got == {0: "It hurts when I walk"} or got == {0: "it hurts when I walk"}
+    assert got == {0: "it hurts when I walk"}
     assert iv.items[0].status == "answered" and iv.items[1].status == "unknown"
 
 
@@ -286,3 +286,31 @@ async def test_similar_case_habits_skips_suppressed(session):
     assert [r.quote for r in warns] == ["Call if fever."]
     asks, _ = await iv_mod.similar_case_habits(session, llm, doc.id, "my knee hurts", 4)
     assert [r.quote for r in asks] == ["Is it swollen?", "Is it itchy?"]
+
+
+async def test_build_items_skips_safety_term_failing_label_check():
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": []}))
+    warn = [habit(3, "warning", quote="x", terms=["temperature over 101", "chest pain",
+                                                  "take more naproxen", "black stool"])]
+    _, items = await build(llm, warn=warn, doc=["one two three four five six seven"])
+    assert [(i.label, i.safety) for i in items] == [("chest pain", True), ("black stool", True)]
+
+
+async def test_write_question_rejects_off_topic_question():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Do you drink coffee?"}),
+               reply({"question": "Do you like walking outdoors?"}))
+    item = Item("knee pain", [1], False)
+    assert await iv_mod.write_question(
+        llm, item, {1: "Check the knee."}, [], frozenset(), "Dr. Lee", False) is None
+    assert len(llm.calls) == 2
+
+
+async def test_write_question_accepts_label_word_overlap():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Is your knee swollen?"}))
+    item = Item("knee pain", [1], False)
+    got = await iv_mod.write_question(
+        llm, item, {1: "Check the knee."}, [], frozenset(), "Dr. Lee", False)
+    assert got == ("Is your knee swollen?", False)
