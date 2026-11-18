@@ -426,7 +426,9 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
                                                WARNING_REASON.format(term=term)))
     # A plain denial of a danger sign (`denied`, cleared by the backstop) answers the
     # question about it: the judge's "new question" is not trusted there.
-    if not judged.replies and not denied:
+    # Not answering the asked question is not asking a new one: a reply is a new question
+    # only with a "?" or the judge's other_concerns; else a normal round.
+    if not judged.replies and not denied and ("?" in reply or judged.concerns):
         return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.

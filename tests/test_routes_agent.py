@@ -2279,6 +2279,39 @@ async def test_new_question_mid_interview_hands_off(client, fake_llm):
     assert (await clarify_message(client, doctor_id)).payload["pending"] is False
 
 
+async def test_interview_off_topic_statement_continues_and_fills_other_item(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    reply = "Red since yesterday, nothing else."
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       extracts=[{"items": [{"index": 0, "status": "answered",
+                                             "quote": "Red since yesterday"}]}],
+                       judges=[judged(replies=False, signs=[])])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert len(fake_llm.calls) == main_calls  # no agent call: not handed off
+    assert body["kind"] == "clarify" and body["pending"] is True, body
+    assert body["interview"]["so_far"][0]["status"] == "answered"
+    (q,) = await all_questions(client)
+    assert q.status == "waiting_on_patient"
+    # Fever is still open, its attempt counted: it is asked again (rephrased).
+    assert q.intake["items"][2]["status"] == "unknown" and q.intake["items"][2]["attempts"] == 2
+    assert body["interview"]["item"] == "fever"
+
+
+async def test_interview_reply_with_question_mark_is_new_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(replies=False, signs=absent("fever"))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    fake_llm.script(final("answer", "Take amoxicillin 500 mg three times daily [2].", [2]))
+    body = (await post_ask(client, h, "How often do I take amoxicillin?",
+                           doctor_id=doctor_id)).json()
+    assert body["kind"] == "answer" and "interview" not in body
+
+
 async def test_present_sign_in_a_new_question_names_the_sign(client, fake_llm):
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)
