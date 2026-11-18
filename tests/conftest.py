@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -7,6 +9,7 @@ from fake_llm import FakeLLM
 from auth import create_doctor
 from druglabels import DEMO_LABELS, LabelClient, fixture_transport
 from knowledge import KnowledgeStore
+import interview
 import reranker
 
 
@@ -18,9 +21,18 @@ def no_real_reranker(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(reranker, "MODELS_DIR", tmp_path_factory.mktemp("no-models"))
 
 
+def no_interview_items(messages):
+    return {"content": json.dumps({"reports_symptom": False, "items": []})}
+
+
 @pytest.fixture
 def fake_llm():
-    return FakeLLM()
+    """By default the clone interview finds no items, so a first turn keeps the
+    4.7 intake and never consumes the scripted queue; interview tests route
+    interview.BUILD_PROMPT themselves."""
+    llm = FakeLLM()
+    llm.route(interview.BUILD_PROMPT, no_interview_items)
+    return llm
 
 
 @pytest_asyncio.fixture

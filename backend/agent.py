@@ -347,6 +347,10 @@ class AgentResult:
     # Built by code from the doctor's own words (the reply judge's close): no
     # model-written sentence, so the confidence gate has nothing to score.
     doctor_words_only: bool = False
+    # First turns only: the result is one the 4.7 intake would act on (a
+    # clarify, or a handoff the ask-first picker was run on, so none of its skip
+    # rules applied). The route may then start the clone interview instead.
+    intake_eligible: bool = False
 
 
 def _strip_fences(raw: str) -> str:
@@ -1894,6 +1898,29 @@ async def _judge_once(llm, pending: "PendingClarify", reply_text: str, terms: li
         return None
 
 
+async def judge_reply(llm, pending: "PendingClarify", reply_text: str, terms: Sequence[str],
+                      close_evidence: Sequence[Evidence] = ()) -> Optional[Judged]:
+    """The reply judge's reading of an intake turn, or None when it failed or
+    its JSON is malformed. `terms` are judged after dedupe_terms."""
+    terms = dedupe_terms(terms)
+    close_evidence = list(close_evidence)
+    judged = await _judge_once(llm, pending, reply_text, terms, close_evidence)
+    if judged is None:
+        return None
+    # gpt-4o-mini drops terms from a list of 20 or more (seen end to end: 16 of
+    # 24 came back). One more call asks about the left-out terms only; a term
+    # still missing stays missing, and close_blocker then blocks (fail closed).
+    listed = {_canon(s["term"]).casefold() for s in judged.signs}
+    missing = [t for t in terms if _canon(t).casefold() not in listed]
+    if missing:
+        again = await _judge_once(llm, pending, reply_text, missing, close_evidence)
+        if again is not None:
+            wanted = {_canon(t).casefold() for t in missing}
+            judged = replace(judged, signs=judged.signs + [
+                s for s in again.signs if _canon(s["term"]).casefold() in wanted])
+    return judged
+
+
 async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
                        pending: "PendingClarify", warning_terms: Sequence[str], *,
                        allowed_drugs: frozenset[str], build_close: bool) -> AgentResult:
@@ -1911,20 +1938,9 @@ async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
     terms = dedupe_terms(warning_terms)
     close_evidence = [e for e in turn.evidence.values()
                       if e.kind == "habit" and e.habit_type == "close"]
-    judged = await _judge_once(llm, pending, reply_text, terms, close_evidence)
+    judged = await judge_reply(llm, pending, reply_text, terms, close_evidence)
     if judged is None:
         return result
-    # gpt-4o-mini drops terms from a list of 20 or more (seen end to end: 16 of
-    # 24 came back). One more call asks about the left-out terms only; a term
-    # still missing stays missing, and close_blocker then blocks (fail closed).
-    listed = {_canon(s["term"]).casefold() for s in judged.signs}
-    missing = [t for t in terms if _canon(t).casefold() not in listed]
-    if missing:
-        again = await _judge_once(llm, pending, reply_text, missing, close_evidence)
-        if again is not None:
-            wanted = {_canon(t).casefold() for t in missing}
-            judged = replace(judged, signs=judged.signs + [
-                s for s in again.signs if _canon(s["term"]).casefold() in wanted])
     result = replace(result, warning_signs=judged.signs, replies_to_questions=judged.replies,
                      other_concerns=judged.concerns)
     if not build_close or not terms or not close_evidence:
@@ -2064,7 +2080,8 @@ async def run_agent(
                                       allowed_drugs=allowed_drugs, build_close=True)
         if (_ask_first_allowed(emergency) and not _picker_blocked_by_error(error)
                 and not _conflict_handoff(turn.care_team[1] if turn.care_team else None)):
-            result = await _ask_first(llm, turn, result, question, allowed_drugs=allowed_drugs)
+            result = replace(await _ask_first(llm, turn, result, question,
+                                              allowed_drugs=allowed_drugs), intake_eligible=True)
         return result
 
     round_number = 0
@@ -2131,8 +2148,11 @@ async def run_agent(
                     and not answer.startswith(GENERAL_INFO)
                     and not _conflict_handoff(result.care_team_reason,
                                               turn.care_team[1] if turn.care_team else None)):
-                result = await _ask_first(llm, turn, result, question,
-                                          allowed_drugs=allowed_drugs)
+                result = replace(await _ask_first(llm, turn, result, question,
+                                                  allowed_drugs=allowed_drugs),
+                                 intake_eligible=True)
+            elif pending is None and result.kind == "clarify" and _ask_first_allowed(False):
+                result = replace(result, intake_eligible=True)
             elif pending is not None and not emergency_terms and result.kind != "emergency":
                 # The judge is the only source of the reply fields. It may also
                 # build a close when the model handed off, but not for a conflict

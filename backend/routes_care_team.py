@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import current_patient
-from closing import intake_rounds
+from closing import intake_rounds, intake_summary
 from db import get_session
 from doctors import doctor_label, doctor_labels, doctor_specialty, list_doctors, require_doctor
 from models import CareTeamQuestion, User
@@ -31,8 +31,10 @@ def question_view(q: CareTeamQuestion, doctor_names: dict[int, str] | None = Non
         "answer": q.answer,
         "asked": q.asked,
         "patient_reply": q.patient_reply,
-        "intake": list(q.intake or []),
+        # A list of rounds (4.7), or an interview's {"items", "rounds"}.
+        "intake": q.intake if isinstance(q.intake, dict) else list(q.intake or []),
         "rounds": intake_rounds(q),
+        "summary": intake_summary(q),
         "stopped_by": q.stopped_by,
         "answered_by_name": (doctor_names or {}).get(q.answered_by) if q.answered_by else None,
         "doctor_id": q.doctor_id,

@@ -12,7 +12,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent import _CLONE_BANNED, _loose, check_clone_question
+from agent import _CLONE_BANNED, PendingClarify, _loose, check_clone_question
 from drugnames import get_lexicon
 from guidance import _cosine
 from llm import LLMError
@@ -142,11 +142,11 @@ ITEM_ATTEMPTS_MAX = 2
 BUILD_PROMPT = (
     "You help a doctor's AI clone plan questions for a patient who reported a problem. "
     "You get the patient's message and numbered habits: questions the doctor usually asks "
-    "in similar cases. Group the habits into at most {max_items} items, each one thing to find "
-    "out from the patient. Reply with JSON only: {{\"reports_symptom\": true when the patient "
-    "reports a symptom or a problem they have now, else false, \"items\": [{{\"label\": a "
-    "short noun phrase of at most 6 words with no numbers, no drug names and no advice, "
-    "\"habits\": [habit ids from the list]}}]}}. Use only ids from the list.")
+    "in similar cases. Group the habits into at most as many items as the message allows, each "
+    "one thing to find out from the patient. Reply with JSON only: {\"reports_symptom\": true "
+    "when the patient reports a symptom or a problem they have now, else false, \"items\": "
+    "[{\"label\": a short noun phrase of at most 6 words with no numbers, no drug names "
+    "and no advice, \"habits\": [habit ids from the list]}]}. Use only ids from the list.")
 EXTRACT_PROMPT = (
     "You read a patient's reply for a doctor's AI clone. Items are things the clone wants to "
     "know. For each item the patient's words already answer (in the original question or the "
@@ -246,7 +246,7 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     id must be one of `ask_habits` and every label plain (a bad item is dropped).
     Safety items (one per warning term, asked first) are added by the program."""
     listing = "\n".join(f"{h.id}: {h.quote}" for h in ask_habits) or "(none)"
-    data = await _json(llm, BUILD_PROMPT.format(max_items=max_items),
+    data = await _json(llm, BUILD_PROMPT, f"At most {max_items} items.\n\n"
                        f"Patient message:\n{question}\n\nHabits:\n{listing}")
     if data is None or not isinstance(data.get("reports_symptom"), bool) \
             or not isinstance(data.get("items"), list):
@@ -347,3 +347,75 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
             continue
         return " ".join(text.split()), False
     return (habit_questions[0], True) if habit_questions else None
+
+
+# ---------- one interview round (used by the ask route) ----------
+
+NOT_SURE_TEXT = "I'm not sure."
+
+
+async def live_habit_texts(session: AsyncSession, doctor_id: int,
+                           ids: Collection[int]) -> dict[int, str]:
+    """id -> quote of the habits among `ids` still live for this doctor (not
+    suppressed, entry active): a habit suppressed after the items froze is
+    never asked word for word."""
+    if not ids:
+        return {}
+    rows = (await session.execute(
+        select(GuidanceRule.id, GuidanceRule.quote)
+        .join(DoctorGuidance, DoctorGuidance.id == GuidanceRule.guidance_id)
+        .where(GuidanceRule.id.in_(list(ids)), GuidanceRule.doctor_id == doctor_id,
+               GuidanceRule.kind == "habit", GuidanceRule.suppressed.is_(False),
+               DoctorGuidance.active.is_(True)))).all()
+    return {rule_id: quote for rule_id, quote in rows if isinstance(quote, str)}
+
+
+def habit_ids(iv: Interview) -> list[int]:
+    return list(dict.fromkeys(h for i in iv.items for h in i.habits))
+
+
+def as_pending(iv: Interview, original: str) -> PendingClarify:
+    """The interview as the agent's PendingClarify: the last round is the one
+    the patient's newest message replies to."""
+    done_rounds = [{"asked": r.get("asked") or "", "reply": r.get("reply") or ""}
+                   for r in iv.rounds[:-1]]
+    last = iv.rounds[-1].get("asked") or "" if iv.rounds else ""
+    return PendingClarify(question=original, asked=last, rounds=done_rounds)
+
+
+def asked_item(iv: Interview) -> Optional[int]:
+    """The item the last round asked about, or None."""
+    n = iv.rounds[-1].get("item") if iv.rounds else None
+    return n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < len(iv.items) else None
+
+
+async def ask_next(llm, iv: Interview, habit_texts: dict[int, str], allowed_drugs,
+                   doctor_name: str, max_rounds: int) -> Optional[tuple[int, str, bool]]:
+    """Ask the next item: (item index, question, is_doctor_words), with the new
+    round appended (its reply None) and the item's attempt counted. An item
+    with no checked question becomes skipped (unsure on its second attempt,
+    which is always a rephrase), and the next one is tried. None when the
+    interview is done (no unknown item, or the round cap)."""
+    while not done(iv, max_rounds):
+        n = next_item(iv)
+        item = iv.items[n]
+        if item.attempts >= ITEM_ATTEMPTS_MAX:
+            mark(iv, n, "unsure")
+            continue
+        rephrase = item.attempts >= 1
+        asked_before = [r.get("asked") or "" for r in iv.rounds]
+        got = await write_question(llm, item, habit_texts, asked_before, allowed_drugs,
+                                   doctor_name, rephrase)
+        if got is None:
+            mark(iv, n, "unsure" if rephrase else "skipped")
+            continue
+        item.attempts += 1
+        iv.rounds.append({"asked": got[0], "item": n, "reply": None})
+        return n, got[0], got[1]
+    return None
+
+
+def open_safety_item(iv: Interview) -> Optional[str]:
+    """The label of a safety item the patient did not deny (unknown, unsure or
+    skipped): the case cannot close."""
+    return next((i.label for i in iv.items if i.safety and i.status != "answered"), None)

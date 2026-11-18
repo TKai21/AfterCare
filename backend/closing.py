@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import MEDICATION_CHANGE
 from drugnames import DrugLexicon
+from interview import load_interview, summary_text
 from models import CareTeamQuestion, ChatMessage, DoctorGuidance, GuidanceRule
 from safety import _canon, match_terms, negated_terms
 
@@ -128,12 +129,21 @@ def intake_rounds(q: CareTeamQuestion) -> list[dict]:
     """Every round of the clone's intake, in order: the completed rounds
     ([{asked, reply}], `intake`) and the round still waiting for a reply or
     just answered (`asked`, `patient_reply`) when `intake` does not end with it.
-    A row from before rounds has no `intake`: its one round is asked/patient_reply."""
+    A row from before rounds has no `intake`: its one round is asked/patient_reply.
+    An interview's `intake` (a dict with items) keeps its rounds under "rounds"."""
+    listed = q.intake.get("rounds") if isinstance(q.intake, dict) else q.intake
     rounds = [{"asked": r.get("asked"), "reply": r.get("reply")}
-              for r in (q.intake or []) if isinstance(r, dict)]
+              for r in (listed if isinstance(listed, list) else []) if isinstance(r, dict)]
     if q.asked and not (rounds and rounds[-1]["asked"] == q.asked):
         rounds.append({"asked": q.asked, "reply": q.patient_reply})
     return rounds
+
+
+def intake_summary(q: CareTeamQuestion) -> Optional[str]:
+    """An interview's "Known / Not sure / Not answered" lines for the doctor,
+    shown above the rounds; None for any other intake."""
+    iv = load_interview(q.intake)
+    return (summary_text(iv) or None) if iv is not None else None
 
 
 async def pending_clarify(session: AsyncSession, document_id: int,

@@ -2012,3 +2012,356 @@ async def test_the_confidence_gate_reads_every_round(client, fake_llm):
     text = json.dumps(verify[0])
     for part in (ORIGINAL, ASK_QUESTIONS, REPLY1, OWN_Q, REPLY2):
         assert part in text
+
+
+# ---------- the clone interview (2026-11-17 spec, Task 3) ----------
+
+REDNESS_Q = "How long has the redness been there?"
+DISCHARGE_Q = "Is there any discharge from the incision?"
+FEVER_Q = "Have you had a fever?"
+FEVER_REPHRASE = "Have you noticed any fever since the surgery?"
+
+
+async def interview_doctor(client, fake_llm):
+    """Two single-question ask habits, a close [5] and a warning habit on fever.
+    Returns (doctor_id, {quote: rule id})."""
+    from models import GuidanceRule
+    doctor_id = await make_doctor(client)
+    entry = await seed_guidance(client, fake_llm, doctor_id, question="My incision is red.",
+                                answer="Watch the incision.")
+    await seed_habit(client, entry, "Asks how long the redness lasted", REDNESS_Q)
+    await seed_habit(client, entry, "Closes with the follow-up visit", CLOSE_TEXT, "close")
+    await seed_habit(client, entry, "Wants to hear about fever", "Tell me about any fever.",
+                     "warning", warning_terms=["fever"])
+    await seed_habit(client, entry, "Asks about discharge", DISCHARGE_Q)
+    async with client.app.state.session_factory() as session:
+        ids = {r.quote: r.id for r in await session.scalars(select(GuidanceRule))}
+    return doctor_id, ids
+
+
+class Interviewer:
+    """Routes the interview's small model calls: each prompt answers from its
+    own list, in order (the last answer repeats)."""
+
+    def __init__(self, fake_llm, build, extracts=(), judges=(), questions=()):
+        import interview
+        self.lists = {"build": [build], "extract": list(extracts) or [{"items": []}],
+                      "judge": list(judges), "question": list(questions)}
+        self.calls = {k: 0 for k in self.lists}
+        prompts = {"build": interview.BUILD_PROMPT, "extract": interview.EXTRACT_PROMPT,
+                   "question": interview.QUESTION_PROMPT.format(doctor="Dr. Ting Kai")}
+        import agent
+        prompts["judge"] = agent.REPLY_JUDGE_PROMPT
+        for key, prompt in prompts.items():
+            fake_llm.route(prompt, self._responder(key))
+
+    def _responder(self, key):
+        def respond(messages):
+            found = self.lists[key]
+            assert found, f"no {key} answer scripted"
+            answer = found[min(self.calls[key], len(found) - 1)]
+            self.calls[key] += 1
+            return {"content": answer if isinstance(answer, str) else json.dumps(answer)}
+        return respond
+
+
+def three_items(ids):
+    return {"reports_symptom": True, "items": [
+        {"label": "how long the redness lasted", "habits": [ids[REDNESS_Q]]},
+        {"label": "incision discharge", "habits": [ids[DISCHARGE_Q]]}]}
+
+
+def judged(replies=True, signs=(), concerns=False, close=None):
+    return {"replies_to_questions": replies, "warning_signs": list(signs),
+            "other_concerns": concerns, "close": close}
+
+
+def first_turn_handoff(fake_llm):
+    """The main model hands off and the ask-first picker finds nothing to ask:
+    the 4.7 intake would act on this turn."""
+    fake_llm.script(final("not_covered", "x", []),
+                    {"content": json.dumps({"reports_symptom": True, "ask": []})})
+
+
+async def start_interview(client, fake_llm, h, doctor_id):
+    first_turn_handoff(fake_llm)
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify", body
+    return body
+
+
+async def not_sure(client, h, doctor_id, round_number):
+    return await client.post("/api/ask", headers=h, json={
+        "doctor_id": doctor_id, "question": "", "not_sure": True, "round": round_number})
+
+
+async def test_interview_first_turn_asks_one_question_and_stores_items(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}])
+    body = await start_interview(client, fake_llm, h, doctor_id)
+    (q,) = await all_questions(client)
+    assert body["pending"] is True and body["flagged"] is False
+    assert body["answer"] == FEVER_Q
+    assert body["questions"] == [{"text": FEVER_Q, "doctor": False}]
+    assert body["interview"] == {"so_far": [], "round": 1, "max_rounds": 6, "item": "fever"}
+    assert body["waiting_question_id"] == q.id
+    assert (q.status, q.question, q.asked) == ("waiting_on_patient", ORIGINAL, FEVER_Q)
+    assert [(i["label"], i["safety"], i["status"]) for i in q.intake["items"]] == [
+        ("how long the redness lasted", False, "unknown"),
+        ("incision discharge", False, "unknown"), ("fever", True, "unknown")]
+    assert q.intake["items"][2]["attempts"] == 1
+    assert q.intake["rounds"] == [{"asked": FEVER_Q, "item": 2, "reply": None}]
+    assert (await clarify_message(client, doctor_id)).payload == body
+
+
+async def test_interview_reply_fills_item_and_asks_next_without_agent_call(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever"))],
+                       extracts=[{"items": [{"index": 0, "status": "answered",
+                                             "quote": "red since yesterday"}]}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body = (await post_ask(client, h, "No fever at all, red since yesterday.",
+                           doctor_id=doctor_id)).json()
+    assert len(fake_llm.calls) == main_calls  # the agent model is not called
+    assert talk.calls["judge"] == 1
+    assert body["kind"] == "clarify" and body["pending"] is True
+    # The fever was denied and the redness answered: the discharge habit is next.
+    assert body["questions"] == [{"text": DISCHARGE_Q, "doctor": True}]
+    assert body["habit_rule_ids"] == [ids[DISCHARGE_Q]]
+    assert body["interview"] == {
+        "so_far": [{"label": "how long the redness lasted", "status": "answered",
+                    "quote": "red since yesterday"},
+                   {"label": "fever", "status": "answered", "quote": ""}],
+        "round": 2, "max_rounds": 6, "item": "incision discharge"}
+    (q,) = await all_questions(client)
+    assert (q.status, q.asked, q.patient_reply) == ("waiting_on_patient", DISCHARGE_Q, None)
+    assert q.intake["rounds"] == [
+        {"asked": FEVER_Q, "item": 2, "reply": "No fever at all, red since yesterday."},
+        {"asked": DISCHARGE_Q, "item": 1, "reply": None}]
+    assert body["waiting_question_id"] == q.id
+
+
+async def test_interview_ends_and_closes_when_all_answered_and_no_signs(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(
+        fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+        judges=[judged(signs=absent("fever")), judged(), judged(),
+                judged(signs=absent("fever"), close=5)],
+        extracts=[{"items": []}, {"items": []},
+                  {"items": [{"index": 0, "status": "answered", "quote": "two days"}]},
+                  {"items": [{"index": 1, "status": "answered", "quote": "no discharge"}]}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    for reply, asked in (("No fever at all.", REDNESS_Q), ("About two days.", DISCHARGE_Q)):
+        body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+        assert body["questions"] == [{"text": asked, "doctor": True}], body
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    body = (await post_ask(client, h, "There is no discharge.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]", body
+    text = first_user_message(fake_llm)
+    assert REPLY_MARK in text and "No more rounds of questions are allowed" in text
+    assert FEVER_Q in text and "About two days." in text
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer, q.patient_reply) == (
+        "resolved", CLOSE_TEXT, "There is no discharge.")
+    assert [i["status"] for i in q.intake["items"]] == ["answered"] * 3
+    assert q.intake["rounds"][-1]["reply"] == "There is no discharge."
+    assert talk.calls["judge"] == 4  # three interview rounds and the agent's own judge
+
+
+async def test_interview_safety_item_present_hands_off_with_summary(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(signs=[{"term": "fever", "status": "present"}])],
+                extracts=[{"items": [{"index": 0, "status": "answered",
+                                      "quote": "red since Monday"}]}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body = (await post_ask(client, h, "Yes, a fever, and it is red since Monday.",
+                           doctor_id=doctor_id)).json()
+    assert len(fake_llm.calls) == main_calls
+    assert body["kind"] == "not_covered" and body["answer"] == fallback_answer("Dr. Ting Kai")
+    assert "interview" not in body
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == ("open", NEEDS_DOCTOR, "Warning sign: fever")
+    (row,) = (await doctor_inbox(client))["open"]
+    assert row["summary"] == ("Not answered: how long the redness lasted, incision discharge, "
+                              "fever")
+    assert row["rounds"] == [{"asked": FEVER_Q,
+                              "reply": "Yes, a fever, and it is red since Monday."}]
+    assert row["intake"]["items"][2]["label"] == "fever"
+
+
+async def test_interview_unclear_safety_item_reasked_once_then_unsure(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    unclear = judged(signs=[{"term": "fever", "status": "unclear"}])
+    talk = Interviewer(fake_llm, three_items(ids),
+                       questions=[{"question": FEVER_Q}, {"question": FEVER_REPHRASE}],
+                       judges=[unclear])
+    await start_interview(client, fake_llm, h, doctor_id)
+    body = (await post_ask(client, h, "I felt a bit warm maybe.", doctor_id=doctor_id)).json()
+    assert body["questions"] == [{"text": FEVER_REPHRASE, "doctor": False}], body
+    assert body["interview"]["round"] == 2 and body["interview"]["item"] == "fever"
+    body = (await post_ask(client, h, "Hard to say.", doctor_id=doctor_id)).json()
+    assert body["questions"] == [{"text": REDNESS_Q, "doctor": True}], body
+    assert body["interview"]["so_far"] == [{"label": "fever", "status": "unsure", "quote": ""}]
+    assert talk.calls["question"] == 2
+    (q,) = await all_questions(client)
+    fever = q.intake["items"][2]
+    assert (fever["status"], fever["attempts"]) == ("unsure", 2)
+
+
+async def test_not_sure_marks_item_and_moves_on(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    resp = await not_sure(client, h, doctor_id, 1)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(fake_llm.calls) == main_calls and talk.calls["judge"] == 0
+    assert talk.calls["extract"] == 1  # the first turn's only
+    assert body["questions"] == [{"text": REDNESS_Q, "doctor": True}]
+    assert body["interview"]["so_far"] == [{"label": "fever", "status": "unsure", "quote": ""}]
+    assert body["interview"]["round"] == 2
+    messages = (await get_conversation(client, h, doctor_id)).json()["messages"]
+    assert [m["content"] for m in messages if m["role"] == "user"] == [ORIGINAL, "I'm not sure."]
+    (q,) = await all_questions(client)
+    assert q.intake["rounds"][0]["reply"] == "I'm not sure."
+
+
+async def test_not_sure_stale_round_is_ignored(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    first = (await not_sure(client, h, doctor_id, 1)).json()
+    count = len((await get_conversation(client, h, doctor_id)).json()["messages"])
+    again = await not_sure(client, h, doctor_id, 1)  # the double tap
+    assert again.status_code == 200, again.text
+    assert again.json() == first
+    assert len((await get_conversation(client, h, doctor_id)).json()["messages"]) == count
+    (q,) = await all_questions(client)
+    assert [i["status"] for i in q.intake["items"]] == ["unknown", "unknown", "unsure"]
+    assert len(q.intake["rounds"]) == 2
+
+
+async def test_new_question_mid_interview_hands_off(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(replies=False)])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body = (await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)).json()
+    assert len(fake_llm.calls) == main_calls
+    assert body["kind"] == "not_covered" and "interview" not in body
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
+        "open", NOT_ANSWERED, NOT_ANSWERED, "Can I eat rice?")
+    assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_old_shape_intake_still_uses_4_7_flow(client, fake_llm):
+    gate_on(client, fake_llm)
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    body = await start_clarify(client, fake_llm, h, doctor_id)  # the build finds no items
+    assert "interview" not in body and body["questions"][0]["source"] == "doctor"
+    (q,) = await all_questions(client)
+    assert not q.intake
+    reply = "No fever, never threw up."
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up")))
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    assert body["kind"] == "close", body
+    (q,) = await all_questions(client)
+    assert q.status == "resolved"
+    assert q.intake == [{"asked": ASK_QUESTIONS, "reply": reply}]
+    # The "Not sure" button means nothing on an old intake: nothing changes.
+    resp = await not_sure(client, h, doctor_id, 1)
+    assert resp.status_code == 409
+
+
+async def test_doctor_without_ask_habits_uses_4_7_flow(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await make_doctor(client)
+    entry = await seed_guidance(client, fake_llm, doctor_id)
+    await seed_habit(client, entry, "Closes with the follow-up visit", CLOSE_TEXT, "close")
+    talk = Interviewer(fake_llm, {"reports_symptom": True, "items": []})
+    fake_llm.script(final("not_covered", "x", []))
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered" and "interview" not in body
+    assert talk.calls["build"] == 0  # no ask habit, no warning sign: nothing to build
+    assert [q.status for q in await all_questions(client)] == ["open"]
+    # With an ask habit but no items (and no warning sign), the 4.7 clarify stands.
+    doctor_id = await make_doctor(client, "dr.two", "Dr. Two")
+    entry = await seed_guidance(client, fake_llm, doctor_id)
+    await seed_habit(client, entry, "Asks about fever and vomiting", ASK_QUESTIONS)
+    talk = Interviewer(fake_llm, {"reports_symptom": True, "items": []})
+    fake_llm.script(final("clarify", ASK_QUESTIONS + " [4]", [4]))
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert body["kind"] == "clarify" and "interview" not in body and talk.calls["build"] == 1
+
+
+async def test_interview_build_failure_keeps_agent_result(client, fake_llm, monkeypatch):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, "not json")
+    first_turn_handoff(fake_llm)
+    body = (await post_ask(client, h, ORIGINAL, doctor_id=doctor_id)).json()
+    assert talk.calls["build"] == 1
+    assert body["kind"] == "not_covered" and "interview" not in body
+    assert [q.status for q in await all_questions(client)] == ["open"]
+
+    async def no_embedding(*args, **kwargs):
+        raise LLMError("embedding down")
+
+    monkeypatch.setattr("routes_agent.similar_case_habits", no_embedding)
+    h2 = await confirmed(client, fake_llm, await auth_headers(client, "bob"))
+    first_turn_handoff(fake_llm)
+    resp = await post_ask(client, h2, ORIGINAL, doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["kind"] == "not_covered" and talk.calls["build"] == 1
+
+
+async def test_interview_unsure_safety_item_blocks_the_close(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(), judged(), judged(signs=absent("fever"), close=5)],
+                extracts=[{"items": []},
+                          {"items": [{"index": 0, "status": "answered", "quote": "two days"}]},
+                          {"items": [{"index": 1, "status": "answered",
+                                      "quote": "no discharge"}]}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    await not_sure(client, h, doctor_id, 1)
+    await post_ask(client, h, "About two days.", doctor_id=doctor_id)
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    body = (await post_ask(client, h, "There is no discharge.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered", body  # "Not sure" about a danger sign never closes
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+async def test_interview_emergency_reply_gets_the_emergency_answer(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    fake_llm.script(answer("Call 911 now.", [], kind="emergency"))
+    body = (await post_ask(client, h, "No fever but I have chest pain.",
+                           doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["emergency"]["banner"] is True
+    assert talk.calls["judge"] == 0
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+    assert q.intake["rounds"] == [
+        {"asked": FEVER_Q, "item": 2, "reply": "No fever but I have chest pain."}]
