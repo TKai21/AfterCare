@@ -344,7 +344,7 @@ def interview_expired(waiting: CareTeamQuestion, timeout_hours: float) -> bool:
 
 
 def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: dict[int, str],
-                      max_rounds: int) -> tuple[AgentResult, dict]:
+                      max_rounds: int, original: str = "") -> tuple[AgentResult, dict]:
     """The clarify of one interview question and what its payload adds."""
     n, text, doctor = asked
     habit_id = next((h for h in iv.items[n].habits
@@ -354,7 +354,7 @@ def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: 
                          habit_rule_ids=[habit_id] if habit_id is not None else [])
     return result, {
         "questions": [{"text": text, "doctor": doctor}],
-        "interview": {"so_far": so_far(iv), "round": len(iv.rounds), "max_rounds": max_rounds,
+        "interview": {"so_far": so_far(iv, original), "round": len(iv.rounds), "max_rounds": max_rounds,
                       "item": iv.items[n].label},
     }
 
@@ -394,7 +394,7 @@ async def start_interview(session: AsyncSession, llm, question: str, doctor_id: 
                            settings.interview_max_rounds)
     if asked is None:
         return None
-    result, extra = interview_clarify(iv, asked, texts, settings.interview_max_rounds)
+    result, extra = interview_clarify(iv, asked, texts, settings.interview_max_rounds, question)
     return iv, result, extra
 
 
@@ -423,7 +423,9 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
         if "present" in statuses.get(_term_key(term), set()):
             return InterviewStep(settle=Settle("open", NEEDS_DOCTOR,
                                                WARNING_REASON.format(term=term)))
-    if not judged.replies:
+    # A plain denial of a danger sign (`denied`, cleared by the backstop) answers the
+    # question about it: the judge's "new question" is not trusted there.
+    if not judged.replies and not denied:
         return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
@@ -499,7 +501,8 @@ async def deliver_interview_step(session: AsyncSession, step: InterviewStep, iv:
     case settled meanwhile is handed off instead of asked again."""
     extra = None
     if step.asked is not None:
-        result, extra = interview_clarify(iv, step.asked, step.habit_texts, max_rounds)
+        result, extra = interview_clarify(iv, step.asked, step.habit_texts, max_rounds,
+                                          pending.question)
         settle = Settle(WAITING, asked=result.answer)
     else:
         result, settle = handoff_result(doctor_name), step.settle

@@ -117,14 +117,32 @@ def _shorten(quote: str) -> str:
     return cut.rstrip() + "..."
 
 
-def so_far(iv: Interview) -> list[dict]:
-    return [{"label": i.label, "status": i.status,
-             "quote": _shorten(i.quote) if i.status == "answered" else ""}
-            for i in iv.items if i.status in ("answered", "unsure")]
+def _mostly_original(quote: str, original: str) -> bool:
+    """The quote is the patient's whole first message, or a long stretch of it
+    (one the shown quote would have to cut): it says nothing about one item."""
+    q, o = _squash(quote), _squash(original)
+    return q == o or (len(quote) > QUOTE_SHOWN_MAX and q in o)
+
+
+def so_far(iv: Interview, original: str = "") -> list[dict]:
+    """What the patient has told so far. An answered safety item is "absent"
+    (the patient denied it); an answered item whose quote is the patient's whole
+    first message is "mentioned", with no quote (as is a quote longer than the shown cap taken from it); else a quote shortened."""
+    out = []
+    for i in iv.items:
+        if i.status == "unsure":
+            out.append({"label": i.label, "status": "unsure", "quote": ""})
+        elif i.status == "answered" and i.safety:
+            out.append({"label": i.label, "status": "absent", "quote": ""})
+        elif i.status == "answered" and original and _mostly_original(i.quote, original):
+            out.append({"label": i.label, "status": "mentioned", "quote": ""})
+        elif i.status == "answered":
+            out.append({"label": i.label, "status": "answered", "quote": _shorten(i.quote)})
+    return out
 
 
 def summary_text(iv: Interview) -> str:
-    known = [f'{i.label} ("{i.quote}")' if i.quote else i.label
+    known = [f"no {i.label}" if i.safety else f'{i.label} ("{i.quote}")' if i.quote else i.label
              for i in iv.items if i.status == "answered"]
     unsure = [i.label for i in iv.items if i.status == "unsure"]
     open_ = [i.label for i in iv.items if i.status in ("skipped", "unknown")]
@@ -314,6 +332,21 @@ def _on_item(question: str, item: Item, habit_texts: dict[int, str]) -> bool:
     return bool(_content(question) & ref)
 
 
+_VERBISH = re.compile(r"^(you|your|i|my)\b|\b(is|are|was|were|has|have|had|feel|feels|feeling|"
+                      r"getting|gets|hurts|hurting|keeps?|started|worse|worsening)\b", re.I)
+
+
+def safety_question(term: str, rephrase: bool) -> str:
+    """The plain yes/no question for a danger-sign item, built by code from a
+    fixed template: the model never words a question that names a danger sign."""
+    term = " ".join(term.split())
+    if rephrase:
+        return f"Just to be sure, do you have any {term} right now?"
+    if _VERBISH.search(term):
+        return f"Have you noticed this: {term}?"
+    return f"Have you had any {term}?"
+
+
 async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_before: list[str],
                          allowed_drugs, doctor_name: str,
                          rephrase: bool) -> Optional[tuple[str, bool]]:
@@ -322,6 +355,8 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
     First attempt: a habit question word for word. Otherwise the model writes
     one, checked by check_clone_question, with one repair call; then a habit
     question word for word. `habit_texts` holds live habits only."""
+    if item.safety:
+        return safety_question(item.label, rephrase), False
     habit_questions = _habit_questions(item, habit_texts, asked_before)
     if habit_questions and not rephrase:
         return habit_questions[0], True

@@ -197,6 +197,15 @@ function answerTextHtml(text, numbers) {
   }).join('');
 }
 
+function soFarItemHtml(i) {
+  const label = esc(i.label);
+  if (i.status === 'unsure') return `<span class="clarify-sofar-item is-unsure">${label}: not sure</span>`;
+  let text = `${label}: ${i.quote ? `\u201c${esc(i.quote)}\u201d` : 'answered'}`;
+  if (i.status === 'absent') text = `No ${label}`;
+  else if (i.status === 'mentioned') text = `${label}: mentioned`;
+  return `<span class="clarify-sofar-item">${text}</span>`;
+}
+
 // A clarify's questions, each marked as the doctor's own (a habit of theirs) or
 // the clone's follow-up. An older clarify has no per-question list: plain text.
 function clarifyHtml(payload) {
@@ -211,9 +220,7 @@ function clarifyHtml(payload) {
   const opener = payload.opener ? `<p>${esc(payload.opener)}</p>` : '';
   const iv = payload.interview;
   const soFar = iv && Array.isArray(iv.so_far) && iv.so_far.length
-    ? `<p class="clarify-sofar"><span class="clarify-sofar-label">So far</span> ${iv.so_far.map(i => i.status === 'unsure'
-        ? `<span class="clarify-sofar-item is-unsure">${esc(i.label)}: not sure</span>`
-        : `<span class="clarify-sofar-item">${esc(i.label)}: ${i.quote ? `\u201c${esc(i.quote)}\u201d` : 'answered'}</span>`).join(' ')}</p>`
+    ? `<p class="clarify-sofar"><span class="clarify-sofar-label">So far</span> ${iv.so_far.map(soFarItemHtml).join(' ')}</p>`
     : '';
   const progress = iv && iv.max_rounds
     ? `<p class="clarify-progress">Question ${esc(Math.min(Math.max(Number(iv.round) || 1, 1), iv.max_rounds))} of up to ${esc(iv.max_rounds)}</p>`

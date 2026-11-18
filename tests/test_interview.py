@@ -314,3 +314,41 @@ async def test_write_question_accepts_label_word_overlap():
     got = await iv_mod.write_question(
         llm, item, {1: "Check the knee."}, [], frozenset(), "Dr. Lee", False)
     assert got == ("Is your knee swollen?", False)
+
+
+def test_safety_item_question_is_yes_no_template():
+    import asyncio
+    iv = make(("chest pain", True, "unknown"))
+    got = asyncio.run(iv_mod.write_question(None, iv.items[0], {}, [], [], "Dr. Ting Kai", False))
+    assert got == ("Have you had any chest pain?", False)
+    assert iv_mod.safety_question("you are confused", False) == "Have you noticed this: you are confused?"
+    assert iv_mod.safety_question("fever is rising", False) == "Have you noticed this: fever is rising?"
+
+
+def test_safety_item_rephrase_template():
+    import asyncio
+    iv = make(("chest pain", True, "unknown"))
+    got = asyncio.run(iv_mod.write_question(None, iv.items[0], {}, [], [], "Dr. Ting Kai", True))
+    assert got == ("Just to be sure, do you have any chest pain right now?", False)
+
+
+def test_so_far_shows_denied_safety_item_as_absent():
+    iv = make(("chest pain", True, "answered"), ("fever", True, "unknown"))
+    assert iv_mod.so_far(iv) == [{"label": "chest pain", "status": "absent", "quote": ""}]
+    assert iv_mod.summary_text(iv).startswith("Known: no chest pain")
+
+
+def test_so_far_whole_first_message_is_mentioned_not_quoted():
+    original = "I just started getting a really runny nose and I have been sneezing nonstop."
+    iv = make(("additional symptoms", False, "answered"), ("duration", False, "answered"))
+    iv.items[0].quote = original
+    iv.items[1].quote = "started two days ago"
+    got = iv_mod.so_far(iv, original.upper())
+    assert got == [{"label": "additional symptoms", "status": "mentioned", "quote": ""},
+                   {"label": "duration", "status": "answered", "quote": "started two days ago"}]
+    # A long stretch of the first message is "mentioned" too; a long reply quote is cut.
+    iv.items[1].quote = "I just started getting a really runny nose and I have been sneezing"
+    assert iv_mod.so_far(iv, original)[1]["status"] == "mentioned"
+    iv.items[1].quote = ("word " * 30).strip()
+    shown = iv_mod.so_far(iv, original)[1]
+    assert shown["status"] == "answered" and len(shown["quote"]) <= 63

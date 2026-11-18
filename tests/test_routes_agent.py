@@ -2018,8 +2018,8 @@ async def test_the_confidence_gate_reads_every_round(client, fake_llm):
 
 REDNESS_Q = "How long has the redness been there?"
 DISCHARGE_Q = "Is there any discharge from the incision?"
-FEVER_Q = "Have you had a fever?"
-FEVER_REPHRASE = "Have you noticed any fever since the surgery?"
+FEVER_Q = "Have you had any fever?"
+FEVER_REPHRASE = "Just to be sure, do you have any fever right now?"
 
 
 async def interview_doctor(client, fake_llm):
@@ -2135,7 +2135,7 @@ async def test_interview_reply_fills_item_and_asks_next_without_agent_call(clien
     assert body["interview"] == {
         "so_far": [{"label": "how long the redness lasted", "status": "answered",
                     "quote": "red since yesterday"},
-                   {"label": "fever", "status": "answered", "quote": ""}],
+                   {"label": "fever", "status": "absent", "quote": ""}],
         "round": 2, "max_rounds": 6, "item": "incision discharge"}
     (q,) = await all_questions(client)
     assert (q.status, q.asked, q.patient_reply) == ("waiting_on_patient", DISCHARGE_Q, None)
@@ -2211,7 +2211,7 @@ async def test_interview_unclear_safety_item_reasked_once_then_unsure(client, fa
     body = (await post_ask(client, h, "Hard to say.", doctor_id=doctor_id)).json()
     assert body["questions"] == [{"text": REDNESS_Q, "doctor": True}], body
     assert body["interview"]["so_far"] == [{"label": "fever", "status": "unsure", "quote": ""}]
-    assert talk.calls["question"] == 2
+    assert talk.calls["question"] == 0  # a danger sign's question is a code template
     (q,) = await all_questions(client)
     fever = q.intake["items"][2]
     assert (fever["status"], fever["attempts"]) == ("unsure", 2)
@@ -2305,7 +2305,7 @@ async def test_expired_interview_row_is_not_an_interview_reply(client, fake_llm)
     reply = "No fever at all."
     body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
     # The agent reads the late reply (4.7); no interview round, no next question.
-    assert talk.calls["question"] == 1 and talk.calls["judge"] == 1  # the agent's judge only
+    assert talk.calls["question"] == 0 and talk.calls["judge"] == 1  # the agent's judge only
     assert REPLY_MARK in first_user_message(fake_llm)
     assert body["kind"] == "not_covered" and "interview" not in body, body
     (q,) = await all_questions(client)
@@ -2449,9 +2449,20 @@ async def test_interview_reply_denying_breathing_continues(client, fake_llm):
     assert talk.calls["judge"] == 1
     assert body["kind"] == "clarify" and body["questions"] == [
         {"text": REDNESS_Q, "doctor": True}], body
-    assert body["interview"]["so_far"] == [{"label": "fever", "status": "answered", "quote": ""}]
+    assert body["interview"]["so_far"] == [{"label": "fever", "status": "absent", "quote": ""}]
     assert (q.status, q.asked) == ("waiting_on_patient", REDNESS_Q)
     assert q.intake["rounds"][0]["reply"] == BREATHING_DENIAL
+
+
+async def test_interview_plain_denial_is_a_reply_even_if_judge_says_new_question(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(replies=False, signs=absent("fever", "trouble breathing"))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    body, q = await interview_reply(client, fake_llm, h, doctor_id, BREATHING_DENIAL)
+    assert body["kind"] == "clarify" and body["pending"] is True, body
+    assert q.status == "waiting_on_patient"
 
 
 @pytest.mark.parametrize("reply", [
