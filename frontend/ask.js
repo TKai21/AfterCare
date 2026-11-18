@@ -2,6 +2,7 @@
 import {api, escapeHtml, registerTab} from '/static/api.js';
 import {refreshCareTeam} from '/static/careteam.js';
 import {initials} from '/static/shell.js';
+import {attachDictation} from '/static/voice.js';
 import {
   CHECK_ICON, EMERGENCY_COPY, MAX_QUESTION, askDoctorDirectly, emergencyHtml as sharedEmergencyHtml,
   loadDoctors, pickDoctor, rememberDoctor, warningSignsOf,
@@ -20,6 +21,7 @@ const COARSE = window.matchMedia('(pointer: coarse)');
 
 // UI state that survives re-renders and tab switches.
 const view = {
+  dictating: false,
   docId: null,
   status: 'idle',    // 'idle' | 'loading' | 'ready' | 'failed'
   messages: [],      // [{role, content, payload}]
@@ -338,6 +340,7 @@ function renderShell(panel) {
         <label class="visually-hidden" for="askInput">Your question</label>
         <div class="composer-box">
           <textarea id="askInput" class="composer-input" rows="1" maxlength="${MAX_QUESTION}" placeholder="Ask a question about your recovery"></textarea>
+          <button type="button" class="btn btn-secondary dictate-btn" id="askDictate"></button>
           <button type="button" class="btn btn-secondary composer-notsure" id="askNotSure" hidden>Not sure</button>
           <button type="submit" class="btn btn-primary composer-send" id="askSend" aria-label="Send">${SEND_ICON}<span class="send-text">Send</span></button>
         </div>
@@ -366,6 +369,9 @@ function renderShell(panel) {
     submit();
   });
   panel.querySelector('#askNotSure').addEventListener('click', notSure);
+  attachDictation(panel.querySelector('#askDictate'), input, {
+    onBusy: busy => { view.dictating = busy; update(); },
+  });
   panel.querySelector('#askDirect').addEventListener('click', onDirectClick);
   panel.querySelector('#askDirect').addEventListener('input', onDirectInput);
   panel.querySelector('#askDirect').addEventListener('submit', onDirectSubmit);
@@ -374,7 +380,7 @@ function renderShell(panel) {
 
 function submit() {
   const question = view.draft.trim();
-  if (!question || view.busy || inputLocked()) return;
+  if (!question || view.busy || view.dictating || inputLocked()) return;
   ask(question);
 }
 
@@ -387,12 +393,14 @@ function autosize(input) {
 
 function syncSend() {
   const send = panelRef.querySelector('#askSend');
-  if (send) send.disabled = view.busy || inputLocked() || !view.draft.trim();
+  if (send) send.disabled = view.busy || view.dictating || inputLocked() || !view.draft.trim();
   const unsure = panelRef.querySelector('#askNotSure');
   if (unsure) {
     unsure.hidden = !pendingInterview();
-    unsure.disabled = view.busy || inputLocked();
+    unsure.disabled = view.busy || view.dictating || inputLocked();
   }
+  const mic = panelRef.querySelector('#askDictate');
+  if (mic && !view.dictating) mic.disabled = view.busy || inputLocked();
 }
 
 function bodyHtml() {
@@ -460,7 +468,7 @@ function renderTabs() {
 
 // ---------- ask the real doctor ----------
 
-const newDirectState = () => ({open: false, text: '', touched: false, sending: false, sent: null, emergency: false, error: ''});
+const newDirectState = () => ({open: false, text: '', touched: false, sending: false, dictating: false, sent: null, emergency: false, error: ''});
 
 const directState = () => {
   if (!view.direct[view.doctorId]) view.direct[view.doctorId] = newDirectState();
@@ -496,6 +504,7 @@ function directHtml() {
       <textarea id="directInput" class="direct-input" rows="3" maxlength="${MAX_QUESTION}" ${state.sending ? 'disabled' : ''}>${esc(state.text)}</textarea>
       ${state.error ? `<p class="form-error" role="alert">${esc(state.error)}</p>` : ''}
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary btn-small dictate-btn" id="directDictate" ${state.sending ? 'disabled' : ''}></button>
         <button type="button" class="btn btn-secondary btn-small" data-direct="cancel" ${state.sending ? 'disabled' : ''}>Cancel</button>
         <button type="submit" class="btn btn-primary btn-small" id="directSend" ${state.sending || !state.text.trim() ? 'disabled' : ''}>${state.sending ? 'Sending...' : 'Send to ' + esc(name)}</button>
       </div>
@@ -522,6 +531,17 @@ function renderDirect() {
     direction: input.selectionDirection, scroll: input.scrollTop};
   box.innerHTML = directHtml();
   const again = box.querySelector('#directInput');
+  const mic = box.querySelector('#directDictate');
+  if (mic) {
+    const state = directState();
+    attachDictation(mic, again, {onBusy: busy => {
+      const send = box.querySelector('#directSend');
+      const cancel = box.querySelector('[data-direct="cancel"]');
+      state.dictating = busy;
+      if (send) send.disabled = busy || state.sending || !state.text.trim();
+      if (cancel) cancel.disabled = busy || state.sending;
+    }});
+  }
   if (caret && again && !again.disabled) {
     again.focus();
     again.setSelectionRange(caret.start, caret.end, caret.direction);
@@ -557,7 +577,7 @@ function onDirectInput(event) {
   state.text = event.target.value;
   state.touched = true;
   const send = panelRef.querySelector('#directSend');
-  if (send) send.disabled = state.sending || !state.text.trim();
+  if (send) send.disabled = state.sending || state.dictating || !state.text.trim();
 }
 
 async function onDirectSubmit(event) {
@@ -565,7 +585,7 @@ async function onDirectSubmit(event) {
   const doctorId = view.doctorId;
   const state = directState();
   const question = state.text.trim();
-  if (!question || state.sending) return;
+  if (!question || state.sending || state.dictating) return;
   // Sending disables the form, which drops focus; it comes back afterwards
   // unless the patient has moved on.
   const box = panelRef.querySelector('#askDirect');
@@ -607,7 +627,7 @@ function update({clearInput = false, restoreInput = false} = {}) {
   panel.querySelector('#askNotice').innerHTML = noticeHtml();
   const input = panel.querySelector('#askInput');
   const locked = inputLocked();
-  input.disabled = locked;
+  input.disabled = locked || !!view.dictating && input.disabled;
   panel.querySelector('#askForm').classList.toggle('is-locked', !!locked);
   if (clearInput) input.value = '';
   if (restoreInput && !input.value) input.value = view.draft;

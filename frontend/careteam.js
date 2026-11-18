@@ -1,6 +1,6 @@
 // Care team tab: questions to bring to the care team, open first, resolved collapsed.
 import {api, escapeHtml, registerTab} from '/static/api.js';
-import {attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
+import {attachDictation, attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 import {
   CHECK_ICON, MAX_QUESTION, askDoctorDirectly, emergencyHtml, loadDoctors, pickDoctor,
   warningSignsOf,
@@ -27,6 +27,7 @@ const view = {
   form: {doctorId: null, chosen: false, text: '', sending: false, error: '', sent: null, emergency: false},
   signs: [],           // active warning signs, for the emergency banner
   voiceActive: false,
+  dictating: false,
 };
 
 // Each visit starts on the doctor last chosen in Ask, unless the patient picks
@@ -226,6 +227,7 @@ function formHtml() {
       </div>
       ${form.error ? `<p class="form-error" role="alert">${esc(form.error)}</p>` : ''}
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary btn-small dictate-btn" id="careDictate" ${form.sending ? 'disabled' : ''}></button>
         <button type="submit" class="btn btn-primary btn-small" id="directSubmit" ${disabled ? 'disabled' : ''}>${form.sending ? 'Sending...' : 'Send'}</button>
       </div>
       <div id="patientVoiceComposer"></div>
@@ -240,7 +242,7 @@ function formHtml() {
 async function sendDirect(panel) {
   const form = view.form;
   const question = form.text.trim();
-  if (!question || view.voiceActive || form.sending || form.doctorId === null) return;
+  if (!question || view.voiceActive || view.dictating || form.sending || form.doctorId === null) return;
   // Sending disables the form, which drops focus; it returns to the question
   // box afterwards unless the patient has moved on.
   const hadFocus = panel.contains(document.activeElement);
@@ -331,7 +333,14 @@ function render(panel) {
     box.querySelector('#directQuestion').addEventListener('input', event => {
       view.form.text = event.target.value;
       view.form.sent = null;
-      box.querySelector('#directSubmit').disabled = view.voiceActive || view.form.sending || !view.form.text.trim();
+      box.querySelector('#directSubmit').disabled = view.voiceActive || view.dictating || view.form.sending || !view.form.text.trim();
+    });
+    attachDictation(box.querySelector('#careDictate'), box.querySelector('#directQuestion'), {
+      onBusy: busy => {
+        view.dictating = busy;
+        box.querySelector('#directSubmit').disabled = busy || view.voiceActive || view.form.sending || !view.form.text.trim();
+        box.querySelector('#directDoctor').disabled = busy || view.voiceActive;
+      },
     });
     box.addEventListener('submit', event => {
       event.preventDefault();
@@ -365,7 +374,7 @@ function render(panel) {
         const doctor = panel.querySelector('#directDoctor');
         const send = panel.querySelector('#directSubmit');
         if (doctor) doctor.disabled = busy;
-        if (send) send.disabled = busy || view.form.sending || !view.form.text.trim();
+        if (send) send.disabled = busy || view.dictating || view.form.sending || !view.form.text.trim();
       },
       onSend: async (blob, filename, doctorId) => {
         const form = new FormData();

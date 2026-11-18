@@ -3,7 +3,7 @@
 import {api, clearSession, confirmDialog, escapeHtml} from '/static/api.js';
 import {countPendingLabels, hideLabels, showLabels} from '/static/labels.js';
 import {enter, initials, syncTabs} from '/static/shell.js';
-import {attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
+import {attachDictation, attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 
 const esc = escapeHtml;
 const SUGGEST_DELAY_MS = 800;
@@ -277,6 +277,7 @@ function openCardHtml(q) {
       <div class="doctor-general">${generalHtml(q, d)}</div>
       <div class="doctor-error">${d.error ? `<p class="form-error" role="alert">${esc(d.error)}</p>` : ''}</div>
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary dictate-btn" data-dictate="${q.id}"></button>
         <button type="button" class="btn btn-primary doctor-send" data-action="send">${d.sending ? 'Sending...' : 'Send answer'}</button>
       </div>`}
       <div data-doctor-voice="${q.id}"></div>
@@ -345,6 +346,22 @@ function renderQuestions() {
 
 function mountDoctorVoice(root) {
   mountVoicePlayers(root);
+  root.querySelectorAll('[data-dictate]').forEach(button => {
+    if (button.dataset.dictateBound) return;
+    button.dataset.dictateBound = 'true';
+    const id = Number(button.dataset.dictate);
+    const card = cardEl(id);
+    attachDictation(button, card.querySelector('.doctor-answer-box'), {
+      onBusy: busy => {
+        const now = cardEl(id);
+        if (!now) return;
+        const draft = state.drafts.get(id);
+        if (busy && draft) { clearTimeout(draft.timer); draft.seq++; draft.suggesting = false; }
+        now.dataset.dictating = busy ? 'true' : 'false';
+        updateSend(id);
+      },
+    });
+  });
   root.querySelectorAll('[data-doctor-voice]').forEach(element => {
     if (element.dataset.voiceComposerBound) return;
     const id = Number(element.dataset.doctorVoice);
@@ -385,7 +402,7 @@ function updateSend(id) {
   const d = state.drafts.get(id);
   if (!card || !d) return;
   const button = card.querySelector('.doctor-send');
-  if (button) button.disabled = card.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim();
+  if (button) button.disabled = card.dataset.voiceBusy === 'true' || card.dataset.dictating === 'true' || d.sending || !d.answer.trim();
 }
 
 function rerenderGeneral(id) {
@@ -515,7 +532,7 @@ function addTag(id, kind, input) {
 
 async function sendAnswer(q) {
   const d = state.drafts.get(q.id);
-  if (cardEl(q.id)?.dataset.voiceBusy === 'true' || d.sending || !d.answer.trim()) return;
+  if (cardEl(q.id)?.dataset.voiceBusy === 'true' || cardEl(q.id)?.dataset.dictating === 'true' || d.sending || !d.answer.trim()) return;
   clearTimeout(d.timer);
   d.seq++;  // drops an in-flight tag suggestion
   d.suggesting = false;

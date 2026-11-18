@@ -1,5 +1,5 @@
-// Voice clips only: recording, preview and authenticated playback. No dictation.
-import {getToken, clearSession, escapeHtml} from '/static/api.js';
+// Voice clips (recording, preview, authenticated playback) and dictation (speech to text).
+import {api, getToken, clearSession, escapeHtml} from '/static/api.js';
 
 export const MAX_SECONDS = 60;
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -97,6 +97,20 @@ export function mountVoicePlayers(root) {
   });
 }
 
+const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg'];
+const recorderSupported = () => !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+
+function openRecorder(stream) {
+  const mimeType = RECORDER_TYPES.find(type => MediaRecorder.isTypeSupported(type));
+  return mimeType ? new MediaRecorder(stream, {mimeType}) : new MediaRecorder(stream);
+}
+
+function microphoneError(failure) {
+  return failure.name === 'NotAllowedError'
+    ? 'Microphone permission was denied. Allow it in your browser and try again.'
+    : 'The microphone could not be opened. Check your device and try again.';
+}
+
 export function recordingFilename(type) {
   const mime = type.split(';', 1)[0].toLowerCase();
   return 'recording.' + ({'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/wav': 'wav'}[mime] || 'audio');
@@ -106,7 +120,7 @@ export function attachVoiceComposer(element, {label = 'Record a voice message', 
   let mode = 'idle', error = '', disposed = false, generation = 0;
   let stream = null, recorder = null, parts = [], blob = null, url = null;
   let ticker = null, deadline = null, started = 0, target = null;
-  const supported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  const supported = recorderSupported();
 
   function stopPreview() {
     const preview = element.querySelector('audio');
@@ -154,9 +168,7 @@ export function attachVoiceComposer(element, {label = 'Record a voice message', 
         return;
       }
       stream = acquired;
-      const types = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg'];
-      const mimeType = types.find(type => MediaRecorder.isTypeSupported(type));
-      recorder = mimeType ? new MediaRecorder(stream, {mimeType}) : new MediaRecorder(stream);
+      recorder = openRecorder(stream);
       const recording = recorder;
       parts = [];
       recording.ondataavailable = event => {
@@ -187,7 +199,7 @@ export function attachVoiceComposer(element, {label = 'Record a voice message', 
       deadline = setTimeout(stop, MAX_SECONDS * 1000);
     } catch (failure) {
       if (disposed || current !== generation) return;
-      reset(failure.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow it in your browser and try again.' : 'The microphone could not be opened. Check your device and try again.');
+      reset(microphoneError(failure));
     }
   }
 
@@ -243,4 +255,163 @@ export function attachVoiceComposer(element, {label = 'Record a voice message', 
   element.dataset.voiceComposerBound = 'true';
   render();
   return untrack;
+}
+
+const MIC_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="7" y="2" width="6" height="10" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 9.5a5.5 5.5 0 0011 0M10 15v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const STOP_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="2" fill="currentColor"/></svg>';
+const clock = seconds => Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+
+// Dictation: record, send the audio to /api/voice/transcribe, append the text to
+// the textarea. Nothing is sent to anyone: the person reads it and presses Send.
+// `button` is an empty <button type="button">; this owns its content and state.
+// onBusy(true) runs from the first tap until the text is in (or it failed).
+export function attachDictation(button, textarea, {onBusy = () => {}} = {}) {
+  if (!recorderSupported()) { button.hidden = true; return () => {}; }
+  let mode = 'idle', disposed = false, generation = 0;
+  let stream = null, recorder = null, parts = [], ticker = null, deadline = null, started = 0;
+  let wasDisabled = false, errorEl = null;
+
+  function setError(message) {
+    if (!message) { errorEl?.remove(); errorEl = null; return; }
+    if (!errorEl) {
+      errorEl = document.createElement('p');
+      errorEl.className = 'form-error dictate-error';
+      errorEl.setAttribute('role', 'alert');
+      textarea.insertAdjacentElement('afterend', errorEl);
+    }
+    errorEl.textContent = message;
+  }
+
+  function release() {
+    clearInterval(ticker);
+    clearTimeout(deadline);
+    ticker = deadline = null;
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+
+  function render() {
+    if (disposed) return;
+    const labels = {idle: 'Dictate', requesting: 'Waiting for microphone', recording: 'Stop dictation', transcribing: 'Turning speech into text'};
+    button.dataset.dictation = mode;
+    button.classList.toggle('is-recording', mode === 'recording');
+    button.setAttribute('aria-label', labels[mode]);
+    button.title = labels[mode];
+    if (mode === 'transcribing' || mode === 'requesting') button.disabled = true;
+    else button.disabled = false;
+    const icon = mode === 'recording' ? STOP_ICON : mode === 'idle' ? MIC_ICON : '<span class="spinner" aria-hidden="true"></span>';
+    const text = mode === 'recording' ? `<span class="dictate-text" aria-hidden="true">Stop</span><span class="dictate-time" aria-hidden="true">${clock(0)}</span>`
+      : mode === 'idle' ? '<span class="dictate-text">Dictate</span>' : '';
+    button.innerHTML = icon + text;
+  }
+
+  function finish(message = '') {
+    generation++;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    release();
+    recorder = null;
+    parts = [];
+    const was = mode;
+    mode = 'idle';
+    if (was === 'transcribing') textarea.disabled = wasDisabled;
+    if (!disposed) { setError(message); render(); }
+    if (was !== 'idle') onBusy(false);
+  }
+
+  function append(text) {
+    const base = textarea.value.replace(/\s+$/, '');
+    let next = base ? base + ' ' + text : text;
+    if (textarea.maxLength > 0) next = next.slice(0, textarea.maxLength);
+    textarea.value = next;
+    textarea.dispatchEvent(new Event('input', {bubbles: true}));
+    textarea.focus();
+    textarea.setSelectionRange(next.length, next.length);
+  }
+
+  async function transcribe(blob, current) {
+    mode = 'transcribing';
+    wasDisabled = textarea.disabled;
+    textarea.disabled = true;
+    render();
+    try {
+      const form = new FormData();
+      form.append('file', blob, recordingFilename(blob.type));
+      const out = await api('/api/voice/transcribe', {method: 'POST', form});
+      if (disposed || current !== generation) return;
+      finish();
+      append(out.text);
+    } catch (failure) {
+      if (disposed || current !== generation) return;
+      finish(failure.message || 'Dictation failed. Please try again.');
+    }
+  }
+
+  async function start() {
+    if (disposed || mode !== 'idle') return;
+    mode = 'requesting'; setError(''); onBusy(true); render();
+    const current = ++generation;
+    try {
+      const acquired = await navigator.mediaDevices.getUserMedia({audio: true});
+      if (disposed || current !== generation) { acquired.getTracks().forEach(track => track.stop()); return; }
+      stream = acquired;
+      const recording = recorder = openRecorder(stream);
+      parts = [];
+      recording.ondataavailable = event => {
+        if (current !== generation || disposed || !event.data.size) return;
+        parts.push(event.data);
+        if (parts.reduce((sum, p) => sum + p.size, 0) > MAX_BYTES) finish('The recording is too large. Try a shorter one.');
+      };
+      recording.onerror = () => { if (!disposed && current === generation) finish('Recording failed. Please try again.'); };
+      recording.onstop = () => {
+        if (disposed || current !== generation) return;
+        release();
+        const blob = new Blob(parts, {type: recording.mimeType || parts[0]?.type || 'audio/webm'});
+        if (!blob.size) { finish('Nothing was recorded. Please try again.'); return; }
+        transcribe(blob, current);
+      };
+      recording.start(250);
+      started = performance.now();
+      mode = 'recording'; render();
+      ticker = setInterval(() => {
+        const label = clock(Math.min(MAX_SECONDS, Math.floor((performance.now() - started) / 1000)));
+        const time = button.querySelector('.dictate-time');
+        if (time && time.textContent !== label) time.textContent = label;
+      }, 250);
+      deadline = setTimeout(stopRecording, MAX_SECONDS * 1000);
+    } catch (failure) {
+      if (disposed || current !== generation) return;
+      finish(microphoneError(failure));
+    }
+  }
+
+  function stopRecording() {
+    if (recorder && recorder.state === 'recording') recorder.stop();
+    release();
+  }
+
+  function onClick() {
+    if (mode === 'idle') start();
+    else if (mode === 'recording') stopRecording();
+  }
+  button.addEventListener('click', onClick);
+  // Typing again clears an old error.
+  const clearError = () => { if (mode === 'idle') setError(''); };
+  textarea.addEventListener('input', clearError);
+  render();
+
+  return track({element: button, cancelRecording() {
+    if (mode === 'recording' || mode === 'requesting') finish('Dictation stopped because the page was hidden.');
+  }, dispose() {
+    if (disposed) return;
+    const busy = mode !== 'idle';
+    if (mode === 'transcribing') textarea.disabled = wasDisabled;
+    disposed = true;
+    generation++;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    release();
+    button.removeEventListener('click', onClick);
+    textarea.removeEventListener('input', clearError);
+    setError('');
+    if (busy) onBusy(false);
+  }});
 }

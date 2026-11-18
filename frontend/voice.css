@@ -6,3 +6,19 @@
 .voice-player audio[hidden] { display: none; }
 .voice-status { display: block; margin-top: .4rem; }
 .voice-recording { color: #a32323; font-weight: 600; }
+
+/* Dictation button: a secondary button with a microphone, red while recording. */
+.dictate-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; }
+.dictate-btn svg { flex: none; }
+.dictate-btn .spinner { width: 18px; height: 18px; }
+.btn.dictate-btn.is-recording, .btn.dictate-btn.is-recording:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+.dictate-time { min-width: 3ch; font-variant-numeric: tabular-nums; font-weight: 600; }
+.form-actions .dictate-btn { margin-right: auto; }
+.dictate-error { margin-top: 6px; }
+.composer-box .dictate-btn { min-height: 46px; min-width: 46px; padding: 0 13px; border-radius: 999px; }
+.composer-box .dictate-text { display: none; }
+.dictate-btn .dictate-time { min-width: 3ch; }
+.composer-error .dictate-error { padding-left: 20px; }
+@media (max-width: 479px) {
+  .form-actions .dictate-btn { margin-right: 0; order: 10; }
+}
