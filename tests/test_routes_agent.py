@@ -2256,17 +2256,63 @@ async def test_not_sure_stale_round_is_ignored(client, fake_llm):
 async def test_new_question_mid_interview_hands_off(client, fake_llm):
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)
-    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
-                judges=[judged(replies=False)])
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(replies=False, signs=absent("fever"))])
     await start_interview(client, fake_llm, h, doctor_id)
-    main_calls = len(fake_llm.calls)
-    body = (await post_ask(client, h, "Can I eat rice?", doctor_id=doctor_id)).json()
-    assert len(fake_llm.calls) == main_calls
-    assert body["kind"] == "not_covered" and "interview" not in body
+    new = "How often do I take amoxicillin?"
+    fake_llm.script(final("answer", "Take amoxicillin 500 mg three times daily [2].", [2]))
+    body = (await post_ask(client, h, new, doctor_id=doctor_id)).json()
+    # The agent answers the new question as usual, with its citation.
+    assert body["kind"] == "answer", body
+    assert body["answer"] == "Take amoxicillin 500 mg three times daily [2]."
+    assert [s["number"] for s in body["sources"]] == [2] and "interview" not in body
+    assert first_user_message(fake_llm).endswith(new)
+    assert talk.calls["judge"] == 2  # the interview's and the agent's own
+    # The original symptom is handed off with the interview's summary and rounds.
     (q,) = await all_questions(client)
-    assert (q.status, q.reason, q.stopped_by, q.patient_reply) == (
-        "open", NOT_ANSWERED, NOT_ANSWERED, "Can I eat rice?")
+    assert (q.status, q.reason, q.stopped_by, q.patient_reply, q.question) == (
+        "open", NOT_ANSWERED, NOT_ANSWERED, new, ORIGINAL)
+    (row,) = (await doctor_inbox(client))["open"]
+    assert row["summary"] == ("Not answered: how long the redness lasted, incision discharge, "
+                              "fever")
+    assert row["rounds"] == [{"asked": FEVER_Q, "reply": new}]
     assert (await clarify_message(client, doctor_id)).payload["pending"] is False
+
+
+async def test_present_sign_in_a_new_question_names_the_sign(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(replies=False, signs=[{"term": "fever", "status": "present"}])])
+    await start_interview(client, fake_llm, h, doctor_id)
+    body = (await post_ask(client, h, "I have a fever, can I swim?", doctor_id=doctor_id)).json()
+    assert body["kind"] == "not_covered"
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+async def test_expired_interview_row_is_not_an_interview_reply(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever"), close=5)])
+    await start_interview(client, fake_llm, h, doctor_id)
+    await time_out_waiting(client)  # asked 30 hours ago, the inbox not yet opened
+    # "Not sure" no longer applies: the stored clarify comes back, nothing saved.
+    stale = await not_sure(client, h, doctor_id, 1)
+    assert stale.status_code == 200 and stale.json()["interview"]["round"] == 1
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    reply = "No fever at all."
+    body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
+    # The agent reads the late reply (4.7); no interview round, no next question.
+    assert talk.calls["question"] == 1 and talk.calls["judge"] == 1  # the agent's judge only
+    assert REPLY_MARK in first_user_message(fake_llm)
+    assert body["kind"] == "not_covered" and "interview" not in body, body
+    (q,) = await all_questions(client)
+    # The unasked redness and discharge do not block, but the fever was never
+    # asked as an interview item: the close is not delivered, the doctor sees it.
+    assert q.status == "open" and q.stopped_by == "Warning sign: fever"
+    assert q.intake["rounds"] == [{"asked": FEVER_Q, "item": 2, "reply": reply}]
 
 
 async def test_old_shape_intake_still_uses_4_7_flow(client, fake_llm):

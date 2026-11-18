@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -279,10 +279,28 @@ def interview_backstop(terms: list[str], reply: str, iv: Interview) -> list[str]
 class InterviewStep:
     """What an interview reply turn does next: hand off now (`settle`), ask the
     next question (`asked`: item index, text, is the doctor's words), or
-    neither, when the interview is over and the agent answers or closes."""
+    neither, when the interview is over and the agent answers or closes. With
+    `new_question` the patient asked something else: the agent answers it as
+    usual and the original symptom goes to the doctor (2026-11-15 spec 4.3)."""
     settle: Optional[Settle] = None
     asked: Optional[tuple[int, str, bool]] = None
     habit_texts: dict[int, str] = field(default_factory=dict)
+    new_question: bool = False
+
+
+def interview_expired(waiting: CareTeamQuestion, timeout_hours: float) -> bool:
+    """An interview row that no longer takes replies as interview rounds: no
+    longer waiting (the inbox timed it out, or the doctor took it), or asked
+    longer ago than the clarify timeout. The reply then goes the 4.7 way."""
+    if waiting.status != WAITING:
+        return True
+    asked_at = waiting.last_asked_at or waiting.created_at
+    if asked_at is None:
+        return False
+    if asked_at.tzinfo is not None:
+        asked_at = asked_at.astimezone(timezone.utc).replace(tzinfo=None)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=timeout_hours)
+    return asked_at < cutoff
 
 
 def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: dict[int, str],
@@ -345,27 +363,28 @@ def _term_key(term: str) -> str:
 
 
 async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
-                               match_pool: list[str]) -> Optional[Settle]:
+                               match_pool: list[str]) -> Optional[InterviewStep]:
     """Apply a typed reply to the interview: the reply judge reads the open
     safety items and every warning term the reply names, then the extractor
-    fills the items the patient's words answer. A Settle when the case goes to
-    the doctor now (the judge failed, the patient asked something else, or a
-    danger sign is present), else None."""
+    fills the items the patient's words answer. A step when the interview ends
+    now: a handoff (the judge failed, or a danger sign is present, checked
+    first so the doctor sees it), or a new question for the agent; else None."""
     n = asked_item(iv)
     open_safety = [i.label for i in iv.items if i.safety and i.status == "unknown"]
     matched = match_terms(reply, list(dict.fromkeys([*match_pool, *open_safety])))
     judge_terms = dedupe_terms([*open_safety, *matched])
     judged = await judge_reply(llm, as_pending(iv, original), reply, judge_terms)
     if judged is None:
-        return Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER)
-    if not judged.replies:
-        return Settle("open", NOT_ANSWERED, NOT_ANSWERED)
+        return InterviewStep(settle=Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER))
     statuses: dict[str, set] = {}
     for sign in judged.signs:
         statuses.setdefault(_term_key(sign["term"]), set()).add(sign["status"])
     for term in judge_terms:
         if "present" in statuses.get(_term_key(term), set()):
-            return Settle("open", NEEDS_DOCTOR, WARNING_REASON.format(term=term))
+            return InterviewStep(settle=Settle("open", NEEDS_DOCTOR,
+                                               WARNING_REASON.format(term=term)))
+    if not judged.replies:
+        return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
     named = {_term_key(t) for t in matched}
@@ -400,7 +419,7 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
     else:
         stop = await read_interview_reply(llm, iv, original, reply, match_pool)
         if stop is not None:
-            return InterviewStep(settle=stop)
+            return stop
     max_rounds = settings.interview_max_rounds
     if done(iv, max_rounds):
         return InterviewStep()
@@ -498,12 +517,16 @@ async def ask(
         log.exception("Looking up the pending clarify failed")
         found = None
     pending: Optional[PendingClarify] = None
-    iv: Optional[Interview] = None  # an interview reply turn (item-shape intake)
+    iv: Optional[Interview] = None  # an item-shape intake waits for this reply
+    resumed = False  # ... and this reply is an interview round (iv not expired)
+    new_question = False  # the patient asked something else mid-interview
     clarify_id = waiting_id = None
     if found is not None:
         clarify_message, waiting = found
         clarify_id, waiting_id = clarify_message.id, waiting.id
         if is_interview(waiting.intake):
+            resumed = not interview_expired(waiting, request.app.state.settings
+                                            .clarify_timeout_hours)
             # An unreadable item-shape intake is kept as no items: the turn hands off.
             iv = load_interview(waiting.intake) or Interview(items=[], rounds=[
                 {"asked": waiting.asked or clarify_message.content, "item": None, "reply": None}])
@@ -512,12 +535,12 @@ async def ask(
             pending = PendingClarify(
                 question=waiting.question, asked=waiting.asked or clarify_message.content,
                 rounds=[r for r in (waiting.intake or []) if isinstance(r, dict)])
-    if body.not_sure and (iv is None or len(iv.rounds) != body.round):
+    if body.not_sure and (not resumed or len(iv.rounds) != body.round):
         # A double tap or a stale button: the current state, no new round.
         if found is None:
             raise HTTPException(status_code=409, detail="There is no question to answer.")
         return found[0].payload
-    if iv is not None and terms:
+    if resumed and terms:
         terms = interview_backstop(terms, body.question, iv)
     # On a reply turn the patient's original message also names drugs they
     # asked about (with the lexicon's equivalents).
@@ -570,7 +593,7 @@ async def ask(
                     log.exception("Rollback after failing to load warning terms failed")
         document_terms = warning_terms(items)
         settings = request.app.state.settings
-        if iv is not None and not terms:
+        if resumed and not terms:
             step = await interview_turn(
                 session, llm, iv, pending.question, body.question, not_sure=body.not_sure,
                 doctor_id=doctor_id, doctor_name=name, allowed_drugs=allowed_drugs,
@@ -581,7 +604,9 @@ async def ask(
                     session, step, iv, pending, body.question, clarify_id=clarify_id,
                     waiting_id=waiting_id, user_id=user_id, doc_id=doc_id, doctor_id=doctor_id,
                     doctor_name=name, max_rounds=settings.interview_max_rounds)
-            # The interview is over: the agent answers or closes, no more questions.
+            # The interview is over: the agent answers (the new question, when
+            # the patient asked one) or closes, no more questions.
+            new_question = step.new_question
         memory_failed = False
 
         async def guidance_search(query: str) -> list[Unit]:
@@ -635,6 +660,10 @@ async def ask(
                     detail="The assistant could not answer right now. Please try again.",
                 ) from exc
             result = emergency_result()
+        if new_question:
+            # The interview judge, not the agent's, decides it is not a reply:
+            # settle_reply then answers it and hands the symptom off (4.3).
+            result = replace(result, replies_to_questions=False)
 
         if pending is None and not terms and result.intake_eligible:
             started = await start_interview(session, llm, body.question, doctor_id, name,
@@ -653,7 +682,7 @@ async def ask(
                 pending.question, replies, terms, doctor_terms, document_terms,
                 result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
                 lexicon, other_concerns=result.other_concerns)
-            if blocker is None and iv is not None:
+            if blocker is None and iv is not None and not new_question:
                 # A danger sign the patient was asked about and did not deny.
                 label = open_safety_item(iv)
                 if label is not None:
