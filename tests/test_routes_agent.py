@@ -2173,6 +2173,64 @@ async def test_interview_ends_and_closes_when_all_answered_and_no_signs(client, 
     assert talk.calls["judge"] == 4  # three interview rounds and the agent's own judge
 
 
+async def end_interview(client, fake_llm, h, doctor_id, ids, last_judge, main, last_reply):
+    """Three rounds; the last reply's interview judge and the agent's own judge
+    both answer `last_judge`, and the agent's final message is `main`."""
+    Interviewer(
+        fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+        judges=[judged(signs=absent("fever")), judged(), last_judge],
+        extracts=[{"items": []}, {"items": [{"index": 0, "status": "answered", "quote": "two days"}]},
+                  {"items": [{"index": 1, "status": "answered", "quote": "no discharge"}]}])
+    await start_interview(client, fake_llm, h, doctor_id)
+    for reply in ("No fever at all.", "About two days."):
+        assert (await post_ask(client, h, reply, doctor_id=doctor_id)).json()["kind"] == "clarify"
+    fake_llm.script(main)
+    return (await post_ask(client, h, last_reply, doctor_id=doctor_id)).json()
+
+
+async def test_interview_end_builds_the_close_from_the_doctors_words(client, fake_llm):
+    # The agent hands off, the judge is clean and names the close habit: the
+    # close is the doctor's own words, built by code (no confidence gate).
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    body = await end_interview(client, fake_llm, h, doctor_id, ids,
+                               judged(signs=absent("fever"), close=5),
+                               final("not_covered", "x", []), "There is no discharge.")
+    assert body["kind"] == "close" and body["answer"] == CLOSE_TEXT + " [5]", body
+    (q,) = await all_questions(client)
+    assert (q.status, q.answer) == ("resolved", CLOSE_TEXT)
+
+
+async def test_interview_end_with_a_worse_fever_hands_off_with_the_sign(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    body = await end_interview(
+        client, fake_llm, h, doctor_id, ids,
+        judged(signs=[{"term": "fever", "status": "present"}], concerns=True, close=5),
+        final("not_covered", "x", []), "I've had a fever since yesterday and it's getting worse.")
+    assert body["kind"] == "not_covered", body
+    (q,) = await all_questions(client)
+    assert (q.status, q.stopped_by) == ("open", "Warning sign: fever")
+
+
+@pytest.mark.parametrize("model_close", [True, False])
+@pytest.mark.parametrize("last_reply", ["No discharge. Also, can I take my naproxen with it?",
+                                        "No discharge. Also, can I go swimming?"])
+async def test_interview_end_with_a_new_question_is_not_closed(client, fake_llm, model_close,
+                                                               last_reply):
+    # The reply answers the question and asks another: the judge reads another
+    # concern, so neither the model's close nor the judge's is delivered.
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    main = final("close", CLOSE_TEXT + " [5]", [5]) if model_close else final("not_covered", "x", [])
+    body = await end_interview(client, fake_llm, h, doctor_id, ids,
+                               judged(signs=absent("fever"), concerns=True, close=5), main,
+                               last_reply)
+    assert body["kind"] != "close", body
+    (q,) = await all_questions(client)
+    assert q.status == "open"
+
+
 async def test_interview_safety_item_present_hands_off_with_summary(client, fake_llm):
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)

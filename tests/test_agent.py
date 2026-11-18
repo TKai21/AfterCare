@@ -3036,6 +3036,24 @@ async def test_a_batch_that_is_not_clean_keeps_the_handoff(store, foods, documen
     assert result.replies_to_questions is True and len(result.warning_signs) >= 13
 
 
+def test_other_concerns_is_read_against_each_question_and_its_reply():
+    # A benign interview: the original problem and the answers to the questions
+    # asked are not other concerns; a new problem or the patient's own question is.
+    prompt = agent.REPLY_JUDGE_PROMPT
+    concerns = prompt.split('"other_concerns":')[2]
+    assert "paired with the patient's reply" in prompt
+    assert "original question's own problem is never another concern" in concerns
+    assert "answer to the question asked in that round" in concerns
+    assert "Yes, I get hay fever most springs." in concerns
+    assert "Also my knee is swollen" in concerns and "naproxen" in concerns
+    pending = agent.PendingClarify(
+        question="Runny nose.", asked="Do you have a history of seasonal allergies?",
+        rounds=[{"asked": "How long?", "reply": "Two days."}])
+    text = agent._judge_messages(pending, "Yes, hay fever.", ["fever"], [])[1]["content"]
+    assert ("Round 2 - I asked: Do you have a history of seasonal allergies?\n"
+            "Round 2 - the patient replied: Yes, hay fever.") in text
+
+
 async def test_reply_judge_error_keeps_the_handoff(store, foods, document, items):
     class Boom(FakeLLM):
         async def chat(self, messages, tools=None, json_mode=False):
