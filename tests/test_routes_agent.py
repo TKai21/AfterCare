@@ -2659,3 +2659,63 @@ async def test_expired_interview_denial_is_not_relaxed(client, fake_llm):
     body = resp.json()
     assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY, body
     assert talk.calls["judge"] == 0
+
+
+# ---------- a "call the clinic" sign: the document's instruction, no 911 banner ----------
+
+CLINIC_DOC = ("Discharge date: 2026-03-02\n\n"
+              "Take amoxicillin 500 mg by mouth three times daily for 7 days.\n\n"
+              "Call the clinic at 555-0177 if you have diarrhea or black stools.\n\n"
+              "Call 911 if your lips swell up.")
+CLINIC_ITEMS = [
+    *ITEMS,
+    {"category": "warning_signs", "text": "Call the clinic if you have diarrhea or black stools.",
+     "source_quote": "Call the clinic at 555-0177 if you have diarrhea or black stools.",
+     "details": {}},
+    {"category": "warning_signs", "text": "Call 911 if your lips swell up.",
+     "source_quote": "Call 911 if your lips swell up.", "details": {}},
+]
+
+
+async def clinic_patient(client, fake_llm):
+    h = await auth_headers(client)
+    resp = await upload_text(client, h, fake_llm, text=CLINIC_DOC, items=CLINIC_ITEMS)
+    assert resp.status_code == 200, resp.text
+    assert (await client.post("/api/documents/active/confirm", headers=h)).status_code == 200
+    return h
+
+
+async def test_clinic_sign_is_answered_from_the_document_and_shown_to_the_doctor(client, fake_llm):
+    h = await clinic_patient(client, fake_llm)
+    said = "Call the clinic at 555-0177 if you have diarrhea or black stools [3]."
+    fake_llm.script(answer(said, [3]))
+    body = (await post_ask(client, h, "I have black stools today.")).json()
+    assert body["kind"] == "answer" and body["answer"] == said
+    assert body["emergency"] == {"terms": [], "banner": False}
+    assert body["flagged"] is True
+    (q,) = await care_team(client, h)
+    assert q["question"] == "I have black stools today."
+    assert q["reason"].startswith("Warning sign: ")
+    # The model was told it is a clinic sign, not that an emergency was detected.
+    first = fake_llm.calls[-1][0][-1]["content"]
+    assert "call the clinic about" in first and "possible emergency" not in first
+
+
+async def test_document_emergency_sign_still_shows_the_banner(client, fake_llm):
+    h = await clinic_patient(client, fake_llm)
+    fake_llm.script(answer("Call 911 if your lips swell up [4].", [4], kind="emergency"))
+    body = (await post_ask(client, h, "My lips swell up.")).json()
+    assert body["kind"] == "emergency" and body["emergency"]["banner"] is True
+    assert body["emergency"]["terms"]
+
+
+async def test_direct_question_with_a_clinic_sign_has_no_banner(client, fake_llm):
+    h = await clinic_patient(client, fake_llm)
+    doctor_id = await default_doctor(client)
+    resp = await client.post("/api/care-team", headers=h,
+                             json={"question": "I have black stools today.", "doctor_id": doctor_id})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["emergency"] == {"terms": [], "banner": False}
+    resp = await client.post("/api/care-team", headers=h,
+                             json={"question": "My lips swell up.", "doctor_id": doctor_id})
+    assert resp.json()["emergency"]["banner"] is True

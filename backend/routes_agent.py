@@ -34,7 +34,8 @@ from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import (
-    _canon, denial_clears, denial_possible, detect_emergency, match_terms, warning_terms,
+    CLINIC, EMERGENCY, _canon, denial_clears, denial_possible, detect_emergency, match_terms,
+    warning_terms,
 )
 
 router = APIRouter()
@@ -540,7 +541,9 @@ async def ask(
     library_rxcuis = await patient_rxcuis(session, doc_id)
     # The backstop runs first on every message; the emergency path never depends
     # on the model (R19).
-    terms = detect_emergency(body.question, warning_terms(items))
+    # Only the signs the document sends to 911 or the ER; a "call the clinic"
+    # sign is answered from the document and shown to the doctor (below).
+    terms = detect_emergency(body.question, warning_terms(items, EMERGENCY))
     try:
         doctor = await require_doctor(session, body.doctor_id)
     except HTTPException:
@@ -710,6 +713,9 @@ async def ask(
             except (LLMError, GuidanceUnavailable):
                 prefetch = None  # the turn goes on without it, as the tool does
 
+        # Signs in a first message that the document says to call the clinic about.
+        clinic_signs = ([] if terms or pending is not None
+                        else match_terms(body.question, warning_terms(items, CLINIC)))
         try:
             result = await run_agent(
                 llm, request.app.state.store, request.app.state.foods,
@@ -721,6 +727,7 @@ async def ask(
                 first_turn_terms=(None if terms_failed else [*doctor_terms, *document_terms]),
                 max_clarify_rounds=(len(pending.rounds) + 1 if iv is not None
                                     else settings.clarify_max_rounds),
+                clinic_terms=clinic_signs,
             )
         except LLMError as exc:
             if not terms:
@@ -729,6 +736,11 @@ async def ask(
                     detail="The assistant could not answer right now. Please try again.",
                 ) from exc
             result = emergency_result()
+        if clinic_signs and result.kind == "answer" and not result.care_team_question:
+            # The patient has a sign the document wants the clinic to hear about:
+            # the doctor sees it, whatever the clone answered.
+            result = replace(result, flagged=True, care_team_question=body.question,
+                             care_team_reason=WARNING_REASON.format(term=clinic_signs[0]))
         if new_question:
             # The interview judge, not the agent's, decides it is not a reply:
             # settle_reply then answers it and hands the symptom off (4.3).

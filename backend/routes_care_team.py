@@ -12,7 +12,7 @@ from closing import intake_rounds, intake_summary
 from db import get_session
 from doctors import doctor_label, doctor_labels, doctor_specialty, list_doctors, require_doctor
 from models import CareTeamQuestion, User
-from safety import detect_emergency, warning_terms
+from safety import EMERGENCY, detect_emergency, warning_terms
 from voice import voice_views
 
 MAX_QUESTION_CHARS = 2000
@@ -176,7 +176,7 @@ async def ask_doctor(
     except HTTPException:
         doc = None
     items = await load_items(session, doc) if doc is not None else []
-    terms = detect_emergency(body.question, warning_terms(items))
+    terms = detect_emergency(body.question, warning_terms(items, EMERGENCY))
     row = await add_question(
         session, user.id, doc.id if doc is not None else None,
         body.question, "Asked by the patient", "patient", doctor_id=doctor.id,

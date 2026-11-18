@@ -470,3 +470,35 @@ def test_no_m4_probe_is_cleared_by_an_all_absent_judge():
         if clears(message, absent_all, doc):
             cleared.add(message)
     assert cleared == set(PLAIN_DENIALS), cleared
+
+
+# ---------- warning levels: 911 or the ER, or call the clinic ----------
+
+def test_warning_level_is_clinic_only_when_the_item_says_so():
+    from safety import CLINIC, EMERGENCY, warning_level
+    assert warning_level(item("Call the clinic if you have diarrhea.")) == CLINIC
+    assert warning_level(item("Call us if the wound opens.", quote="the wound opens")) == CLINIC
+    assert warning_level(item("Contact your doctor for a rash.")) == CLINIC
+    assert warning_level(item("Call 911 or go to the ER for chest pain.")) == EMERGENCY
+    # Both named: the stronger one. Neither named: an emergency (fail safe).
+    assert warning_level(item("Call the clinic or go to the ER for a high fever.")) == EMERGENCY
+    assert warning_level(item("Call your doctor or 911 if you faint.")) == EMERGENCY
+    assert warning_level(item("Watch for red streaks up the leg.")) == EMERGENCY
+    assert warning_level(item("Call the office if your order is late.", quote="go to the "
+                              "emergency department")) == EMERGENCY
+    # "er" inside a word or in lower case is not the ER.
+    assert warning_level(item("Call the clinic if you have a fever.")) == CLINIC
+
+
+def test_warning_terms_by_level():
+    from safety import CLINIC, EMERGENCY
+    items = [item("Call 911 or go to the ER for chest pain or fainting.", quote="chest pain or fainting"),
+             item("Call the clinic if you have diarrhea or black stools.",
+                  quote="you have diarrhea or black stools"),
+             item("Call the clinic if you cannot urinate.", status="rejected")]
+    emergency, clinic = warning_terms(items, EMERGENCY), warning_terms(items, CLINIC)
+    assert "chest pain" in emergency and "black stools" in clinic
+    assert not set(emergency) & set(clinic)
+    assert warning_terms(items) == [*emergency, *clinic]
+    assert detect_emergency("I have black stools", emergency) == []
+    assert "black stools" in match_terms("I have black stools", clinic)

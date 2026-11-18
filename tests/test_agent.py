@@ -3395,3 +3395,58 @@ async def test_second_look_answers_before_my_questions_on_a_first_turn(store, fo
                 final(f"I'm sorry to hear that. {CONTACTS} [5]", [5], kind="clarify"))
     result = await ask(kept, store, foods, document, items, question=RUNNY, habits=ask_habits())
     assert result.kind == "clarify" and result.intake_eligible is True
+
+
+# ---------- a "call the clinic" sign is not told as a 911 emergency ----------
+
+CLINIC_DOC = ("Discharge date: 2026-03-02\n\n"
+              "Call the clinic at 555-0177 if you have diarrhea.\n\n"
+              "Call 911 or return to the ER if you have chest pain.")
+
+
+def clinic_evidence():
+    paragraphs = agent.evidence_paragraphs(CLINIC_DOC)
+    return {n: Evidence(n, "document", "Discharge document", None, p, check_text=p)
+            for n, p in enumerate(paragraphs, start=1)}
+
+
+@pytest.mark.parametrize("kind", ["answer", "emergency"])
+def test_validate_refuses_911_cited_to_a_paragraph_that_does_not_say_it(kind):
+    ev = clinic_evidence()
+    for text in ("Call 911 if you have diarrhea [2].", "Go to the ER for diarrhea [2].",
+                 "Go to the emergency room now [2]."):
+        with pytest.raises(agent.EmergencyNotCited):
+            validate(json.dumps({"kind": kind, "answer": text, "citations": [2]}), ev)
+    # The cited paragraph says so, the text names no emergency care, or nothing is cited.
+    for text, cited in (("Call 911 or return to the ER for chest pain [3].", [3]),
+                        ("Call the clinic at 555-0177 if you have diarrhea [2].", [2]),
+                        ("Call 911 for diarrhea [2] or chest pain [3].", [2, 3])):
+        validate(json.dumps({"kind": kind, "answer": text, "citations": cited}), ev)
+    validate(json.dumps({"kind": "emergency", "answer": "Call 911 now.", "citations": []}), ev)
+
+
+async def test_misattributed_emergency_gets_one_repair(store, foods, items):
+    document = DischargeDocument(id=1, user_id=1, status="confirmed", text=CLINIC_DOC)
+    llm = FakeLLM()
+    llm.script(final("Call 911 if you have diarrhea [2].", [2], kind="emergency"),
+               final("Call the clinic at 555-0177 if you have diarrhea [2].", [2]))
+    result = await ask(llm, store, foods, document, items, question="I have diarrhea.",
+                       clinic_terms=["diarrhea"])
+    assert result.kind == "answer" and "555-0177" in result.answer
+    first = llm.calls[0][0][-1]["content"]
+    assert "call the clinic about, which is not an emergency by itself: diarrhea" in first
+    assert agent.EMERGENCY_NOT_CITED_ERROR in llm.calls[1][0][-1]["content"]
+
+    # A second failure that still claims an emergency is the fixed emergency answer.
+    stubborn = FakeLLM()
+    stubborn.script(final("Call 911 if you have diarrhea [2].", [2], kind="emergency"),
+                    final("Call 911 if you have diarrhea [2].", [2], kind="emergency"))
+    result = await ask(stubborn, store, foods, document, items, question="I have diarrhea.")
+    assert result.kind == "emergency" and result.answer == agent.EMERGENCY_ANSWER
+
+    # The backstop matched: no repair, the fixed emergency answer at once.
+    matched = FakeLLM()
+    matched.script(final("Call 911 if you have diarrhea [2].", [2], kind="emergency"))
+    result = await ask(matched, store, foods, document, items, question="Chest pain and diarrhea.",
+                       emergency_terms=["chest pain"])
+    assert result.answer == agent.EMERGENCY_ANSWER and len(matched.calls) == 1

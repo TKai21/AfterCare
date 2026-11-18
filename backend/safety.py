@@ -235,14 +235,36 @@ def _phrases(text: str):
     yield from _SPLIT_WORDS.split(text)
 
 
-def warning_terms(items: list[ExtractedItem]) -> list[str]:
+# A warning sign's level, read from the item's own words. "ER" and "ED" only in
+# capitals; the rest in any case.
+_EMERGENCY_WORDS = re.compile(
+    r"\b(?:ER|ED)\b|(?i:\b(?:911|9-1-1|emergency|ambulance|hospital|urgent care)\b)")
+_CLINIC_WORDS = re.compile(
+    r"\b(?:call|contact|phone|tell|notify|message)\s+(?:(?:the|your|our|my)\s+)?"
+    r"(?:clinic|office|doctor|provider|nurse|surgeon|care team|us)\b", re.IGNORECASE)
+EMERGENCY, CLINIC = "emergency", "clinic"
+
+
+def warning_level(item: ExtractedItem) -> str:
+    """CLINIC when the item says to call the clinic (office, doctor, ...) and
+    names no emergency care; EMERGENCY otherwise, also when it says neither."""
+    text = f"{item.text or ''}\n{item.source_quote or ''}"
+    if _CLINIC_WORDS.search(text) and not _EMERGENCY_WORDS.search(text):
+        return CLINIC
+    return EMERGENCY
+
+
+def warning_terms(items: list[ExtractedItem], level: Optional[str] = None) -> list[str]:
     """Key phrases from active warning_signs items, from the document's own bullet
     (source_quote) first and then the plain-language text. One phrase per distinct
-    set of content words, in order."""
+    set of content words, in order. With a `level` (EMERGENCY or CLINIC), only
+    the items of that level (warning_level)."""
     out: list[str] = []
     seen: set[frozenset[str]] = set()
     for it in items:
         if it.category != "warning_signs" or it.status == "rejected":
+            continue
+        if level is not None and warning_level(it) != level:
             continue
         for line in (it.source_quote or "", it.text or ""):
             for part in _phrases(line):

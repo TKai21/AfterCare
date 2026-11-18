@@ -218,7 +218,7 @@ Authority rules:
 5. Never suggest changing, stopping, adding, or substituting a medication or dose unless a cited document paragraph or my earlier advice says so. Library passages and your own knowledge never justify it.
 6. If the approved sources do not answer the question (and rule 13 does not apply: ask first), call add_care_team_question and answer with exactly: "{NOT_COVERED}" Use kind "not_covered". A document paragraph or confirmed instruction about the same drug, food, drink, activity or body part does answer the question, even when the patient uses other words or asks it the other way round: "Take naproxen with food" answers "Can I take naproxen on an empty stomach?", and "Rest and raise your foot for the next 3 days" answers "Should I keep walking on my foot?". Then use kind "answer": tell the patient what the document says, in the document's terms, and cite it; add no reason, risk or advice of your own. Such a question is never "not_covered", never general information (rule 7), and never a reason to ask my questions first.
 7. For a medication question that neither the document nor my earlier advice covers (for example a missed dose), give the library's general guidance for that drug if a library passage gives it, starting with "{GENERAL_INFO}" and also call add_care_team_question. If no library passage gives it, do not give general information from your own knowledge; follow rule 6.
-8. If the patient reports having an emergency symptom now (chest pain, trouble breathing, signs of stroke, heavy bleeding, fainting, the document's own warning signs, and similar), tell them to call 911 or follow the document's emergency instructions, with no analysis. Use kind "emergency". Informational questions such as "what stroke signs does my document list?" are answered normally. When the message says a possible emergency was detected, decide which of the two cases applies.
+8. If the patient reports having an emergency symptom now (chest pain, trouble breathing, signs of stroke, heavy bleeding, fainting, the signs the document says to call 911 or go to the ER for, and similar), tell them to call 911 or follow the document's emergency instructions, with no analysis. Use kind "emergency". A sign the document says to call the clinic, the office or the doctor about is not an emergency by itself: use kind "answer", give the document's own instruction for that sign (who to call, the phone number, and what to stop or do meanwhile, when the document says it) and cite it. Never tell the patient to call 911 or go to the ER for a sign unless a paragraph you cite says so. Informational questions such as "what stroke signs does my document list?" are answered normally. When the message says a possible emergency was detected, decide which of the two cases applies.
 9. A question about the patient's own health, including a new symptom or problem, is in scope: ask about it or route it as these rules say. Only a question unrelated to the patient's health is out of scope: decline briefly and use kind "out_of_scope".
 10. When you use a document paragraph or a piece of my advice, also give every warning, limit and when-to-call instruction in that same paragraph or advice that applies to what the patient asked (for example a maximum dose, "call the clinic if ...", "call 911 if ..."). Leaving one out can harm the patient.
 11. Every factual statement in an answer must come from the document, my earlier advice, a library passage or a food entry, and must be cited. Do not add facts, advice or warnings from your own knowledge.
@@ -367,6 +367,20 @@ def _strip_fences(raw: str) -> str:
 
 
 _DECODER = json.JSONDecoder()
+
+
+class EmergencyNotCited(ValueError):
+    """The text sends the patient to 911 or the ER and cites document paragraphs,
+    none of which says so (a "call the clinic" sign told as an emergency)."""
+
+
+EMERGENCY_NOT_CITED_ERROR = (
+    "You told the patient to call 911 or go to the ER, but no document paragraph you cited "
+    "says that. If the document says to call the clinic, the office or the doctor about this "
+    "sign, use kind \"answer\" and give that instruction, citing it. If the patient is having "
+    "an emergency, cite the paragraph that says to call 911 or go to the ER, or cite nothing.")
+# Words that send a patient to emergency care ("ER" and "ED" only in capitals).
+_SENDS_TO_EMERGENCY = re.compile(r"\b911\b|\b9-1-1\b|\bER\b|(?i:\bemergency (?:room|department)\b)")
 
 
 class FinalNotJSON(ValueError):
@@ -694,6 +708,11 @@ def validate(
         raise ValueError("Citation markers do not match the citations.")
     if cited - evidence.keys():
         raise ValueError("A citation refers to evidence that does not exist.")
+    cited_documents = [evidence[n] for n in cited if evidence[n].kind == "document"]
+    if (kind in ("answer", "emergency") and cited_documents
+            and _SENDS_TO_EMERGENCY.search(MARKER.sub(" ", answer))
+            and not any(_SENDS_TO_EMERGENCY.search(e.content) for e in cited_documents)):
+        raise EmergencyNotCited(EMERGENCY_NOT_CITED_ERROR)
     if any(evidence[n].kind != "document" for n in ranged):
         raise ValueError("A citation range like [41-45] may cover only document paragraphs. "
                          "Cite other evidence by its own number.")
@@ -2144,6 +2163,7 @@ async def run_agent(
     warning_terms: Sequence[str] = (),
     first_turn_terms: Optional[Sequence[str]] = (),
     max_clarify_rounds: int = CLARIFY_MAX_ROUNDS,
+    clinic_terms: Sequence[str] = (),
 ) -> AgentResult:
     """Answer one patient question. LLMError from chat propagates.
 
@@ -2185,7 +2205,15 @@ async def run_agent(
     `first_turn_terms` are the doctor's and the document's warning terms: on a
     first turn, a message that matches one never gets the ask-first questions
     (the doctor sees it), and None (the terms could not be loaded) turns
-    ask-first off."""
+    ask-first off.
+
+    `clinic_terms` are signs in the message that the document says to call the
+    clinic about (safety.CLINIC): the model is told they are not an emergency
+    by themselves and to give the document's instruction. A text that sends
+    the patient to 911 or the ER citing only paragraphs that do not say so
+    (EmergencyNotCited) gets the repair call even when it claims kind
+    "emergency", unless the backstop matched; a second failure is the fixed
+    emergency answer."""
     turn = _Turn(store, foods, document, guidance_search, doctor_name, library_rxcuis)
     clarify_allowed = pending is not None and len(pending.rounds) + 1 < max_clarify_rounds
     asked_before = pending.asked_before() if pending is not None else frozenset()
@@ -2197,6 +2225,11 @@ async def run_agent(
     if emergency_terms:
         user_content += ("\n\nA possible emergency was detected in the patient's message: "
                          + ", ".join(emergency_terms))
+    elif clinic_terms:
+        user_content += ("\n\nThe patient's message names a sign the discharge document says to "
+                         "call the clinic about, which is not an emergency by itself: "
+                         + ", ".join(clinic_terms) + ". Give the document's own instruction "
+                         "for it (rule 8) and cite it.")
     if pending is not None:
         user_content += "\n\n" + _pending_context(pending, max_clarify_rounds)
     user_content += f"\n\nPatient question:\n{question}"
@@ -2251,6 +2284,9 @@ async def run_agent(
                     clarify_allowed=clarify_allowed, asked_before=asked_before)
             except ValueError as exc:
                 emergency = bool(emergency_terms) or _claimed_kind(raw) == "emergency"
+                if (isinstance(exc, EmergencyNotCited) and not emergency_terms
+                        and not repaired):
+                    emergency = False  # one repair: usually a "call the clinic" sign
                 # A reply with no JSON object gets its own retry, so a format slip
                 # does not use up the repair round.
                 format_slip = isinstance(exc, FinalNotJSON) and not format_retried
