@@ -2964,6 +2964,78 @@ async def test_an_unreadable_judge_leaves_the_fields_empty_so_everything_is_bloc
         [], None, None)
 
 
+MANY_TERMS = [f"sign number {n}" for n in range(23)]
+
+
+def judged_terms(messages) -> list[str]:
+    block = messages[1]["content"].split("<warning-terms-")[1].split("</warning-terms-")[0]
+    return [line for line in block.split("\n")[1:] if line.strip()]
+
+
+def batch_judge(drop=(), drop_again=(), concerns_for=(), fail_for=()):
+    """A routed reply judge that lists every term it is asked about, except the
+    terms in `drop` on the first ask and in `drop_again` on the re-ask; a
+    batch holding a term in `concerns_for` reports other concerns, one holding
+    a term in `fail_for` answers with no JSON."""
+    asked: list[list[str]] = []
+
+    def respond(messages):
+        terms = judged_terms(messages)
+        again = any(terms == earlier for earlier in asked) or any(
+            set(terms) < set(earlier) for earlier in asked)
+        asked.append(terms)
+        if any(t in fail_for for t in terms):
+            return {"content": "not json"}
+        left_out = drop_again if again else drop
+        return judge_reply(terms=[t for t in terms if t not in left_out],
+                           concerns=any(t in concerns_for for t in terms))
+    return respond, asked
+
+
+async def ask_many(llm, store, foods, document, items):
+    llm.script(final("x", [], kind="not_covered", care_team_question="What should I do?"))
+    return await ask_reply(llm, store, foods, document, items, warning_terms=MANY_TERMS)
+
+
+async def test_many_warning_terms_are_judged_in_batches_and_merged(store, foods, document, items):
+    llm = FakeLLM()
+    respond, asked = batch_judge()
+    llm.route(agent.REPLY_JUDGE_PROMPT, respond)
+    result = await ask_many(llm, store, foods, document, items)
+    assert result.kind == "close" and result.doctor_words_only is True
+    assert all(len(batch) <= agent.JUDGE_TERMS_PER_CALL for batch in asked)
+    assert sorted(t for batch in asked for t in batch) == sorted(MANY_TERMS)
+    assert {s["term"] for s in result.warning_signs} == set(MANY_TERMS)
+
+
+async def test_a_term_one_batch_left_out_is_asked_again_in_that_batch_only(
+        store, foods, document, items):
+    llm = FakeLLM()
+    respond, asked = batch_judge(drop=("sign number 3",))
+    llm.route(agent.REPLY_JUDGE_PROMPT, respond)
+    result = await ask_many(llm, store, foods, document, items)
+    assert result.kind == "close"
+    assert asked[-1] == ["sign number 3"] or ["sign number 3"] in asked
+    assert len(asked) == 4  # three batches and one re-ask
+
+
+@pytest.mark.parametrize("kw", [
+    {"drop": ("sign number 3",), "drop_again": ("sign number 3",)},  # left out twice
+    {"fail_for": ("sign number 20",)},  # a batch with no readable answer
+    {"concerns_for": ("sign number 12",)},  # one batch reads another concern
+])
+async def test_a_batch_that_is_not_clean_keeps_the_handoff(store, foods, document, items, kw):
+    llm = FakeLLM()
+    respond, _ = batch_judge(**kw)
+    llm.route(agent.REPLY_JUDGE_PROMPT, respond)
+    result = await ask_many(llm, store, foods, document, items)
+    assert result.kind == "not_covered"
+    if "concerns_for" in kw:
+        assert result.other_concerns is True
+    # the batches that did answer still set the fields
+    assert result.replies_to_questions is True and len(result.warning_signs) >= 13
+
+
 async def test_reply_judge_error_keeps_the_handoff(store, foods, document, items):
     class Boom(FakeLLM):
         async def chat(self, messages, tools=None, json_mode=False):

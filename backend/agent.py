@@ -13,6 +13,7 @@ Sources shown to the patient are built from server-side Evidence, never from
 model text. An answer that changes a medication (see MEDICATION_CHANGE) must
 cite a document paragraph or the doctor's earlier advice.
 """
+import asyncio
 import json
 import re
 import secrets
@@ -1898,27 +1899,60 @@ async def _judge_once(llm, pending: "PendingClarify", reply_text: str, terms: li
         return None
 
 
-async def judge_reply(llm, pending: "PendingClarify", reply_text: str, terms: Sequence[str],
-                      close_evidence: Sequence[Evidence] = ()) -> Optional[Judged]:
-    """The reply judge's reading of an intake turn, or None when it failed or
-    its JSON is malformed. `terms` are judged after dedupe_terms."""
-    terms = dedupe_terms(terms)
-    close_evidence = list(close_evidence)
+JUDGE_TERMS_PER_CALL = 10
+
+
+def _term_batches(terms: list[str]) -> list[list[str]]:
+    """The terms in even batches of at most JUDGE_TERMS_PER_CALL, in order; one
+    empty batch when there are none (the judge still reads the other fields)."""
+    count = max(1, -(-len(terms) // JUDGE_TERMS_PER_CALL))
+    size = -(-len(terms) // count) if terms else 0
+    return [terms[i * size:(i + 1) * size] for i in range(count)]
+
+
+async def _judge_batch(llm, pending: "PendingClarify", reply_text: str, terms: list[str],
+                       close_evidence: list[Evidence]) -> Optional[Judged]:
+    """One batch of terms: one call, and one more about the terms it left out.
+    Only signs for this batch's terms are kept; a term still missing stays
+    missing, and close_blocker then blocks (fail closed)."""
     judged = await _judge_once(llm, pending, reply_text, terms, close_evidence)
     if judged is None:
         return None
-    # gpt-4o-mini drops terms from a list of 20 or more (seen end to end: 16 of
-    # 24 came back). One more call asks about the left-out terms only; a term
-    # still missing stays missing, and close_blocker then blocks (fail closed).
-    listed = {_canon(s["term"]).casefold() for s in judged.signs}
+
+    def own(found: Judged, wanted: list[str]) -> list[dict]:
+        keys = {_canon(t).casefold() for t in wanted}
+        return [s for s in found.signs if _canon(s["term"]).casefold() in keys]
+
+    signs = own(judged, terms)
+    listed = {_canon(s["term"]).casefold() for s in signs}
     missing = [t for t in terms if _canon(t).casefold() not in listed]
     if missing:
         again = await _judge_once(llm, pending, reply_text, missing, close_evidence)
         if again is not None:
-            wanted = {_canon(t).casefold() for t in missing}
-            judged = replace(judged, signs=judged.signs + [
-                s for s in again.signs if _canon(s["term"]).casefold() in wanted])
-    return judged
+            signs += own(again, missing)
+    return replace(judged, signs=signs)
+
+
+async def judge_reply(llm, pending: "PendingClarify", reply_text: str, terms: Sequence[str],
+                      close_evidence: Sequence[Evidence] = ()) -> Optional[Judged]:
+    """The reply judge's reading of an intake turn, or None when every call
+    failed or its JSON is malformed. `terms` are judged after dedupe_terms.
+
+    gpt-4o-mini leaves terms out of a long list (seen end to end: 1 of 23
+    came back), so the terms are judged in parallel batches of at most
+    JUDGE_TERMS_PER_CALL and merged: every term's signs come from its own
+    batch, other_concerns is true when any batch reads another concern,
+    and replies_to_questions and close come from the first batch that
+    answered. A batch that fails leaves its terms out (close_blocker blocks)."""
+    terms = dedupe_terms(terms)
+    close_evidence = list(close_evidence)
+    found = await asyncio.gather(*(_judge_batch(llm, pending, reply_text, batch, close_evidence)
+                                   for batch in _term_batches(terms)))
+    answered = [j for j in found if j is not None]
+    if not answered:
+        return None
+    return replace(answered[0], signs=[s for j in answered for s in j.signs],
+                   concerns=any(j.concerns for j in answered))
 
 
 async def _reply_judge(llm, turn: "_Turn", result: AgentResult, reply_text: str,
