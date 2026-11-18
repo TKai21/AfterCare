@@ -21,10 +21,10 @@ This is EE542 final project, Team 2, milestone 1. The "Status" section below lis
 
 The app has four tabs: Instructions (upload, then review and confirm the extracted items), Today (daily checklist), Ask (the agent), Care team (questions the app could not answer).
 
-Patients can also send a voice question from Care team, and doctors can send voice
-replies from their question queue. Clips are private, limited to 60 seconds, and
-are not transcribed or used as AI guidance. Install FFmpeg on the backend host.
-See [Voice messages](docs/VOICE_MESSAGES.md) for setup, tests and verification limits.
+Patients and doctors can dictate: a microphone button turns English speech into text in
+the question and answer boxes (the text is checked and sent like typed text). Sending
+recorded voice clips was removed on 2026-11-18; clips sent earlier still play. Install
+FFmpeg on the backend host. See [Voice](docs/VOICE_MESSAGES.md) for setup and tests.
 
 ## Run the website
 

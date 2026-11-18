@@ -3,7 +3,7 @@
 import {api, clearSession, confirmDialog, escapeHtml} from '/static/api.js';
 import {countPendingLabels, hideLabels, showLabels} from '/static/labels.js';
 import {enter, initials, syncTabs} from '/static/shell.js';
-import {attachDictation, attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
+import {attachDictation, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 
 const esc = escapeHtml;
 const SUGGEST_DELAY_MS = 800;
@@ -256,6 +256,8 @@ function waitingCardHtml(q) {
 function openCardHtml(q) {
   const d = draftFor(q);
   const handoff = !!q.asked;
+  // A clip-only question sent before clips were removed: answered in text, never learned.
+  const legacy = q.source === 'patient_voice';
   return `
     <li class="card doctor-card" data-id="${q.id}">
       <p class="doctor-meta"><strong>${esc(q.patient.username)}</strong> &middot; asked ${esc(formatDate(q.created_at))}${askedCountHtml(q)}${metaLabelsHtml(q)}</p>
@@ -264,23 +266,22 @@ function openCardHtml(q) {
       ${handoff ? threadHtml(q) : ''}
       ${q.reason && q.source !== 'patient' && !handoff ? `<p class="doctor-reason"><span class="doctor-reason-label">Why it came here:</span> ${esc(q.reason)}</p>` : ''}
       <div class="doctor-contexts">${contextHtml(q)}</div>
-      ${q.source === 'patient_voice' ? '' : `<div class="clone-draft-slot">${cloneDraftHtml(q, d)}</div>
+      ${legacy ? '' : `<div class="clone-draft-slot">${cloneDraftHtml(q, d)}</div>`}
       <div class="field">
         <label for="answer-${q.id}">Your answer</label>
         <textarea id="answer-${q.id}" class="doctor-answer-box" maxlength="4000" placeholder="Your answer...">${esc(d.answer)}</textarea>
         <span class="field-hint">Your AI clone follows the discharge document over this answer if they conflict.</span>
       </div>
-      <label class="doctor-check">
+      ${legacy ? '' : `<label class="doctor-check">
         <input type="checkbox" class="doctor-general-check" ${d.general ? 'checked' : ''}>
         <span>General advice: your AI clone may use this for other patients</span>
       </label>
-      <div class="doctor-general">${generalHtml(q, d)}</div>
+      <div class="doctor-general">${generalHtml(q, d)}</div>`}
       <div class="doctor-error">${d.error ? `<p class="form-error" role="alert">${esc(d.error)}</p>` : ''}</div>
       <div class="form-actions">
         <button type="button" class="btn btn-secondary dictate-btn" data-dictate="${q.id}"></button>
         <button type="button" class="btn btn-primary doctor-send" data-action="send">${d.sending ? 'Sending...' : 'Send answer'}</button>
-      </div>`}
-      <div data-doctor-voice="${q.id}"></div>
+      </div>
     </li>`;
 }
 
@@ -362,37 +363,6 @@ function mountDoctorVoice(root) {
       },
     });
   });
-  root.querySelectorAll('[data-doctor-voice]').forEach(element => {
-    if (element.dataset.voiceComposerBound) return;
-    const id = Number(element.dataset.doctorVoice);
-    attachVoiceComposer(element, {
-      label: 'Reply with a voice clip (not saved as AI guidance)',
-      context: () => id,
-      onBusy: busy => {
-        const card = cardEl(id);
-        if (!card) return;
-        const draft = state.drafts.get(id);
-        if (busy && draft) { clearTimeout(draft.timer); draft.seq++; draft.suggesting = false; }
-        card.dataset.voiceBusy = busy ? 'true' : 'false';
-        card.querySelectorAll('.doctor-answer-box, .doctor-general-check, .doctor-saved-question, .doctor-tag-input, [data-action="add-tag"], [data-action="remove-tag"]').forEach(input => { input.disabled = busy; });
-        updateSend(id);
-      },
-      onSend: async (blob, filename) => {
-        const form = new FormData();
-        form.append('file', blob, filename);
-        const out = await api(`/api/voice/questions/${id}/reply`, {method: 'POST', form});
-        const old = state.open.find(q => q.id === id);
-        const draft = state.drafts.get(id);
-        if (draft) { clearTimeout(draft.timer); draft.seq++; }
-        state.open = state.open.filter(q => q.id !== id);
-        state.answered = [{...old, ...out.question}, ...state.answered];
-        state.drafts.delete(id);
-        state.notice = 'Voice reply sent.';
-        renderTabs();
-        if (state.tab === 'questions') renderQuestions();
-      },
-    });
-  });
 }
 
 const cardEl = id => main.querySelector(`.doctor-card[data-id="${id}"]`);
@@ -402,7 +372,7 @@ function updateSend(id) {
   const d = state.drafts.get(id);
   if (!card || !d) return;
   const button = card.querySelector('.doctor-send');
-  if (button) button.disabled = card.dataset.voiceBusy === 'true' || card.dataset.dictating === 'true' || d.sending || !d.answer.trim();
+  if (button) button.disabled = card.dataset.dictating === 'true' || d.sending || !d.answer.trim();
 }
 
 function rerenderGeneral(id) {
@@ -532,7 +502,7 @@ function addTag(id, kind, input) {
 
 async function sendAnswer(q) {
   const d = state.drafts.get(q.id);
-  if (cardEl(q.id)?.dataset.voiceBusy === 'true' || cardEl(q.id)?.dataset.dictating === 'true' || d.sending || !d.answer.trim()) return;
+  if (cardEl(q.id)?.dataset.dictating === 'true' || d.sending || !d.answer.trim()) return;
   clearTimeout(d.timer);
   d.seq++;  // drops an in-flight tag suggestion
   d.suggesting = false;

@@ -1,11 +1,7 @@
-.voice-widget { margin-block: 1rem; padding: 1rem; border: 1px solid #d7dfe2; border-radius: .75rem; }
-.voice-label { margin: 0 0 .65rem; font-weight: 600; }
-.voice-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .75rem; }
 .voice-player { margin-block: .75rem; }
-.voice-player audio, .voice-widget audio { display: block; width: 100%; max-width: 30rem; margin-block: .5rem; }
+.voice-player audio { display: block; width: 100%; max-width: 30rem; margin-block: .5rem; }
 .voice-player audio[hidden] { display: none; }
 .voice-status { display: block; margin-top: .4rem; }
-.voice-recording { color: #a32323; font-weight: 600; }
 
 /* Dictation button: a secondary button with a microphone, red while recording. */
 .dictate-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; }

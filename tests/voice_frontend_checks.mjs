@@ -1,4 +1,4 @@
-// Exercise the actual voice module with browser-device/DOM test doubles.
+// Exercise the actual voice module (playback and dictation) with browser-device/DOM test doubles.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
@@ -21,6 +21,17 @@ class Element {
   pause() { this.paused = true; }
   load() {}
   removeAttribute(key) { delete this[key]; }
+  removeEventListener(name, fn) { if (this.events[name] === fn) delete this.events[name]; }
+  setAttribute(key, value) { this.attrs = {...this.attrs, [key]: value}; }
+  get classList() { return {toggle: () => {}}; }
+  remove() { this.removed = true; }
+}
+class Textarea extends Element {
+  constructor(value = '') { super(); this.value = value; this.maxLength = -1; this.disabled = false; this.inserted = []; this.inputs = 0; }
+  dispatchEvent() { this.inputs++; }
+  focus() { this.focused = true; }
+  setSelectionRange() {}
+  insertAdjacentElement(where, el) { this.inserted.push(el); }
 }
 
 const windowEvents = {}, documentEvents = {};
@@ -59,92 +70,86 @@ globalThis.setInterval = () => ++timer;
 globalThis.setTimeout = () => ++timer;
 globalThis.clearInterval = () => {};
 globalThis.clearTimeout = () => {};
-let created = 0, revoked = 0;
+let created = 0, revoked = 0; // object URLs, used by playback
 URL.createObjectURL = () => 'blob:test-' + (++created);
 URL.revokeObjectURL = () => { revoked++; };
 const path = new URL('../frontend/voice.js', import.meta.url);
 const source = readFileSync(path, 'utf8').replace(
   "import {api, getToken, clearSession, escapeHtml} from '/static/api.js';",
-  "const api = async () => ({text: ''}); const getToken = () => 'test-token'; const clearSession = () => {}; const escapeHtml = x => String(x);",
+  "const api = (...args) => globalThis.__api(...args); const getToken = () => 'test-token'; const clearSession = () => {}; const escapeHtml = x => String(x);",
 );
 const voice = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const action = (element, name) => element.querySelector(`[data-voice-action="${name}"]`);
 let passed = 0;
 async function test(name, fn) {
   await fn(); passed++; console.log('PASS:', name);
 }
 
-await test('recording previews before sending, and stops microphone tracks', async () => {
-  const element = new Element(); let sent = 0;
-  const dispose = voice.attachVoiceComposer(element, {onSend: async blob => { assert.ok(blob.size); sent++; }});
-  await action(element, 'record').click();
-  await action(element, 'stop').click(); await flush();
-  assert.ok(element.innerHTML.includes('Preview your recording'));
-  assert.equal(sent, 0);
+const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
+const dictate = async (button, text) => { await button.click(); await settle(); await button.click(); await settle(); };
+
+await test('dictation appends the transcript to typed text, never submits, and releases the microphone', async () => {
+  const button = new Element(), box = new Textarea('I have a runny nose.  ');
+  let busy = [], upload;
+  globalThis.__api = async (path, options) => { upload = {path, options}; return {text: 'No fever.'}; };
+  const dispose = voice.attachDictation(button, box, {onBusy: b => busy.push(b)});
+  await dictate(button, 'x');
+  assert.equal(upload.path, '/api/voice/transcribe');
+  assert.ok(upload.options.form.get('file'));
+  assert.equal(box.value, 'I have a runny nose. No fever.');
+  assert.ok(box.inputs > 0 && box.focused);
+  assert.equal(box.disabled, false);
+  assert.deepEqual(busy, [true, false]);
   assert.ok(lastStream.track.stops > 0);
-  await action(element, 'send').click();
-  assert.equal(sent, 1);
   dispose();
 });
 
-await test('cancelling a pending permission request closes a late-arriving stream', async () => {
-  const previous = navigator.mediaDevices.getUserMedia;
-  let accept;
-  navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { accept = resolve; });
-  const element = new Element();
-  const dispose = voice.attachVoiceComposer(element, {onSend: async () => {}});
-  const opening = action(element, 'record').click();
-  action(element, 'cancel').click();
-  const stream = makeStream(); accept(stream); await opening;
-  assert.equal(stream.track.stops, 1);
-  assert.ok(action(element, 'record'));
-  navigator.mediaDevices.getUserMedia = previous; dispose();
+await test('dictation respects the box length limit', async () => {
+  const button = new Element(), box = new Textarea('abc'); box.maxLength = 8;
+  globalThis.__api = async () => ({text: 'defghijk'});
+  const dispose = voice.attachDictation(button, box);
+  await dictate(button);
+  assert.equal(box.value, 'abc defg');
+  dispose();
 });
 
-await test('microphone denial restores usable controls', async () => {
+await test('a failed transcription keeps the typed text and shows the error', async () => {
+  const button = new Element(), box = new Textarea('keep me');
+  globalThis.__api = async () => { throw new Error('I could not hear anything. Please try again.'); };
+  const dispose = voice.attachDictation(button, box);
+  await dictate(button);
+  assert.equal(box.value, 'keep me');
+  assert.equal(box.disabled, false);
+  assert.equal(box.inserted.at(-1).textContent, 'I could not hear anything. Please try again.');
+  dispose();
+});
+
+await test('microphone denial shows a message and leaves the box usable', async () => {
   const previous = navigator.mediaDevices.getUserMedia;
   navigator.mediaDevices.getUserMedia = async () => { const e = new Error('denied'); e.name = 'NotAllowedError'; throw e; };
-  const element = new Element();
-  const dispose = voice.attachVoiceComposer(element, {onSend: async () => {}});
-  await action(element, 'record').click();
-  assert.ok(element.innerHTML.includes('permission was denied'));
-  assert.ok(action(element, 'record'));
+  const button = new Element(), box = new Textarea('typed');
+  const dispose = voice.attachDictation(button, box);
+  await button.click(); await settle();
+  assert.ok(box.inserted.at(-1).textContent.includes('permission was denied'));
+  assert.equal(box.value, 'typed');
   navigator.mediaDevices.getUserMedia = previous; dispose();
 });
 
-await test('discarding a preview revokes its temporary audio URL', async () => {
-  const element = new Element(); const before = revoked;
-  const dispose = voice.attachVoiceComposer(element, {onSend: async () => {}});
-  await action(element, 'record').click(); action(element, 'stop').click(); await flush();
-  action(element, 'cancel').click();
-  assert.equal(revoked, before + 1); dispose();
-});
-
-await test('removing a composer stops recording and releases its microphone', async () => {
-  const element = new Element();
-  voice.attachVoiceComposer(element, {onSend: async () => {}});
-  await action(element, 'record').click(); const stream = lastStream;
-  element.isConnected = false; sweep(); await flush();
+await test('removing the box stops dictation and releases its microphone', async () => {
+  const button = new Element(), box = new Textarea('');
+  voice.attachDictation(button, box);
+  await button.click(); await settle(); const stream = lastStream;
+  button.isConnected = false; sweep(); await settle();
   assert.ok(stream.track.stops > 0);
 });
 
-await test('hiding the page stops recording without permanently removing controls', async () => {
-  const element = new Element();
-  const dispose = voice.attachVoiceComposer(element, {onSend: async () => {}});
-  await action(element, 'record').click(); const stream = lastStream;
-  document.hidden = true; documentEvents.visibilitychange(); await flush(); document.hidden = false;
+await test('hiding the page stops dictation', async () => {
+  const button = new Element(), box = new Textarea('');
+  const dispose = voice.attachDictation(button, box);
+  await button.click(); await settle(); const stream = lastStream;
+  document.hidden = true; documentEvents.visibilitychange(); await settle(); document.hidden = false;
   assert.ok(stream.track.stops > 0);
-  assert.ok(action(element, 'record')); dispose();
-});
-
-await test('changing the selected recipient cannot send a stale recording', async () => {
-  const element = new Element(); let selected = 1, sent = 0;
-  const dispose = voice.attachVoiceComposer(element, {context: () => selected, onSend: async () => { sent++; }});
-  await action(element, 'record').click(); action(element, 'stop').click(); await flush();
-  selected = 2; await action(element, 'send').click();
-  assert.equal(sent, 0);
-  assert.ok(element.innerHTML.includes('recipient changed')); dispose();
+  dispose();
 });
 
 await test('playback fetch uses the bearer header, not a token in the URL', async () => {

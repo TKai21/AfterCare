@@ -391,8 +391,11 @@ async def answer_question(
     q = await session.get(CareTeamQuestion, question_id)
     if q is None or q.doctor_id not in (None, doctor.id):
         raise HTTPException(status_code=404, detail="Question not found")
-    if q.source == "patient_voice":
-        raise HTTPException(status_code=409, detail="Reply to this voice question with a voice clip.")
+    # A clip-only question from before sending clips was removed: a text answer
+    # closes it, but it teaches the clone nothing ("Voice question" is no question).
+    legacy_clip = q.source == "patient_voice"
+    if legacy_clip and body.general:
+        raise HTTPException(status_code=422, detail="A voice question cannot become general advice.")
     drug_tags, condition_tags = clean_tags(body.drug_tags), clean_tags(body.condition_tags)
     # The same question asked again is answered with this card.
     ids = [q.id]
@@ -446,6 +449,10 @@ async def answer_question(
         if (draft is not None and draft.question_id == q.id and draft.doctor_id == doctor.id
                 and draft.sent_answer is None):
             record_send(draft, body.answer, utcnow())
+    if legacy_clip:
+        await session.commit()
+        await session.refresh(q)
+        return {"question": question_view(q, await doctor_names(session, [q])), "guidance": None}
     entry = DoctorGuidance(
         doctor_id=doctor.id,
         question=(body.saved_question or q.question) if body.general else q.question,

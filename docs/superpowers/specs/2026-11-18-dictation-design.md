@@ -19,6 +19,8 @@ habits (a voice clip is not).
 - Anti-goals: text sent without the speaker seeing it; audio or transcripts
   stored or logged on the server.
 
+Sending voice clips was removed on 2026-11-18; existing clips still play.
+
 ## Approaches
 
 - **Chosen: server-side transcription with the OpenAI audio API.** Works in

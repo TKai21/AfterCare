@@ -1,6 +1,6 @@
 // Care team tab: questions to bring to the care team, open first, resolved collapsed.
 import {api, escapeHtml, registerTab} from '/static/api.js';
-import {attachDictation, attachVoiceComposer, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
+import {attachDictation, clearVoice, mountVoicePlayers, voicePlayerHtml} from '/static/voice.js';
 import {
   CHECK_ICON, MAX_QUESTION, askDoctorDirectly, emergencyHtml, loadDoctors, pickDoctor,
   warningSignsOf,
@@ -26,7 +26,6 @@ const view = {
   // chosen: the patient picked a doctor in the select during this visit to the tab.
   form: {doctorId: null, chosen: false, text: '', sending: false, error: '', sent: null, emergency: false},
   signs: [],           // active warning signs, for the emergency banner
-  voiceActive: false,
   dictating: false,
 };
 
@@ -230,7 +229,6 @@ function formHtml() {
         <button type="button" class="btn btn-secondary btn-small dictate-btn" id="careDictate" ${form.sending ? 'disabled' : ''}></button>
         <button type="submit" class="btn btn-primary btn-small" id="directSubmit" ${disabled ? 'disabled' : ''}>${form.sending ? 'Sending...' : 'Send'}</button>
       </div>
-      <div id="patientVoiceComposer"></div>
       ${form.sent ? `
         <div class="direct-done">
           ${form.emergency ? emergencyHtml(view.signs) : ''}
@@ -242,7 +240,7 @@ function formHtml() {
 async function sendDirect(panel) {
   const form = view.form;
   const question = form.text.trim();
-  if (!question || view.voiceActive || view.dictating || form.sending || form.doctorId === null) return;
+  if (!question || view.dictating || form.sending || form.doctorId === null) return;
   // Sending disables the form, which drops focus; it returns to the question
   // box afterwards unless the patient has moved on.
   const hadFocus = panel.contains(document.activeElement);
@@ -333,13 +331,13 @@ function render(panel) {
     box.querySelector('#directQuestion').addEventListener('input', event => {
       view.form.text = event.target.value;
       view.form.sent = null;
-      box.querySelector('#directSubmit').disabled = view.voiceActive || view.dictating || view.form.sending || !view.form.text.trim();
+      box.querySelector('#directSubmit').disabled = view.dictating || view.form.sending || !view.form.text.trim();
     });
     attachDictation(box.querySelector('#careDictate'), box.querySelector('#directQuestion'), {
       onBusy: busy => {
         view.dictating = busy;
-        box.querySelector('#directSubmit').disabled = busy || view.voiceActive || view.form.sending || !view.form.text.trim();
-        box.querySelector('#directDoctor').disabled = busy || view.voiceActive;
+        box.querySelector('#directSubmit').disabled = busy || view.form.sending || !view.form.text.trim();
+        box.querySelector('#directDoctor').disabled = busy;
       },
     });
     box.addEventListener('submit', event => {
@@ -364,29 +362,4 @@ function render(panel) {
   const details = panel.querySelector('.resolved');
   if (details) details.addEventListener('toggle', () => { view.resolvedOpen = details.open; });
   mountVoicePlayers(panel);
-  const voiceBox = panel.querySelector('#patientVoiceComposer');
-  if (voiceBox && !view.form.sending) {
-    attachVoiceComposer(voiceBox, {
-      label: 'Or send your doctor a voice question',
-      context: () => view.form.doctorId,
-      onBusy: busy => {
-        view.voiceActive = busy;
-        const doctor = panel.querySelector('#directDoctor');
-        const send = panel.querySelector('#directSubmit');
-        if (doctor) doctor.disabled = busy;
-        if (send) send.disabled = busy || view.dictating || view.form.sending || !view.form.text.trim();
-      },
-      onSend: async (blob, filename, doctorId) => {
-        const form = new FormData();
-        form.append('doctor_id', String(doctorId));
-        form.append('file', blob, filename);
-        const out = await api('/api/voice/questions', {method: 'POST', form});
-        view.questions = [out.question, ...(view.questions || [])];
-        view.form.sent = out.question.doctor_name || 'your doctor';
-        view.form.emergency = false;
-        notify();
-        render(panel);
-      },
-    });
-  }
 }

@@ -3,9 +3,6 @@ from sqlalchemy import select
 
 from models import VoiceClip
 
-VOICE_QUESTION = "Voice question"
-VOICE_ANSWER = "Voice reply"
-
 
 async def voice_views(session, question_ids) -> dict:
     ids = set(question_ids)
