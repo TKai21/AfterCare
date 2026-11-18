@@ -1843,6 +1843,11 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .clarify-q.is-doctor { border-left-color: var(--accent); }
 .clarify-q-text { overflow-wrap: anywhere; }
 .clarify-q-tag { color: var(--text-subtle); font-size: 12.5px; letter-spacing: 0.02em; }
+.clarify-sofar { color: var(--text-muted); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.clarify-sofar-label { color: var(--text-subtle); font-size: 11.5px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; margin-right: 6px; }
+.clarify-sofar-item:not(:last-child)::after { content: "\00b7"; margin: 0 2px 0 5px; color: var(--text-subtle); }
+.clarify-sofar-item.is-unsure { color: var(--text-subtle); }
+.clarify-progress { color: var(--text-subtle); font-size: 12.5px; letter-spacing: 0.02em; }
 .answer-list { padding-left: 22px; list-style: disc; }
 .answer-list li::marker { color: var(--accent); }
 .answer-list li + li { margin-top: 6px; }
@@ -2059,10 +2064,13 @@ textarea.composer-input:focus { box-shadow: none; }
 .composer.is-locked { position: static; }
 .composer.is-locked .composer-box { background: var(--surface-muted); box-shadow: none; }
 .composer-send { flex: none; min-height: 46px; padding: 0 20px; }
+.composer-notsure { flex: none; min-height: 46px; padding: 0 18px; }
+.composer-notsure[hidden] { display: none; }
 .composer-hint { margin-top: 8px; padding-left: 20px; color: var(--text-subtle); font-size: 12.5px; }
 .composer.is-locked .composer-hint { visibility: hidden; }
 @media (pointer: coarse) { .composer-hint { display: none; } }
 @media (max-width: 479px) {
+  .composer-notsure { padding: 0 14px; font-size: 14px; }
   .composer-send { width: 46px; padding: 0; }
   .send-text { display: none; }
 }
@@ -2685,6 +2693,8 @@ input.doctor-tag-input:not([type="file"]):not([type="checkbox"]):not([type="radi
 .doctor-thread { display: flex; flex-direction: column; gap: 12px; padding-left: 14px; border-left: 2px solid var(--border); }
 .doctor-thread-label { color: var(--text-subtle); font-size: 11.5px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
 .doctor-thread-text { color: var(--text); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.doctor-summary { display: flex; flex-direction: column; gap: 4px; }
+.doctor-summary-line { color: var(--text); font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
 .doctor-stop-note { color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
 .doctor-filters {
   display: flex;

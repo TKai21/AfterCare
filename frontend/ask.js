@@ -118,18 +118,32 @@ function switchDoctor(id) {
   loadConversation(view.docId);
 }
 
-async function ask(question) {
+// The interview question still waiting for the patient, if the latest message is one.
+function pendingInterview() {
+  const last = view.messages[view.messages.length - 1];
+  const payload = last && last.role === 'assistant' ? last.payload : null;
+  return payload && payload.kind === 'clarify' && payload.pending === true && payload.interview ? payload.interview : null;
+}
+
+function notSure() {
+  const interview = pendingInterview();
+  if (!interview || view.busy || inputLocked()) return;
+  ask('', {notSure: true, round: interview.round});
+}
+
+async function ask(question, {notSure = false, round = null} = {}) {
   const docId = view.docId;
   const doctorId = view.doctorId;
-  const pending = {role: 'user', content: question};
+  const pending = {role: 'user', content: notSure ? "I'm not sure." : question};
   view.messages.push(pending);
   view.busy = true;
   view.notice = null;
-  view.draft = '';
-  update({clearInput: true});
+  if (!notSure) view.draft = '';
+  update({clearInput: !notSure});
   scrollToLatest('smooth');
   try {
-    const payload = await api('/api/ask', {method: 'POST', json: {question, doctor_id: doctorId}});
+    const body = notSure ? {question: '', not_sure: true, round, doctor_id: doctorId} : {question, doctor_id: doctorId};
+    const payload = await api('/api/ask', {method: 'POST', json: body});
     if (view.docId !== docId || view.doctorId !== doctorId) return;
     // Any reply turn ends the clone's pending questions (the server does the same).
     view.messages.forEach(m => {
@@ -149,7 +163,7 @@ async function ask(question) {
     view.messages = view.messages.filter(m => m !== pending);
     view.busy = false;
     view.notice = noticeFor(error);
-    if (!view.draft) view.draft = question;  // keep the question so it can be sent again
+    if (!view.draft && !notSure) view.draft = question;  // keep the question so it can be sent again
     update({restoreInput: true});
     if (error.status === 409 && ctxRef) ctxRef.reloadDocument();
   }
@@ -195,7 +209,16 @@ function clarifyHtml(payload) {
     </li>`;
   }).join('');
   const opener = payload.opener ? `<p>${esc(payload.opener)}</p>` : '';
-  return `${opener}<ul class="clarify-list">${items}</ul>`;
+  const iv = payload.interview;
+  const soFar = iv && Array.isArray(iv.so_far) && iv.so_far.length
+    ? `<p class="clarify-sofar"><span class="clarify-sofar-label">So far</span> ${iv.so_far.map(i => i.status === 'unsure'
+        ? `<span class="clarify-sofar-item is-unsure">${esc(i.label)}: not sure</span>`
+        : `<span class="clarify-sofar-item">${esc(i.label)}: ${i.quote ? `\u201c${esc(i.quote)}\u201d` : 'answered'}</span>`).join(' ')}</p>`
+    : '';
+  const progress = iv && iv.max_rounds
+    ? `<p class="clarify-progress">Question ${esc(Math.min(Math.max(Number(iv.round) || 1, 1), iv.max_rounds))} of up to ${esc(iv.max_rounds)}</p>`
+    : '';
+  return `${opener}${soFar}<ul class="clarify-list">${items}</ul>${progress}`;
 }
 
 function sourceLabel(source) {
@@ -305,6 +328,7 @@ function renderShell(panel) {
         <label class="visually-hidden" for="askInput">Your question</label>
         <div class="composer-box">
           <textarea id="askInput" class="composer-input" rows="1" maxlength="${MAX_QUESTION}" placeholder="Ask a question about your recovery"></textarea>
+          <button type="button" class="btn btn-secondary composer-notsure" id="askNotSure" hidden>Not sure</button>
           <button type="submit" class="btn btn-primary composer-send" id="askSend" aria-label="Send">${SEND_ICON}<span class="send-text">Send</span></button>
         </div>
         <p class="composer-hint">Press Enter to send, Shift + Enter for a new line.</p>
@@ -331,6 +355,7 @@ function renderShell(panel) {
     event.preventDefault();
     submit();
   });
+  panel.querySelector('#askNotSure').addEventListener('click', notSure);
   panel.querySelector('#askDirect').addEventListener('click', onDirectClick);
   panel.querySelector('#askDirect').addEventListener('input', onDirectInput);
   panel.querySelector('#askDirect').addEventListener('submit', onDirectSubmit);
@@ -353,6 +378,11 @@ function autosize(input) {
 function syncSend() {
   const send = panelRef.querySelector('#askSend');
   if (send) send.disabled = view.busy || inputLocked() || !view.draft.trim();
+  const unsure = panelRef.querySelector('#askNotSure');
+  if (unsure) {
+    unsure.hidden = !pendingInterview();
+    unsure.disabled = view.busy || inputLocked();
+  }
 }
 
 function bodyHtml() {
@@ -559,7 +589,8 @@ function update({clearInput = false, restoreInput = false} = {}) {
   panel.querySelector('#askLead').textContent = currentDoctor()
     ? `Answers come from your discharge document and ${name}'s earlier advice, given by ${name}'s AI clone.`
     : 'Answers come from your discharge document and your doctor\'s earlier advice, given by an AI clone.';
-  panel.querySelector('#askInput').placeholder = currentDoctor() ? `Ask ${name}'s AI clone...` : 'Ask a question about your recovery';
+  panel.querySelector('#askInput').placeholder = pendingInterview() ? 'Type your answer...'
+    : currentDoctor() ? `Ask ${name}'s AI clone...` : 'Ask a question about your recovery';
   renderTabs();
   renderDirect();
   panel.querySelector('#askBody').innerHTML = bodyHtml();

@@ -223,12 +223,16 @@ function threadHtml(q, {reply = true, note = true} = {}) {
       <p class="doctor-thread-text">${esc(text)}</p></div>`;
   const rounds = roundsOf(q);
   const many = rounds.length > 1;
+  const summary = String(q.summary || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const known = summary.length ? `
+    <div class="doctor-thread-block"><p class="doctor-thread-label">What the clone found out</p>
+      <div class="doctor-summary">${summary.map(l => `<p class="doctor-summary-line">${esc(l)}</p>`).join('')}</div></div>` : '';
   const blocks = rounds.map((r, i) => {
     const n = many ? `Round ${i + 1}: ` : '';
     return block(n + 'My clone asked', r.asked) + (reply && r.reply ? block(n + 'Patient replied', r.reply) : '');
   }).join('');
   return `
-    <div class="doctor-thread">${blocks}</div>
+    <div class="doctor-thread">${known}${blocks}</div>
     ${note && q.stopped_by ? `<p class="doctor-stop-note">${esc(q.stopped_by)}</p>` : ''}`;
 }
 
