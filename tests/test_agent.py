@@ -749,9 +749,11 @@ def test_validate_general_information_needs_a_library_citation():
     doc = evidence("Take colchicine 0.6 mg twice daily.")
     with pytest.raises(ValueError, match="library"):
         validate(raw(kind="not_covered", answer=f"{general} Do not take more than directed."), doc)
-    with pytest.raises(ValueError, match="library"):
+    # Citing the document means the document covers it: answer from it instead.
+    with pytest.raises(ValueError) as error:
         validate(raw(kind="not_covered", answer=f"{general} Take it as directed [1].",
                      citations=[1]), doc)
+    assert str(error.value) == agent.GENERAL_INFO_FROM_DOCUMENT_ERROR
     library = {1: Evidence(1, "library", "Colchicine", "https://medlineplus.gov/x", "If you miss a dose, "
                            "take it as soon as you remember.", check_text="If you miss a dose, "
                            "take it as soon as you remember.")}
@@ -2629,7 +2631,7 @@ async def test_picker_error_keeps_not_covered(store, foods, document, items):
 
     class Boom(FakeLLM):
         async def chat(self, messages, tools=None, json_mode=False):
-            if tools is None and len(self.calls) == 2:
+            if messages[0]["content"] == agent.ASK_PICKER_PROMPT:
                 self.calls.append((messages, tools, json_mode))
                 raise LLMError("down")
             return await super().chat(messages, tools, json_mode)
@@ -3221,3 +3223,110 @@ async def test_an_empty_clarify_twice_then_a_clean_judge_closes(store, foods, do
     result = await ask_reply(llm, store, foods, document, items)
     assert result.kind == "close" and agent.strip_markers(result.answer) == CLOSE_QUOTE
     assert result.care_team_question is None and result.replies_to_questions is True
+
+
+# ---------- second look at the document (a first-turn "not_covered") ----------
+
+def paragraphs_route(llm, numbers):
+    llm.route(agent.SECOND_LOOK_PROMPT,
+              lambda messages: {"content": json.dumps({"paragraphs": numbers})})
+
+
+def water_paragraph(document):
+    paragraphs = agent.evidence_paragraphs(document.text)
+    return next(n for n, p in enumerate(paragraphs, start=1) if "2 liters" in p)
+
+
+async def test_second_look_answers_from_an_overlooked_paragraph(store, foods, document, items):
+    n = water_paragraph(document)
+    llm = FakeLLM()
+    paragraphs_route(llm, [n])
+    llm.script(
+        tool_call("add_care_team_question", {"question": "Water?", "reason": "Not in my sources"}),
+        final("I could not find this.", [], kind="not_covered"),
+        final(f"Drink at least 2 liters of water every day [{n}].", [n]),
+    )
+    result = await ask(llm, store, foods, document, items, question="How much water?")
+    assert result.kind == "answer" and result.flagged is False
+    assert result.care_team_question is None
+    assert [e.number for e in result.sources] == [n]
+    nudge = llm.calls[2][0][-1]["content"]
+    assert f"[{n}]" in nudge and "2 liters" in nudge
+    assert llm.calls[2][1] is None  # no tools on the second-look call
+    # The small call sees only the document and the question.
+    (messages, tools, json_mode), = llm.routed_calls
+    assert tools is None and json_mode is True
+    assert "How much water?" in messages[1]["content"]
+
+
+async def test_second_look_keeps_the_handoff_when_the_model_repeats_it(store, foods, document, items):
+    llm = FakeLLM()
+    paragraphs_route(llm, [water_paragraph(document)])
+    llm.script(
+        tool_call("add_care_team_question", {"question": "Water?", "reason": "Not in my sources"}),
+        final("I could not find this.", [], kind="not_covered"),
+        final("I could not find this.", [], kind="not_covered"),
+    )
+    result = await ask(llm, store, foods, document, items, question="How much water?")
+    assert result.kind == "not_covered" and result.answer == FALLBACK
+    assert result.care_team_question == "Water?"
+    assert result.care_team_reason == "Not in my sources"
+    assert len(llm.routed_calls) == 1  # looked once, never again
+
+
+@pytest.mark.parametrize("reply", [
+    json.dumps({"paragraphs": []}), "not json", json.dumps({"paragraphs": "3"}),
+    json.dumps({"paragraphs": [0, 999, True, "2"]}), json.dumps({}),
+])
+async def test_second_look_with_no_usable_paragraph_changes_nothing(store, foods, document, items,
+                                                                    reply):
+    llm = FakeLLM()
+    llm.route(agent.SECOND_LOOK_PROMPT, lambda messages: {"content": reply})
+    llm.script(final("I could not find this.", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question="Almond flour?")
+    assert result.kind == "not_covered" and result.answer == FALLBACK
+    assert result.care_team_question == "Almond flour?"
+    assert len(llm.calls) == 1
+
+
+async def test_second_look_failure_keeps_the_handoff(store, foods, document, items):
+    def boom(messages):
+        raise LLMError("down")
+    llm = FakeLLM()
+    llm.route(agent.SECOND_LOOK_PROMPT, boom)
+    llm.script(final("I could not find this.", [], kind="not_covered"))
+    result = await ask(llm, store, foods, document, items, question="Almond flour?")
+    assert result.kind == "not_covered" and result.answer == FALLBACK
+    assert result.care_team_question == "Almond flour?"
+
+
+async def test_no_second_look_for_an_emergency_or_a_conflict(store, foods, document, items):
+    n = water_paragraph(document)
+    emergency = FakeLLM()
+    paragraphs_route(emergency, [n])
+    emergency.script(final("I could not find this.", [], kind="not_covered"))
+    await ask(emergency, store, foods, document, items, question="Chest pain?",
+              emergency_terms=["chest pain"])
+    assert emergency.routed_calls == []
+
+    conflict = FakeLLM()
+    paragraphs_route(conflict, [n])
+    conflict.script(
+        tool_call("add_care_team_question", {"question": "Which?", "reason": "Sources disagree"}),
+        final("I could not find this.", [], kind="not_covered"),
+    )
+    result = await ask(conflict, store, foods, document, items, question="Which one?")
+    assert conflict.routed_calls == []
+    assert result.care_team_reason == "Sources disagree"
+
+
+def test_general_information_citing_the_document_is_told_to_answer(document):
+    paragraphs = agent.evidence_paragraphs(document.text)
+    evidence = {n: Evidence(n, "document", "Discharge document", None, p, check_text=p)
+                for n, p in enumerate(paragraphs, start=1)}
+    n = water_paragraph(document)
+    raw = json.dumps({"kind": "not_covered", "citations": [n], "care_team_question": None,
+                      "answer": f"{agent.GENERAL_INFO} Drink water [{n}]."})
+    with pytest.raises(ValueError) as error:
+        validate(raw, evidence)
+    assert str(error.value) == agent.GENERAL_INFO_FROM_DOCUMENT_ERROR

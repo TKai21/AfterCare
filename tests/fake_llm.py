@@ -3,8 +3,13 @@ import json
 import math
 import re
 
+import agent
 import drafts
 import rules
+
+
+def no_paragraphs(messages):
+    return {"role": "assistant", "content": json.dumps({"paragraphs": []})}
 
 
 class FakeLLM:
@@ -18,8 +23,10 @@ class FakeLLM:
         # System prompt -> responder(messages) -> message. Routed calls skip the
         # scripted queue and are recorded in routed_calls, not calls.
         # By default the rule reader gets one rule per sentence and the conflict
-        # check finds none, so indexing never consumes the scripted queue.
-        self.routes: dict = {rules.RULES_PROMPT: sentence_rules,
+        # check finds none, so indexing never consumes the scripted queue. The
+        # second look at the document finds no paragraph.
+        self.routes: dict = {agent.SECOND_LOOK_PROMPT: no_paragraphs,
+                             rules.RULES_PROMPT: sentence_rules,
                              rules.CONFLICT_PROMPT: no_conflicts,
                              drafts.SUPPORT_PROMPT: all_supported}
         self.routed_calls: list[tuple] = []
