@@ -2072,6 +2072,10 @@ textarea.composer-input:focus { box-shadow: none; }
 .composer.is-locked .composer-hint { visibility: hidden; }
 @media (pointer: coarse) { .composer-hint { display: none; } }
 @media (max-width: 479px) {
+  /* Narrow: the text box takes the full width, the controls sit in a row under it. */
+  .composer-box { flex-wrap: wrap; align-items: center; border-radius: 24px; }
+  textarea.composer-input { flex: 1 0 100%; min-width: 0; }
+  .composer-box .dictate-btn { margin-right: auto; }
   .composer-notsure { padding: 0 14px; font-size: 14px; }
   .composer-send { width: 46px; padding: 0; }
   .send-text { display: none; }
