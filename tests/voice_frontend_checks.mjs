@@ -64,8 +64,8 @@ URL.createObjectURL = () => 'blob:test-' + (++created);
 URL.revokeObjectURL = () => { revoked++; };
 const path = new URL('../frontend/voice.js', import.meta.url);
 const source = readFileSync(path, 'utf8').replace(
-  "import {getToken, clearSession, escapeHtml} from '/static/api.js';",
-  "const getToken = () => 'test-token'; const clearSession = () => {}; const escapeHtml = x => String(x);",
+  "import {api, getToken, clearSession, escapeHtml} from '/static/api.js';",
+  "const api = async () => ({text: ''}); const getToken = () => 'test-token'; const clearSession = () => {}; const escapeHtml = x => String(x);",
 );
 const voice = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const flush = () => new Promise(resolve => setImmediate(resolve));
