@@ -353,3 +353,68 @@ def test_the_reply_relaxation_is_gone():
     import safety
     assert not hasattr(safety, "detect_emergency_in_reply")
     assert not hasattr(safety, "NEVER_RELAXED")
+
+
+# ---------- denied danger signs on interview replies (2026-11-17 spec 4.4) ----------
+
+from safety import denial_clears  # noqa: E402
+
+
+def clears(message, judged_absent, extra_terms=()):
+    return denial_clears(message, detect_emergency(message, list(extra_terms)),
+                         list(extra_terms), set(judged_absent))
+
+
+def test_denial_clears_no_trouble_breathing():
+    assert clears("No fever and no trouble breathing", {"trouble breathing", "fever"})
+    assert clears("I don't have any trouble breathing.", {"trouble breathing"})
+    assert clears("No, no trouble breathing at all", {"Trouble Breathing"})
+
+
+def test_denial_mixed_affirmed_term_still_emergency():
+    message = "no fever but I can't breathe"
+    assert not clears(message, {"fever", *detect_emergency(message, [])})
+    assert not clears("No trouble breathing, but I have chest pain",
+                      {"trouble breathing", "chest pain"})
+
+
+def test_denial_never_clears_self_harm():
+    for message in ("I don't want to hurt myself", "Not suicidal", "I did not overdose"):
+        assert not clears(message, set(detect_emergency(message, []))), message
+
+
+def test_denial_retraction_still_emergency():
+    for message in ("I did not faint. Well I did", "No chest pain. Yes",
+                    "No chest pain. Not true.", "No chest pain. Never mind.",
+                    "No chest pain chest pain", "No trouble breathing but he is not breathing"):
+        assert not clears(message, {"fever", *detect_emergency(message, [])}), message
+
+
+def test_denial_judge_unclear_still_emergency():
+    assert not clears("No trouble breathing", set())
+    assert not clears("No fever and no trouble breathing", {"fever"})
+
+
+def test_denial_needs_every_term_denied_and_rerun_clean():
+    # The matched list is checked against the backstop's own reading too.
+    assert not denial_clears("No trouble breathing. I can't breathe", ["trouble breathing"],
+                             [], {"trouble breathing", "can't breathe"})
+    # A self-negating label ("can't breathe") has no plain denial.
+    assert not clears("I can't breathe", {"can't breathe"})
+    # Words other than a plain denial anywhere in the reply keep the emergency.
+    assert not clears("No trouble breathing, the redness started two days ago",
+                      {"trouble breathing"})
+
+
+def test_no_m4_probe_is_cleared_by_an_all_absent_judge():
+    # Every probe kept from M4, read as an interview reply whose judge says
+    # every term is absent: only the plain denials may clear.
+    cases = [(m, []) for m in (*SYNONYMS, *RETRACTIONS, *PLAIN_DENIALS, *ROUND1)]
+    cases += [(m, ROUND3_DOC) for m in ROUND3]
+    cases += [(wrap.format(p=AFF[label]), []) for label in AFF for wrap in WRAPS]
+    cleared = set()
+    for message, doc in cases:
+        absent_all = {"fever", "chills", *doc, *detect_emergency(message, doc)}
+        if clears(message, absent_all, doc):
+            cleared.add(message)
+    assert cleared == set(PLAIN_DENIALS), cleared

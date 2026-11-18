@@ -2411,3 +2411,126 @@ async def test_interview_emergency_reply_gets_the_emergency_answer(client, fake_
     assert (q.status, q.stopped_by) == ("open", "Emergency terms")
     assert q.intake["rounds"] == [
         {"asked": FEVER_Q, "item": 2, "reply": "No fever but I have chest pain."}]
+
+
+# ---------- denied danger signs on interview replies (2026-11-17 spec 4.4, Task 4) ----------
+
+BREATHING_DENIAL = "No fever and no trouble breathing."
+
+
+async def interview_reply(client, fake_llm, h, doctor_id, reply):
+    """The response to `reply` and the waiting row after it."""
+    resp = await post_ask(client, h, reply, doctor_id=doctor_id)
+    assert resp.status_code == 200, resp.text
+    (q,) = await all_questions(client)
+    return resp.json(), q
+
+
+def the_agent_hands_off(fake_llm):
+    """The agent's own call on an emergency turn: the fixed answer wins anyway."""
+    fake_llm.script(final("not_covered", "x", []))
+
+
+def assert_emergency(body, q):
+    assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY, body
+    assert (q.status, q.stopped_by) == ("open", "Emergency terms")
+
+
+async def test_interview_reply_denying_breathing_continues(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever", "trouble breathing"))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body, q = await interview_reply(client, fake_llm, h, doctor_id, BREATHING_DENIAL)
+    assert len(fake_llm.calls) == main_calls  # the agent model is not called
+    # One judge call decides both the backstop and the round.
+    assert talk.calls["judge"] == 1
+    assert body["kind"] == "clarify" and body["questions"] == [
+        {"text": REDNESS_Q, "doctor": True}], body
+    assert body["interview"]["so_far"] == [{"label": "fever", "status": "answered", "quote": ""}]
+    assert (q.status, q.asked) == ("waiting_on_patient", REDNESS_Q)
+    assert q.intake["rounds"][0]["reply"] == BREATHING_DENIAL
+
+
+@pytest.mark.parametrize("reply", [
+    "No fever but I can't breathe",                    # an affirmed term
+    "I did not faint. Well I did",                     # a retraction
+    "No trouble breathing but he is not breathing",    # an M4 synonym probe
+    "I don't want to hurt myself",                     # self-harm: never relaxed
+])
+async def test_interview_reply_not_a_plain_denial_is_emergency(client, fake_llm, reply):
+    from safety import detect_emergency
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(signs=absent("fever", *detect_emergency(reply, [])))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    the_agent_hands_off(fake_llm)
+    assert_emergency(*await interview_reply(client, fake_llm, h, doctor_id, reply))
+
+
+@pytest.mark.parametrize("judge", [
+    judged(signs=[*absent("fever"), {"term": "trouble breathing", "status": "unclear"}]),
+    judged(signs=absent("fever")),                     # the term left out
+    "not json",                                        # the judge failed
+])
+async def test_interview_reply_denial_unconfirmed_by_judge_is_emergency(client, fake_llm, judge):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}], judges=[judge])
+    await start_interview(client, fake_llm, h, doctor_id)
+    the_agent_hands_off(fake_llm)
+    assert_emergency(*await interview_reply(client, fake_llm, h, doctor_id, BREATHING_DENIAL))
+
+
+async def test_interview_reply_denial_without_a_model_is_emergency(app_and_client, fake_llm):
+    app, client = app_and_client
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                judges=[judged(signs=absent("fever", "trouble breathing"))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    app.state.llm = None
+    body, q = await interview_reply(client, fake_llm, h, doctor_id, BREATHING_DENIAL)
+    assert_emergency(body, q)
+
+
+async def test_first_message_denial_is_not_relaxed(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever", "trouble breathing"))])
+    the_agent_hands_off(fake_llm)
+    resp = await post_ask(client, h, "My incision is red. No trouble breathing.",
+                          doctor_id=doctor_id)
+    body = resp.json()
+    # The backstop's terms reach the agent and the banner: no judge, no interview.
+    assert body["emergency"] == {"terms": ["trouble breathing"], "banner": True}, body
+    assert "interview" not in body
+    assert talk.calls["judge"] == 0 and talk.calls["build"] == 0
+
+
+async def test_old_shape_intake_denial_is_not_relaxed(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id = await ask_first_doctor(client, fake_llm)
+    await start_clarify(client, fake_llm, h, doctor_id)  # the 4.7 list-shape intake
+    reply = "No fever and no trouble breathing."
+    fake_llm.script(reply_final("close", CLOSE_TEXT + " [5]", [5],
+                                signs=absent("fever", "threw up", "trouble breathing")))
+    assert_emergency(*await interview_reply(client, fake_llm, h, doctor_id, reply))
+
+
+async def test_expired_interview_denial_is_not_relaxed(client, fake_llm):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever", "trouble breathing"), close=5)])
+    await start_interview(client, fake_llm, h, doctor_id)
+    await time_out_waiting(client)
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    resp = await post_ask(client, h, BREATHING_DENIAL, doctor_id=doctor_id)
+    body = resp.json()
+    assert body["kind"] == "emergency" and body["answer"] == EMERGENCY_ANSWER_COPY, body
+    assert talk.calls["judge"] == 0

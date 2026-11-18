@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints, model_validator
@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
-    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, PendingClarify, clarify_questions,
+    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, Judged, PendingClarify, clarify_questions,
     dedupe_terms, emergency_result, fallback_answer, judge_reply, rounds_text, run_agent,
     strip_markers,
 )
@@ -33,7 +33,7 @@ from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
-from safety import _canon, detect_emergency, match_terms, warning_terms
+from safety import _canon, denial_clears, detect_emergency, match_terms, warning_terms
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -268,11 +268,48 @@ async def recent_history(
 
 # ---------- the clone interview (spec 2026-11-17, sections 4.1-4.3 and 4.7) ----------
 
-def interview_backstop(terms: list[str], reply: str, iv: Interview) -> list[str]:
-    """The emergency terms that still count on an interview reply turn. The one
-    place the denied-danger-signs rule (spec 4.4) will relax the backstop; until
-    then every match counts, so an interview reply gets today's emergency answer."""
-    return terms
+def interview_judge_terms(iv: Interview, reply: str, match_pool: list[str],
+                          denied: Sequence[str] = ()) -> tuple[list[str], list[str]]:
+    """The reply judge's terms on an interview turn (spec 4.7 item 2): the open
+    safety items, every warning term the reply names, and the backstop terms a
+    denial is to clear; and the terms the reply names (matched or denied)."""
+    open_safety = [i.label for i in iv.items if i.safety and i.status == "unknown"]
+    matched = match_terms(reply, list(dict.fromkeys([*match_pool, *open_safety])))
+    named = [*matched, *denied]
+    return dedupe_terms([*open_safety, *named]), named
+
+
+def judged_statuses(judged: Judged) -> dict[str, set]:
+    statuses: dict[str, set] = {}
+    for sign in judged.signs:
+        statuses.setdefault(_term_key(sign["term"]), set()).add(sign["status"])
+    return statuses
+
+
+async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, original: str,
+                             match_pool: list[str], document_terms: list[str],
+                             ) -> tuple[list[str], Optional[Judged]]:
+    """The emergency terms that still count on an interview reply turn, and the
+    reply judge's reading to reuse for this round when none does. The one place
+    the backstop is relaxed (spec 4.4): [] only when the patient plainly denies
+    every matched danger sign and the judge reads each as "absent" (see
+    denial_clears). The judge call is made here, before the decision; a failed
+    or malformed judge, or an unreadable intake, keeps every term."""
+    if not iv.items or not iv.rounds:
+        return terms, None
+    judge_terms, _ = interview_judge_terms(iv, reply, match_pool, terms)
+    try:
+        judged = await judge_reply(llm, as_pending(iv, original), reply, judge_terms)
+    except Exception:
+        log.exception("The reply judge failed on a denied danger sign")
+        judged = None
+    if judged is None:
+        return terms, None
+    statuses = judged_statuses(judged)
+    absent = {t for t in judge_terms if statuses.get(_term_key(t)) == {"absent"}}
+    if not denial_clears(reply, terms, document_terms, absent):
+        return terms, None
+    return [], judged
 
 
 @dataclass
@@ -363,22 +400,22 @@ def _term_key(term: str) -> str:
 
 
 async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
-                               match_pool: list[str]) -> Optional[InterviewStep]:
+                               match_pool: list[str], judged: Optional[Judged] = None,
+                               denied: Sequence[str] = ()) -> Optional[InterviewStep]:
     """Apply a typed reply to the interview: the reply judge reads the open
     safety items and every warning term the reply names, then the extractor
     fills the items the patient's words answer. A step when the interview ends
     now: a handoff (the judge failed, or a danger sign is present, checked
-    first so the doctor sees it), or a new question for the agent; else None."""
+    first so the doctor sees it), or a new question for the agent; else None.
+    `judged` is the backstop's reading of this same reply over the same terms
+    (`denied`: the emergency terms it cleared), reused so the reply is judged once."""
     n = asked_item(iv)
-    open_safety = [i.label for i in iv.items if i.safety and i.status == "unknown"]
-    matched = match_terms(reply, list(dict.fromkeys([*match_pool, *open_safety])))
-    judge_terms = dedupe_terms([*open_safety, *matched])
-    judged = await judge_reply(llm, as_pending(iv, original), reply, judge_terms)
+    judge_terms, named_terms = interview_judge_terms(iv, reply, match_pool, denied)
+    if judged is None:
+        judged = await judge_reply(llm, as_pending(iv, original), reply, judge_terms)
     if judged is None:
         return InterviewStep(settle=Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER))
-    statuses: dict[str, set] = {}
-    for sign in judged.signs:
-        statuses.setdefault(_term_key(sign["term"]), set()).add(sign["status"])
+    statuses = judged_statuses(judged)
     for term in judge_terms:
         if "present" in statuses.get(_term_key(term), set()):
             return InterviewStep(settle=Settle("open", NEEDS_DOCTOR,
@@ -387,7 +424,7 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
         return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
-    named = {_term_key(t) for t in matched}
+    named = {_term_key(t) for t in named_terms}
     for k, item in enumerate(iv.items):
         if (item.safety and item.status == "unknown"
                 and (k == n or _term_key(item.label) in named)
@@ -402,7 +439,9 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
 
 async def interview_turn(session: AsyncSession, llm, iv: Interview, original: str, reply: str,
                          *, not_sure: bool, doctor_id: int, doctor_name: str, allowed_drugs,
-                         settings, match_pool: list[str], terms_failed: bool) -> InterviewStep:
+                         settings, match_pool: list[str], terms_failed: bool,
+                         judged: Optional[Judged] = None,
+                         denied: Sequence[str] = ()) -> InterviewStep:
     """One reply turn of the interview, the agent not called: record the reply
     on the asked round, read it ("Not sure" marks the item unsure, no judge),
     then pick and ask the next item. Fails closed into a handoff."""
@@ -417,7 +456,8 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
         if n is not None:
             mark(iv, n, "unsure")
     else:
-        stop = await read_interview_reply(llm, iv, original, reply, match_pool)
+        stop = await read_interview_reply(llm, iv, original, reply, match_pool,
+                                          judged=judged, denied=denied)
         if stop is not None:
             return stop
     max_rounds = settings.interview_max_rounds
@@ -540,8 +580,6 @@ async def ask(
         if found is None:
             raise HTTPException(status_code=409, detail="There is no question to answer.")
         return found[0].payload
-    if resumed and terms:
-        terms = interview_backstop(terms, body.question, iv)
     # On a reply turn the patient's original message also names drugs they
     # asked about (with the lexicon's equivalents).
     asked_text = body.question if pending is None else "\n".join(
@@ -564,7 +602,34 @@ async def ask(
         for loaded in (user, doc, *items):
             session.expunge(loaded)
         habits = []
-        doctor_terms: list[str] = []  # every live warning habit's terms (reply turns)
+        doctor_terms: Optional[list[str]] = None  # every live warning habit's terms
+
+        async def load_doctor_terms() -> Optional[list[str]]:
+            try:
+                found_terms = await doctor_warning_terms(session, doctor_id)
+                await session.commit()
+                return found_terms
+            except Exception:
+                log.exception("Loading the doctor's warning terms failed")
+                try:
+                    await session.rollback()
+                except Exception:
+                    log.exception("Rollback after failing to load warning terms failed")
+                return None
+
+        document_terms = warning_terms(items)
+        backstop_judged: Optional[Judged] = None  # the judge's reading, reused this round
+        denied: list[str] = []  # emergency terms a plain denial cleared (spec 4.4)
+        if resumed and terms:
+            # Only an interview reply turn may relax the backstop; without the
+            # doctor's warning terms the judge's term list is incomplete: no relaxing.
+            doctor_terms = await load_doctor_terms()
+            if doctor_terms is not None:
+                counted, backstop_judged = await interview_backstop(
+                    llm, terms, body.question, iv, pending.question,
+                    [*doctor_terms, *document_terms], document_terms)
+                if not counted:
+                    denied, terms = terms, []
         terms_failed = False
         if not terms:  # an emergency answer does not wait on memory
             try:
@@ -579,26 +644,19 @@ async def ask(
                     await session.rollback()
                 except Exception:
                     log.exception("Rollback after failing to load habits failed")
-            try:
-                doctor_terms = await doctor_warning_terms(session, doctor_id)
-                await session.commit()
-            except Exception:
-                # Fail closed: without the doctor's warning signs no close and
-                # no ask-first questions.
-                log.exception("Loading the doctor's warning terms failed")
-                doctor_terms, terms_failed = [], True
-                try:
-                    await session.rollback()
-                except Exception:
-                    log.exception("Rollback after failing to load warning terms failed")
-        document_terms = warning_terms(items)
+            if doctor_terms is None:
+                doctor_terms = await load_doctor_terms()
+            # Fail closed: without the doctor's warning signs no close and no
+            # ask-first questions.
+            terms_failed = doctor_terms is None
+        doctor_terms = doctor_terms or []
         settings = request.app.state.settings
         if resumed and not terms:
             step = await interview_turn(
                 session, llm, iv, pending.question, body.question, not_sure=body.not_sure,
                 doctor_id=doctor_id, doctor_name=name, allowed_drugs=allowed_drugs,
                 settings=settings, match_pool=[*doctor_terms, *document_terms],
-                terms_failed=terms_failed)
+                terms_failed=terms_failed, judged=backstop_judged, denied=denied)
             if step.settle is not None or step.asked is not None:
                 return await deliver_interview_step(
                     session, step, iv, pending, body.question, clarify_id=clarify_id,
