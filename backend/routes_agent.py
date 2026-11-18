@@ -9,8 +9,8 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
-    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, Judged, PendingClarify, clarify_questions,
-    dedupe_terms, emergency_result, fallback_answer, judge_reply, rounds_text, run_agent,
+    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, Judged, PendingClarify, cited_only,
+    clarify_questions, dedupe_terms, emergency_result, fallback_answer, judge_reply, rounds_text, run_agent,
     strip_markers,
 )
 from auth import current_patient
@@ -778,6 +778,20 @@ async def ask(
                 confidence = None  # fail closed
             gate_score = confidence
             gate_passed = confidence is not None and confidence >= threshold
+            if not gate_passed and confidence is not None and result.kind == "answer":
+                # The usual failure is a sentence the model added from its own
+                # knowledge. Drop every uncited sentence and score what is left.
+                trimmed = cited_only(result)
+                if trimmed is not None:
+                    try:
+                        second = await score_answer(llm, scored, trimmed.answer,
+                                                    trimmed.sources, trimmed.seen)
+                    except (LLMError, ValueError) as exc:
+                        log.warning("Answer verifier failed on the trimmed answer: %s", exc)
+                        second = None
+                    if second is not None and second >= threshold:
+                        result = trimmed
+                        gate_score, gate_passed = second, True
 
     settle: Optional[Settle] = None
     if pending is not None:

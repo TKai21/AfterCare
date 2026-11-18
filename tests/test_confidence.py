@@ -192,3 +192,52 @@ async def test_uncited_habits_are_not_other_evidence():
     assert "Keep your follow-up visit." in sources
     assert "Call the clinic if you have a fever." in other
     assert "vomit blood" not in prompt and "Any fever?" not in prompt
+
+
+# ---------- a failed gate retries on the cited sentences only ----------
+
+PADDED = ANSWER + " Taking it late may make it work less well. Ask your care team if unsure."
+
+
+def by_answer(scores):
+    """A verifier whose score depends on whether it sees the padded answer."""
+    def respond(m):
+        padded = "Taking it late" in m[1]["content"]
+        return {"content": json.dumps({"score": scores[0] if padded else scores[1]})}
+    return respond
+
+
+def verify_calls(fake_llm):
+    return [c for c in fake_llm.routed_calls if c[0][0]["content"] == confidence.VERIFY_PROMPT]
+
+
+async def test_failed_gate_delivers_the_cited_sentences_when_they_pass(client, fake_llm):
+    client.app.state.clone_threshold = 0.8
+    h = await confirmed(client, fake_llm)
+    fake_llm.route(confidence.VERIFY_PROMPT, by_answer((60, 93)))
+    fake_llm.script(answer(PADDED, [2]))
+    body = (await post_ask(client, h, "How often?")).json()
+    assert body["kind"] == "answer" and body["answer"] == ANSWER and body["confidence"] == 0.93
+    assert await care_team(client, h) == []
+    assert len(verify_calls(fake_llm)) == 2
+
+
+async def test_failed_gate_still_goes_to_the_doctor_when_the_cited_sentences_fail(client, fake_llm):
+    client.app.state.clone_threshold = 0.8
+    h = await confirmed(client, fake_llm)
+    fake_llm.route(confidence.VERIFY_PROMPT, by_answer((60, 70)))
+    fake_llm.script(answer(PADDED, [2]))
+    body = (await post_ask(client, h, "How often?")).json()
+    assert body["kind"] == "not_covered" and body["confidence"] == 0.6
+    (q,) = await care_team(client, h)
+    assert q["reason"] == confidence.LOW_CONFIDENCE_REASON
+
+
+async def test_failed_gate_does_not_retry_a_fully_cited_answer(client, fake_llm):
+    client.app.state.clone_threshold = 0.8
+    h = await confirmed(client, fake_llm)
+    fake_llm.route(confidence.VERIFY_PROMPT, verifier(41))
+    fake_llm.script(answer(ANSWER, [2]))
+    body = (await post_ask(client, h, "How often?")).json()
+    assert body["kind"] == "not_covered"
+    assert len(verify_calls(fake_llm)) == 1

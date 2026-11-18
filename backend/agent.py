@@ -463,6 +463,42 @@ def strip_markers(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_LEADING_MARKERS = re.compile(rf"(?:\s*{MARKER.pattern})+\s*[.]?\s*")
+# A full stop after one of these does not end a sentence ("See Dr. Okafor").
+_ABBREVIATION = re.compile(r"(?:\b(?:dr|mr|mrs|ms|st|vs|no|approx|e\.g|i\.e|a\.m|p\.m)\.)$",
+                           re.IGNORECASE)
+
+
+def _marked_sentences(answer: str) -> list[str]:
+    """`answer` split into sentences, each with its citation markers: a marker
+    that follows its sentence's end ("pain? [45]") stays with that sentence."""
+    sentences: list[str] = []
+    for piece in _SENTENCE_END.split(answer.strip()):
+        if sentences and _ABBREVIATION.search(sentences[-1]):
+            sentences[-1] += " " + piece
+            continue
+        lead = _LEADING_MARKERS.match(piece) if sentences else None
+        if lead:
+            sentences[-1] += " " + lead.group().strip()
+            piece = piece[lead.end():]
+        if piece:
+            sentences.append(piece)
+    return sentences
+
+
+def cited_sentences(answer: str) -> Optional[str]:
+    """`answer` with every sentence that carries no citation marker removed, or
+    None when that removes nothing or leaves nothing. Rule 11 wants every
+    statement cited, so an uncited sentence is the model's own addition; the
+    caller scores what is left before a patient sees it."""
+    sentences = _marked_sentences(answer)
+    kept = [s for s in sentences if MARKER.search(s)]
+    if not kept or len(kept) == len(sentences):
+        return None
+    return " ".join(kept)
+
+
 # A bare "F" or "C" suffix is a temperature only in body-temperature range;
 # otherwise "12F stent" or "6F" (catheter sizes) would lend 12 or 6.
 _TEMPERATURE_RANGE = {"F": (Decimal(90), Decimal(110)), "C": (Decimal(32), Decimal(44))}
@@ -1723,7 +1759,7 @@ SECOND_LOOK_NUDGE = (
     "question:\n{listed}\n"
     "If they answer it, reply with kind \"answer\": tell the patient what they say, in the "
     "document's terms, cite them, and add no reason, risk or advice of your own. If they do "
-    "not answer it, repeat your \"not_covered\" reply. Reply with only the JSON object.")
+    "not answer it, repeat your previous reply. Reply with only the JSON object.")
 
 
 async def _second_look(llm, turn: "_Turn", question: str) -> list[int]:
@@ -2071,6 +2107,22 @@ def _fallback(question: str, emergency: bool = False,
     )
 
 
+def cited_only(result: AgentResult) -> Optional[AgentResult]:
+    """`result` with its uncited sentences removed (cited_sentences) and its
+    sources cut to the ones still cited, or None when there is nothing to remove."""
+    answer = cited_sentences(result.answer)
+    if answer is None:
+        return None
+    cited = _markers(answer)
+    sources = [e for e in result.sources if e.number in cited]
+    return replace(
+        result, answer=answer, sources=sources,
+        guidance_ids=[e.guidance_id for e in sources
+                      if e.kind == "doctor" and e.guidance_id is not None],
+        habit_rule_ids=[e.rule_id for e in sources
+                        if e.kind == "habit" and e.rule_id is not None])
+
+
 async def run_agent(
     llm,
     store,
@@ -2104,11 +2156,12 @@ async def run_agent(
     final message with no JSON object at all gets one format-only retry
     (FORMAT_NUDGE), and a final message that fails any other check gets one
     repair call that names the error; both are calls without tools and never
-    happen for an emergency. A first-turn "not_covered" gets one second look
-    (_second_look): a small call that reads only the document, and, when it
-    finds paragraphs, one more call without tools that may answer from them.
-    So a turn makes at most max_rounds + 5 model calls before the fallback. Every call requests JSON output (json_mode); the client
-    drops it from calls with tools when LLM_JSON_WITH_TOOLS is off.
+    happen for an emergency. A first-turn "not_covered" or "clarify" gets one
+    second look (_second_look): a small call that reads only the document,
+    and, when it finds paragraphs, one more call without tools that may answer
+    from them. So a turn makes at most max_rounds + 5 model calls before the
+    fallback. Every call requests JSON output (json_mode); the client drops it
+    from calls with tools when LLM_JSON_WITH_TOOLS is off.
 
     The model is `doctor_name`'s AI clone. `prefetch` is that doctor's guidance
     found for the question before the first model call (None when the search
@@ -2211,10 +2264,12 @@ async def run_agent(
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": nudge})
                 continue
-            if (kind == "not_covered" and not answer.startswith(GENERAL_INFO)
+            if (kind in ("not_covered", "clarify") and not answer.startswith(GENERAL_INFO)
                     and not second_looked and pending is None and not emergency_terms
                     and not _conflict_handoff(turn.care_team[1] if turn.care_team else None)):
-                # A first-turn handoff gets one second look at the document.
+                # A first-turn handoff, or my questions on a first turn, gets one
+                # second look at the document: what it answers is answered from
+                # it (rule 13: my questions come first only when it does not).
                 second_looked = True
                 found = await _second_look(llm, turn, question)
                 if found:

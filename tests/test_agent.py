@@ -3330,3 +3330,68 @@ def test_general_information_citing_the_document_is_told_to_answer(document):
     with pytest.raises(ValueError) as error:
         validate(raw, evidence)
     assert str(error.value) == agent.GENERAL_INFO_FROM_DOCUMENT_ERROR
+
+
+# ---------- trimming an answer to its cited sentences ----------
+
+@pytest.mark.parametrize("answer, expected", [
+    ("Take naproxen with food [18, 19]. It may cause bleeding otherwise. Ask your care team.",
+     "Take naproxen with food [18, 19]."),
+    ("Take it with food [18]. Call the clinic if you have diarrhea [39].", None),  # all cited
+    ("No markers here. None at all.", None),  # nothing would be left
+    ("Is it the pain? [45] I added this.", "Is it the pain? [45]"),
+    ("My own view. See Dr. Okafor on November 24 [36].", "See Dr. Okafor on November 24 [36]."),
+    ("Take 0.6 mg twice daily [16]. Extra!", "Take 0.6 mg twice daily [16]."),
+    ("Take colchicine twice daily [16]", None),
+])
+def test_cited_sentences(answer, expected):
+    assert agent.cited_sentences(answer) == expected
+
+
+def test_cited_only_cuts_the_sources_to_those_still_cited():
+    doc = Evidence(1, "document", "Discharge document", None, "Take with food.", check_text="")
+    advice = Evidence(2, "doctor", "Advice", None, "Rest.", check_text="", guidance_id=7)
+    result = agent.AgentResult(
+        kind="answer", answer="Take it with food [1]. I would also rest. Rest is good [2].",
+        sources=[doc, advice], flagged=False, care_team_question=None, guidance_ids=[7])
+    trimmed = agent.cited_only(result)
+    assert trimmed.answer == "Take it with food [1]. Rest is good [2]."
+    assert trimmed.sources == [doc, advice] and trimmed.guidance_ids == [7]
+    only_doc = agent.cited_only(agent.AgentResult(
+        kind="answer", answer="Take it with food [1]. Resting helps.", sources=[doc, advice],
+        flagged=False, care_team_question=None, guidance_ids=[7]))
+    assert only_doc.sources == [doc] and only_doc.guidance_ids == []
+    assert agent.cited_only(replace_answer(result, "All cited [1].")) is None
+
+
+def replace_answer(result, answer):
+    from dataclasses import replace
+    return replace(result, answer=answer)
+
+
+async def test_second_look_answers_before_my_questions_on_a_first_turn(store, foods, document, items):
+    # The model went straight to my questions, but the document answers it.
+    n = water_paragraph(document)
+    llm = FakeLLM()
+    paragraphs_route(llm, [n])
+    llm.script(final(f"I'm sorry to hear that. {CONTACTS} [5]", [5], kind="clarify"),
+               final(f"Drink at least 2 liters of water every day [{n}].", [n]))
+    result = await ask(llm, store, foods, document, items, question="Should I drink more water?",
+                       habits=ask_habits())
+    assert result.kind == "answer" and [e.number for e in result.sources] == [n]
+    assert result.intake_eligible is False
+
+    # The document does not answer it: my questions stand, with no extra agent call.
+    plain = FakeLLM()
+    plain.script(final(f"I'm sorry to hear that. {CONTACTS} [5]", [5], kind="clarify"))
+    result = await ask(plain, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify" and result.intake_eligible is True
+    assert len(plain.routed_calls) == 1 and len(plain.calls) == 1
+
+    # The model keeps its questions after the second look.
+    kept = FakeLLM()
+    paragraphs_route(kept, [n])
+    kept.script(final(f"I'm sorry to hear that. {CONTACTS} [5]", [5], kind="clarify"),
+                final(f"I'm sorry to hear that. {CONTACTS} [5]", [5], kind="clarify"))
+    result = await ask(kept, store, foods, document, items, question=RUNNY, habits=ask_habits())
+    assert result.kind == "clarify" and result.intake_eligible is True
