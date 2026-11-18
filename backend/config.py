@@ -45,6 +45,8 @@ class Settings:
     # server (vLLM may reject it or stop parsing tool calls). Calls without
     # tools always get it when asked.
     llm_json_with_tools: Optional[bool] = None
+    # Speech to text for dictation, through the same base URL and key as chat.
+    transcribe_model: str = "gpt-4o-mini-transcribe"
     embedding_api_base: str = ""
     embedding_model: str = "text-embedding-3-small"
     embedding_api_key: str = ""
@@ -112,6 +114,7 @@ def get_settings() -> Settings:
         llm_api_key=env.get("LLM_API_KEY", ""),
         # On or off (optional_flag); unset, empty or unknown: decided by the base URL.
         llm_json_with_tools=optional_flag("LLM_JSON_WITH_TOOLS", env.get("LLM_JSON_WITH_TOOLS")),
+        transcribe_model=env.get("TRANSCRIBE_MODEL") or defaults.transcribe_model,
         embedding_api_base=env.get("EMBEDDING_API_BASE", llm_base).rstrip("/"),
         embedding_model=env.get("EMBEDDING_MODEL", defaults.embedding_model),
         embedding_api_key=env.get("EMBEDDING_API_KEY", env.get("LLM_API_KEY", "")),

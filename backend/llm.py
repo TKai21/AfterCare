@@ -60,6 +60,28 @@ class LLMClient:
             raise LLMError("Model service returned an unexpected response.")
         return data
 
+    async def transcribe(self, data: bytes, filename: str, content_type: str) -> str:
+        """Speech to English text. Neither the audio nor the text is logged."""
+        url = self.settings.llm_api_base.rstrip("/") + "/audio/transcriptions"
+        headers = ({"Authorization": f"Bearer {self.settings.llm_api_key}"}
+                   if self.settings.llm_api_key else {})
+        try:
+            async with httpx.AsyncClient(timeout=90, transport=self.transport) as client:
+                response = await client.post(
+                    url, headers=headers,
+                    data={"model": self.settings.transcribe_model, "language": "en",
+                          "response_format": "json"},
+                    files={"file": (filename, data, content_type)},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LLMError(f"Transcription request failed: {exc}") from exc
+        text = body.get("text") if isinstance(body, dict) else None
+        if not isinstance(text, str):
+            raise LLMError("Transcription service returned an unexpected response.")
+        return text
+
     async def chat(self, messages: list[dict], tools: list[dict] | None = None, json_mode: bool = False) -> dict:
         payload: dict = {
             "model": self.settings.llm_model,

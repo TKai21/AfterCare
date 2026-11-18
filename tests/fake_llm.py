@@ -24,6 +24,9 @@ class FakeLLM:
                              drafts.SUPPORT_PROMPT: all_supported}
         self.routed_calls: list[tuple] = []
         self._embedding_model = embedding_model
+        # Scripted transcripts for transcribe(): a string, or an exception to raise.
+        self.transcripts: list = []
+        self.transcribe_calls: list[tuple] = []
 
     @property
     def embedding_model(self) -> str:
@@ -46,6 +49,13 @@ class FakeLLM:
                 f"FakeLLM.chat called with no scripted response left (call #{len(self.calls)})"
             )
         return self.queue.pop(0)
+
+    async def transcribe(self, data: bytes, filename: str, content_type: str) -> str:
+        self.transcribe_calls.append((data, filename, content_type))
+        result = self.transcripts.pop(0) if self.transcripts else ""
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     async def embed(self, texts):
         return [self._vector(text) for text in texts]

@@ -40,7 +40,8 @@ router = APIRouter()
 
 ANSWERED_LIMIT = 50
 
-Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+MAX_TEXT_CHARS = 4000
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_TEXT_CHARS)]
 
 
 class AnswerBody(BaseModel):

@@ -1,4 +1,4 @@
-"""Patient/doctor voice clips in the existing care-team queue. No AI calls."""
+"""Patient/doctor voice clips in the existing care-team queue; dictation transcription."""
 import asyncio
 from datetime import datetime, timezone
 import logging
@@ -9,6 +9,7 @@ from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from llm import LLMError
 from auth import current_doctor, current_patient, current_user
 from db import get_session
 from doctors import doctor_labels, require_doctor
@@ -17,6 +18,7 @@ from voice import VOICE_ANSWER, VOICE_QUESTION, voice_views
 from voice_storage import MAX_UPLOAD_BYTES, VoiceError, normalize_audio
 
 router = APIRouter()
+EMPTY_TRANSCRIPT = "I could not hear anything. Please try again."
 log = logging.getLogger(__name__)
 
 
@@ -47,6 +49,32 @@ def discard(storage, key):
         storage.remove(key)
     except OSError:
         log.exception("Could not remove an uncommitted voice clip")
+
+
+@router.post("/api/voice/transcribe")
+async def transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Dictation: audio in, text out. Nothing is stored or logged."""
+    from routes_care_team import MAX_QUESTION_CHARS
+    from routes_doctor import MAX_TEXT_CHARS
+
+    llm = request.app.state.llm
+    if llm is None:
+        raise HTTPException(status_code=503, detail="Dictation is not available right now.")
+    await session.commit()  # no DB read transaction during decoding or the model call
+    audio = await decode_upload(request, file)
+    try:
+        text = await llm.transcribe(audio.data, "dictation.wav", "audio/wav")
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail="Dictation failed. Please try again.") from exc
+    text = " ".join(text.split())[:max(MAX_QUESTION_CHARS, MAX_TEXT_CHARS)].rstrip()
+    if not text:
+        raise HTTPException(status_code=422, detail=EMPTY_TRANSCRIPT)
+    return {"text": text}
 
 
 @router.post("/api/voice/questions", status_code=201)
