@@ -84,3 +84,205 @@ def test_summary_text_lists_three_groups():
     assert iv_mod.summary_text(iv) == (
         'Known: knee ("my knee hurts")\nNot sure: fever\nNot answered: rash, cough')
     assert iv_mod.summary_text(make(("a", False, "unsure"))) == "Not sure: a"
+
+
+# ---------- model calls ----------
+
+import json
+
+import pytest
+import pytest_asyncio
+
+from db import init_db, make_engine, make_session_factory
+from fake_llm import FakeLLM
+from guidance import embed_entry
+from models import DoctorGuidance, GuidanceRule, User
+
+
+def reply(data):
+    return {"content": json.dumps(data)}
+
+
+def habit(rule_id, habit_type="ask", statement="", quote="", terms=()):
+    return GuidanceRule(id=rule_id, guidance_id=1, doctor_id=1, position=rule_id,
+                        statement=statement or quote, quote=quote or statement, kind="habit",
+                        habit_type=habit_type, warning_terms=list(terms))
+
+
+ASKS = [habit(1, quote="Is the pain worse when you walk?"),
+        habit(2, quote="Have you had a fever?")]
+
+
+async def build(llm, ask=ASKS, warn=(), doc=(), **kw):
+    return await iv_mod.build_items(
+        llm, "my knee hurts", list(ask), list(warn), list(doc), frozenset(),
+        max_items=kw.get("max_items", 5), max_safety=kw.get("max_safety", 3))
+
+
+async def test_build_items_drops_unknown_habit_ids():
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": [
+        {"label": "knee pain on walking", "habits": [1]},
+        {"label": "fever", "habits": [99]},
+        {"label": "swelling", "habits": [2, 77]},
+        {"label": "chills", "habits": [2]}]}))
+    reports, items = await build(llm)
+    assert reports is True
+    assert [(i.label, i.habits, i.safety) for i in items] == [
+        ("knee pain on walking", [1], False), ("chills", [2], False)]
+
+
+async def test_build_items_rejects_label_with_digit():
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": [
+        {"label": "fever above 101", "habits": [2]},
+        {"label": "one two three four five six seven", "habits": [2]},
+        {"label": "you should rest", "habits": [1]},
+        {"label": "fever", "habits": [2]}]}))
+    _, items = await build(llm)
+    assert [i.label for i in items] == ["fever"]
+
+
+async def test_build_items_adds_safety_items_from_warning_terms_capped_at_3():
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": [
+        {"label": "fever", "habits": [2]}]}))
+    warn = [habit(3, "warning", quote="Call if chest pain or fever.",
+                  terms=["chest pain", "fever", "black stool"])]
+    _, items = await build(llm, warn=warn, doc=["Chest Pain", "vomiting blood", "dizziness"])
+    assert [(i.label, i.safety) for i in items] == [
+        ("fever", False), ("chest pain", True), ("black stool", True), ("vomiting blood", True)]
+
+
+async def test_build_items_none_on_bad_json():
+    llm = FakeLLM()
+    llm.script({"content": "not json"})
+    assert await build(llm) is None
+    llm.script(reply({"items": "nope"}))
+    assert await build(llm) is None
+
+
+def three_items():
+    return Interview(items=[Item("knee pain", [1], False), Item("fever", [2], False),
+                            Item("chest pain", [], True)], rounds=[])
+
+
+async def test_extract_rejects_invented_quote():
+    llm = FakeLLM()
+    llm.script(reply({"items": [
+        {"index": 0, "status": "answered", "quote": "it hurts when I walk"},
+        {"index": 1, "status": "answered", "quote": "no fever since Monday"}]}))
+    iv = three_items()
+    got = await iv_mod.extract(llm, iv, "my knee hurts", "It hurts when I walk, a lot")
+    assert got == {0: "It hurts when I walk"} or got == {0: "it hurts when I walk"}
+    assert iv.items[0].status == "answered" and iv.items[1].status == "unknown"
+
+
+async def test_extract_fills_from_original_question():
+    llm = FakeLLM()
+    llm.script(reply({"items": [{"index": 0, "status": "answered", "quote": "my knee hurts"},
+                                {"index": 2, "status": "answered", "quote": "my knee hurts"}]}))
+    iv = three_items()
+    got = await iv_mod.extract(llm, iv, "my knee hurts", "dunno")
+    assert list(got) == [0]
+    assert iv.items[2].status == "unknown"  # a safety item is never filled by the extractor
+
+
+async def test_extract_empty_on_failure():
+    llm = FakeLLM()
+    llm.script({"content": "oops"})
+    assert await iv_mod.extract(llm, three_items(), "q", "r") == {}
+
+
+async def test_write_question_prefers_habit_verbatim():
+    llm = FakeLLM()
+    item = Item("knee pain", [1], False)
+    got = await iv_mod.write_question(
+        llm, item, {1: "Is the pain worse when you walk?"}, [], frozenset(), "Dr. Lee", False)
+    assert got == ("Is the pain worse when you walk?", True)
+    assert llm.calls == []
+
+
+async def test_write_question_writes_one_when_no_habit_question():
+    llm = FakeLLM()
+    llm.script(reply({"question": "When did the knee pain start?"}))
+    item = Item("knee pain", [1], False)
+    got = await iv_mod.write_question(
+        llm, item, {1: "Check the knee."}, [], frozenset(), "Dr. Lee", False)
+    assert got == ("When did the knee pain start?", False)
+
+
+async def test_write_question_rejects_advice_then_falls_back_to_habit():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Should you rest the knee?"}),
+               reply({"question": "Have you tried taking more ibuprofen?"}))
+    item = Item("knee pain", [1], False)
+    got = await iv_mod.write_question(
+        llm, item, {1: "Is the pain worse when you walk?"}, [], frozenset(), "Dr. Lee", True)
+    assert got == ("Is the pain worse when you walk?", True)
+    assert len(llm.calls) == 2
+
+
+async def test_write_question_none_without_habit_question():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Call the clinic now?"}),
+               reply({"question": "Do you take 400 mg?"}))
+    item = Item("knee pain", [1], False)
+    assert await iv_mod.write_question(
+        llm, item, {1: "Check the knee."}, [], frozenset(), "Dr. Lee", False) is None
+
+
+async def test_write_question_repair_call_can_succeed():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Should you rest?"}),
+               reply({"question": "Does the knee feel swollen?"}))
+    got = await iv_mod.write_question(
+        llm, Item("knee", [], False), {}, [], frozenset(), "Dr. Lee", False)
+    assert got == ("Does the knee feel swollen?", False)
+
+
+@pytest_asyncio.fixture
+async def session():
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    await init_db(engine)
+    async with make_session_factory(engine)() as s:
+        yield s
+    await engine.dispose()
+
+
+async def test_similar_case_habits_skips_suppressed(session):
+    llm = FakeLLM()
+    doc = User(username="doc", password_hash="x")
+    other = User(username="doc2", password_hash="x")
+    session.add_all([doc, other])
+    await session.flush()
+    entries = {}
+    for name, doctor, question in (("knee", doc, "my knee hurts when I walk"),
+                                   ("rash", doc, "itchy red rash on my arm"),
+                                   ("foreign", other, "my knee hurts when I walk")):
+        e = DoctorGuidance(doctor_id=doctor.id, question=question, answer="ok", scope="general",
+                           active=True)
+        session.add(e)
+        await session.flush()
+        assert await embed_entry(llm, e)
+        entries[name] = e
+
+    def rule(entry, position, habit_type, text, **kw):
+        session.add(GuidanceRule(guidance_id=entry.id, doctor_id=entry.doctor_id,
+                                 position=position, statement=text, quote=text, kind="habit",
+                                 habit_type=habit_type, **kw))
+
+    rule(entries["knee"], 0, "ask", "Is it swollen?")
+    rule(entries["knee"], 1, "ask", "Is it red?", suppressed=True)
+    rule(entries["knee"], 2, "warning", "Call if fever.", warning_terms=["fever"])
+    rule(entries["knee"], 3, "close", "Take care.")
+    rule(entries["rash"], 0, "ask", "Is it itchy?")
+    rule(entries["foreign"], 0, "ask", "Foreign question?")
+    await session.commit()
+
+    asks, warns = await iv_mod.similar_case_habits(
+        session, llm, doc.id, "my knee hurts when I walk", 1)
+    assert [r.quote for r in asks] == ["Is it swollen?"]
+    assert [r.quote for r in warns] == ["Call if fever."]
+    asks, _ = await iv_mod.similar_case_habits(session, llm, doc.id, "my knee hurts", 4)
+    assert [r.quote for r in asks] == ["Is it swollen?", "Is it itchy?"]

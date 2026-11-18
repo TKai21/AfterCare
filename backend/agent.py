@@ -1129,6 +1129,42 @@ def _loose(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", _normal(text)).split())
 
 
+def _clone_shaped(body: str) -> bool:
+    """True when `body` (one question, without its "?") is short, plain and
+    free of advice: what a question the clone writes itself must be."""
+    return (len(body.split()) <= CLONE_QUESTION_MAX_WORDS
+            and bool(_CLONE_QUESTION.match(body)) and not _CLONE_BANNED.search(body))
+
+
+def check_clone_question(text: str, asked_before: Sequence[str],
+                         allowed_drugs: Collection[str]) -> None:
+    """Raise ValueError unless `text` is one plain question the clone may write
+    itself: one sentence ending "?", the 4.7 shape (_clone_shaped), no link,
+    number or medication-change wording, no drug outside `allowed_drugs` and no
+    repeat of a question in `asked_before` (punctuation and case aside)."""
+    text = clean_text(strip_markers(text))
+    if _LINK.search(text):
+        raise ValueError("A question must not contain a link.")
+    if number_tokens(text):
+        raise ValueError("A question must not contain numbers, not even 911.")
+    sentences, leftover = _sentences(text)
+    if leftover or len(sentences) != 1 or not _is_question(sentences[0][1]):
+        raise ValueError("Write exactly one question, a single sentence ending with \"?\".")
+    body = sentences[0][0]
+    if MEDICATION_CHANGE.search(body) and not MEDICATION_CHANGE_QUESTION.fullmatch(f"{body}?"):
+        raise ValueError("A question must not contain medication change wording.")
+    if (not re.search(r"\w", body) or not _QUESTION_OPENER.match(body)
+            or _QUESTION_BANNED.search(body) or not _clone_shaped(body)):
+        raise ValueError(OWN_QUESTIONS_ERROR)
+    if _loose(body) in {_loose(q) for q in asked_before}:
+        raise ValueError(REPEAT_ERROR)
+    lexicon = get_lexicon()
+    allowed = set(allowed_drugs).union(*(lexicon.equivalents(n) for n in allowed_drugs))
+    stray = sorted(lexicon.find(body) - allowed)
+    if stray:
+        raise ValueError(f"Names a drug the patient does not take: {', '.join(stray)}.")
+
+
 def _check_clarify(answer: str, cited: list[Evidence],
                    asked_before: frozenset[str] = frozenset(),
                    known: Sequence[Evidence] = ()) -> None:
@@ -1172,9 +1208,7 @@ def _check_clarify(answer: str, cited: list[Evidence],
             if (not re.search(r"\w", body) or not _QUESTION_OPENER.match(body)
                     or _QUESTION_BANNED.search(body)):
                 raise ValueError(ONLY_QUESTIONS_ERROR)
-            if _loose(body) not in own and (
-                    len(body.split()) > CLONE_QUESTION_MAX_WORDS
-                    or not _CLONE_QUESTION.match(body) or _CLONE_BANNED.search(body)):
+            if _loose(body) not in own and not _clone_shaped(body):
                 raise ValueError(OWN_QUESTIONS_ERROR)
             if _loose(body) in seen:
                 raise ValueError(REPEAT_ERROR)

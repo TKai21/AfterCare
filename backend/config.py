@@ -75,6 +75,12 @@ class Settings:
     clarify_timeout_hours: float = 24
     # Rounds of questions the clone may ask before it must answer, close or hand off.
     clarify_max_rounds: int = 3
+    # The clone interview: similar past cases read, items per case, safety items
+    # (danger signs) per case, and rounds (one question each) before the end.
+    interview_cases: int = 4
+    interview_max_items: int = 5
+    interview_max_safety: int = 3
+    interview_max_rounds: int = 6
 
     def __post_init__(self):
         if self.llm_json_with_tools is None:
@@ -130,4 +136,8 @@ def get_settings() -> Settings:
         clarify_timeout_hours=float(
             env.get("CLARIFY_TIMEOUT_HOURS") or defaults.clarify_timeout_hours),
         clarify_max_rounds=int(env.get("CLARIFY_MAX_ROUNDS") or defaults.clarify_max_rounds),
+        interview_cases=int(env.get("INTERVIEW_CASES") or defaults.interview_cases),
+        interview_max_items=int(env.get("INTERVIEW_MAX_ITEMS") or defaults.interview_max_items),
+        interview_max_safety=int(env.get("INTERVIEW_MAX_SAFETY") or defaults.interview_max_safety),
+        interview_max_rounds=int(env.get("INTERVIEW_MAX_ROUNDS") or defaults.interview_max_rounds),
     )
