@@ -2478,19 +2478,20 @@ async def test_interview_reply_not_a_plain_denial_is_emergency(client, fake_llm,
     "No fever and no trouble breathing. It is clear mucus. "
     "I have not taken any medicine for it.",
     "No trouble breathing, the redness started two days ago",
+    "No chest pain. Well, a little.",                  # a hedge (fix round 1 re-review)
+    "No, no trouble breathing.",                       # a bare "no" names nothing
 ])
-async def test_interview_reply_denial_with_other_details_continues(client, fake_llm, reply):
+async def test_interview_reply_denial_with_other_words_is_emergency(client, fake_llm, reply):
+    # Only a reply made entirely of clean denials continues (team decision
+    # 2026-11-17): any other clause shows the emergency answer, no judge call.
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)
     talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
-                       judges=[judged(signs=absent("fever", "trouble breathing"))])
+                       judges=[judged(signs=absent("fever", "trouble breathing", "chest pain"))])
     await start_interview(client, fake_llm, h, doctor_id)
-    main_calls = len(fake_llm.calls)
-    body, q = await interview_reply(client, fake_llm, h, doctor_id, reply)
-    assert len(fake_llm.calls) == main_calls and talk.calls["judge"] == 1
-    assert body["kind"] == "clarify" and body["questions"] == [
-        {"text": REDNESS_Q, "doctor": True}], body
-    assert (q.status, q.intake["rounds"][0]["reply"]) == ("waiting_on_patient", reply)
+    the_agent_hands_off(fake_llm)
+    assert_emergency(*await interview_reply(client, fake_llm, h, doctor_id, reply))
+    assert talk.calls["judge"] == 0
 
 
 @pytest.mark.parametrize("judge", [

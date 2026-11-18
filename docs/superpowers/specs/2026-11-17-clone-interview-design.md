@@ -121,7 +121,12 @@ emergency answer when **all** hold:
   own clause ("no", "not", "never", "without", "denies", "don't have");
 - the reply judge lists every matched term as `absent`;
 - the full backstop, rerun on the reply with the denied clauses removed,
-  matches nothing.
+  matches nothing;
+- every clause of the reply is an explicit denial naming what is denied
+  ("No fever and no trouble breathing."). A bare "No." or "Not really.", a
+  hedge ("Well, a little.", "I think") or any other clause, even a harmless
+  one ("It is clear mucus."), shows the emergency answer (team decision
+  2026-11-17, after review showed hedged retractions cannot be listed).
 Anything else (an affirmed term, a disagreement, `unclear`, a retraction such
 as "I did not faint. Well I did") shows the emergency answer as today. The
 earlier attempt (M4) was reverted after review; this rule set is the
@@ -208,6 +213,9 @@ existing clarify card).
 
 Approach A; one question per round; derive items from the doctor's habits on
 similar cases; show what the clone understood; fix the denied danger sign.
+On an interview reply, every clause must be an explicit denial naming what
+is denied before a matched danger sign is relaxed (2026-11-17, after review
+showed hedged retractions cannot be listed).
 
 ## 9. Calls made by Claude
 

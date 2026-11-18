@@ -368,7 +368,7 @@ def clears(message, judged_absent, extra_terms=()):
 def test_denial_clears_no_trouble_breathing():
     assert clears("No fever and no trouble breathing", {"trouble breathing", "fever"})
     assert clears("I don't have any trouble breathing.", {"trouble breathing"})
-    assert clears("No, no trouble breathing at all", {"Trouble Breathing"})
+    assert clears("No trouble breathing at all, no fever or chills", {"Trouble Breathing"})
 
 
 def test_denial_mixed_affirmed_term_still_emergency():
@@ -407,10 +407,35 @@ DEMO_REPLY = ("No fever and no trouble breathing. It is clear mucus. "
               "I have not taken any medicine for it.")
 
 
-def test_denial_allows_other_clauses_that_are_not_emergencies():
-    assert clears(DEMO_REPLY, {"trouble breathing", "fever"})
-    assert clears("No trouble breathing, the redness started two days ago",
-                  {"trouble breathing"})
+def test_denial_needs_every_clause_to_be_a_clean_denial():
+    # Team decision 2026-11-17: hedged retractions cannot be listed, so a
+    # clause that is not an explicit denial naming what it denies keeps the
+    # emergency answer, even when it is harmless.
+    for message in (DEMO_REPLY, "No trouble breathing, the redness started two days ago",
+                    "No, no trouble breathing", "Nope, no trouble breathing",
+                    "No trouble breathing. No.", "No trouble breathing. Not really."):
+        assert not clears(message, {"trouble breathing", "fever"}), message
+
+
+# The fix round 1 re-review: hedges and partial retractions of the denied term.
+HEDGED = [
+    "No chest pain. Well, a little.", "No chest pain. Maybe a bit.", "No chest pain. Kind of.",
+    "No chest pain. Kinda.", "No chest pain. Slightly.", "No chest pain. Occasionally.",
+    "No chest pain. When I walk.", "No chest pain. At night.", "No chest pain. Mild.",
+    "No chest pain. It is mild.", "No chest pain. It is crushing.", "No chest pain, I think",
+    "No chest pain. I think so.", "No chest pain. Probably.", "No chest pain. Not really.",
+    "No chest pain. Not that much.", "No chest pain. A little pressure.",
+    "No trouble breathing. Mostly.", "No fainting. Almost.", "I did not faint. Nearly.",
+    "No seizure. Possibly.",
+]
+
+
+@pytest.mark.parametrize("message", HEDGED)
+def test_hedged_retraction_stays_emergency(message):
+    from safety import denial_possible
+    assert detect_emergency(message, []), message
+    assert not clears(message, {"fever", "chills", *detect_emergency(message, [])})
+    assert not denial_possible(message, detect_emergency(message, []), [])
 
 
 # A clause of only a negation is not a "no": "can't" alone may mean "I can't breathe".
@@ -428,9 +453,9 @@ def test_denial_program_checks_need_no_judge():
     for message in ("I can't breathe", "I don't want to hurt myself",
                     "No fever but I have chest pain", *ELLIPTICAL):
         assert not denial_possible(message, detect_emergency(message, []), []), message
-    assert denial_possible(DEMO_REPLY, ["trouble breathing"], [])
+    assert denial_possible("No fever and no trouble breathing.", ["trouble breathing"], [])
     # The judge still decides: a possible denial the judge does not confirm stays.
-    assert not clears(DEMO_REPLY, {"fever"})
+    assert not clears("No fever and no trouble breathing.", {"fever"})
 
 
 def test_no_m4_probe_is_cleared_by_an_all_absent_judge():
