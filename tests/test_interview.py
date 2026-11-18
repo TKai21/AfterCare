@@ -146,7 +146,8 @@ async def test_build_items_rejects_label_with_digit():
 async def test_build_items_adds_safety_items_from_warning_terms_capped_at_3():
     llm = FakeLLM()
     llm.script(reply({"reports_symptom": True, "items": [
-        {"label": "fever", "habits": [2]}]}))
+        {"label": "fever", "habits": [2]}],
+        "relevant_document_terms": ["Chest Pain", "vomiting blood", "dizziness"]}))
     warn = [habit(3, "warning", quote="Call if chest pain or fever.",
                   terms=["chest pain", "fever", "black stool"])]
     _, items = await build(llm, warn=warn, doc=["Chest Pain", "vomiting blood", "dizziness"])
@@ -352,3 +353,39 @@ def test_so_far_whole_first_message_is_mentioned_not_quoted():
     iv.items[1].quote = ("word " * 30).strip()
     shown = iv_mod.so_far(iv, original)[1]
     assert shown["status"] == "answered" and len(shown["quote"]) <= 63
+
+
+async def test_document_terms_are_safety_items_only_when_marked_relevant():
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": [], "relevant_document_terms":
+                      ["dizziness", "not in the list"]}))
+    warn = [habit(3, "warning", quote="x", terms=["fever"])]
+    _, items = await build(llm, warn=warn, doc=["chest pain", "dizziness", "fainting"])
+    assert [(i.label, i.safety) for i in items] == [("fever", True), ("dizziness", True)]
+    llm = FakeLLM()
+    llm.script(reply({"reports_symptom": True, "items": []}))
+    _, items = await build(llm, warn=warn, doc=["chest pain"])
+    assert [i.label for i in items] == ["fever"]
+
+
+async def test_extract_rejects_a_quote_that_is_only_a_danger_sign_denial():
+    iv = Interview(items=[Item("duration", [1], False), Item("chest pain", [], True)])
+    llm = FakeLLM()
+    llm.script(reply({"items": [{"index": 0, "status": "answered",
+                                 "quote": "I do not have chest pain."}]}))
+    assert await iv_mod.extract(llm, iv, "runny nose", "I do not have chest pain.",
+                                ["chest pain"]) == {}
+    assert iv.items[0].status == "unknown"
+    llm = FakeLLM()
+    llm.script(reply({"items": [{"index": 0, "status": "answered", "quote": "two days now"}]}))
+    assert await iv_mod.extract(llm, iv, "runny nose", "No chest pain, two days now.",
+                                ["chest pain"]) == {0: "two days now"}
+
+
+async def test_model_question_equal_to_a_habit_is_tagged_as_the_doctors():
+    llm = FakeLLM()
+    llm.script(reply({"question": "Have you had any recent sick contacts?"}))
+    item = Item("recent sick contacts", [], False)
+    got = await iv_mod.write_question(
+        llm, item, {5: "Have you had any recent sick contacts?"}, [], frozenset(), "Dr. X", False)
+    assert got == ("Have you had any recent sick contacts?", True)

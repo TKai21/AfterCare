@@ -347,8 +347,8 @@ def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: 
                       max_rounds: int, original: str = "") -> tuple[AgentResult, dict]:
     """The clarify of one interview question and what its payload adds."""
     n, text, doctor = asked
-    habit_id = next((h for h in iv.items[n].habits
-                     if doctor and " ".join(habit_texts.get(h, "").split()) == text), None)
+    habit_id = next((h for h, t in habit_texts.items()
+                     if doctor and " ".join(t.split()) == text), None)
     result = AgentResult(kind="clarify", answer=text, sources=[], flagged=False,
                          care_team_question=None,
                          habit_rule_ids=[habit_id] if habit_id is not None else [])
@@ -388,7 +388,8 @@ async def start_interview(session: AsyncSession, llm, question: str, doctor_id: 
     if built is None or not built[0] or not built[1]:
         return None
     iv = Interview(items=built[1])
-    await extract(llm, iv, question, "")
+    await extract(llm, iv, question, "",
+                  [*(t for w in warns for t in (w.warning_terms or [])), *document_terms])
     texts = {h.id: h.quote for h in asks if isinstance(h.quote, str)}
     asked = await ask_next(llm, iv, texts, allowed_drugs, doctor_name,
                            settings.interview_max_rounds)
@@ -435,7 +436,7 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
                 and (k == n or _term_key(item.label) in named)
                 and statuses.get(_term_key(item.label)) == {"absent"}):
             mark(iv, k, "answered")
-    await extract(llm, iv, original, reply)
+    await extract(llm, iv, original, reply, match_pool)
     if n is not None and iv.items[n].status == "unknown" \
             and iv.items[n].attempts >= ITEM_ATTEMPTS_MAX:
         mark(iv, n, "unsure")  # asked twice, still unclear

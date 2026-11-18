@@ -172,9 +172,13 @@ answered) above all rounds.
    safety items (for example Dr. Ting Kai), the case uses today's 4.7 flow
    unchanged (doctor habits plus clone-written questions).
 7. **Safety item sources.** Warning terms of the similar cases' warning habits
-   and the patient's document warning terms (`warning_terms(items)`), up to
-   `INTERVIEW_MAX_SAFETY`. Static backstop patterns are not turned into
-   questions; they still fire on any message.
+   always become safety items. The patient's document warning terms
+   (`warning_terms(items)`) become safety items only when the build call marks
+   them relevant to this complaint (`relevant_document_terms` in its JSON; the
+   program keeps only terms that are in the list it sent). At most
+   `INTERVIEW_MAX_SAFETY` in all. Static backstop patterns are not turned into
+   questions, and an unasked document term is not lost: the backstop still
+   fires on any message and the close gate still checks every term.
 8. **Interview reply turn** means: this patient-doctor pair has a waiting row
    whose `intake` has the item shape, not expired. The backstop still runs
    first; when it matches, the route looks up that row before deciding whether

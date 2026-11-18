@@ -16,7 +16,7 @@ from agent import _CLONE_BANNED, PendingClarify, _loose, check_clone_question
 from drugnames import get_lexicon
 from guidance import _cosine
 from llm import LLMError
-from safety import _content
+from safety import _content, negated_terms
 from models import DoctorGuidance, GuidanceRule
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,9 @@ BUILD_PROMPT = (
     "one thing to find out from the patient. Reply with JSON only: {\"reports_symptom\": true "
     "when the patient reports a symptom or a problem they have now, else false, \"items\": "
     "[{\"label\": a short noun phrase of at most 6 words with no numbers, no drug names "
-    "and no advice, \"habits\": [habit ids from the list]}]}. Use only ids from the list.")
+    "and no advice, \"habits\": [habit ids from the list]}], \"relevant_document_terms\": "
+    "[the discharge-document warning terms listed that a doctor would ask this patient about "
+    "given this message, copied exactly; [] when none]}. Use only ids from the list.")
 EXTRACT_PROMPT = (
     "You read a patient's reply for a doctor's AI clone. Items are things the clone wants to "
     "know. For each item the patient's words already answer (in the original question or the "
@@ -264,8 +266,10 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     id must be one of `ask_habits` and every label plain (a bad item is dropped).
     Safety items (one per warning term, asked first) are added by the program."""
     listing = "\n".join(f"{h.id}: {h.quote}" for h in ask_habits) or "(none)"
+    doc_listing = "\n".join(f"- {t}" for t in document_terms) or "(none)"
     data = await _json(llm, BUILD_PROMPT, f"At most {max_items} items.\n\n"
-                       f"Patient message:\n{question}\n\nHabits:\n{listing}")
+                       f"Patient message:\n{question}\n\nHabits:\n{listing}\n\n"
+                       f"Document warning terms:\n{doc_listing}")
     if data is None or not isinstance(data.get("reports_symptom"), bool) \
             or not isinstance(data.get("items"), list):
         return None
@@ -283,12 +287,33 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
             continue
         items.append(Item(" ".join(raw["label"].split()), list(dict.fromkeys(ids)), False))
     labels = [i.label for i in items]
+    # Document warning terms become questions only when the model marked them
+    # relevant to this complaint (and they are in the list); the static backstop
+    # still fires on any message, so an unasked term is not lost.
+    asked_doc = data.get("relevant_document_terms")
+    wanted = {_loose(t) for t in asked_doc if isinstance(t, str)} if isinstance(asked_doc, list) else set()
+    relevant = [t for t in document_terms if _loose(t) in wanted]
     items += [Item(t, [], True) for t in
-              _safety_terms(warning_habits, document_terms, labels, max_safety, allowed_drugs)]
+              _safety_terms(warning_habits, relevant, labels, max_safety, allowed_drugs)]
     return data["reports_symptom"], items
 
 
-async def extract(llm, iv: Interview, original: str, reply: str) -> dict[int, str]:
+_NEGATION_WORDS = frozenset({"not", "no", "never", "none", "without", "dont", "don", "didnt",
+                             "didn", "havent", "haven", "nothing", "neither", "nor"})
+
+
+def _only_a_denial(quote: str, terms: Sequence[str]) -> bool:
+    """The quote is nothing but a denial of a danger sign: a warning term is
+    plainly negated in it and no other content word is left."""
+    denied = negated_terms(quote, list(terms)) if terms else set()
+    if not denied:
+        return False
+    named = _content(" ".join(terms)) | _content(" ".join(denied))
+    return not (_content(quote) - named - _NEGATION_WORDS)
+
+
+async def extract(llm, iv: Interview, original: str, reply: str,
+                  warning_terms: Sequence[str] = ()) -> dict[int, str]:
     """Fill every non-safety unknown item whose answer the patient's own words
     contain; returns item index -> quote of the items filled. A quote that is
     not in `original` or `reply` fills nothing (fill checks it)."""
@@ -305,8 +330,10 @@ async def extract(llm, iv: Interview, original: str, reply: str) -> dict[int, st
         if not isinstance(raw, dict) or raw.get("status") != "answered":
             continue
         index, quote = raw.get("index"), raw.get("quote")
+        terms = [*warning_terms, *(i.label for i in iv.items if i.safety)]
         if (isinstance(index, int) and not isinstance(index, bool) and index in open_
-                and isinstance(quote, str) and fill(iv, index, quote, [original, reply])):
+                and isinstance(quote, str) and not _only_a_denial(quote, terms)
+                and fill(iv, index, quote, [original, reply])):
             got[index] = iv.items[index].quote
     return got
 
@@ -380,7 +407,9 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
         except ValueError as e:
             problem = str(e)
             continue
-        return " ".join(text.split()), False
+        text = " ".join(text.split())
+        # A model question that is word for word one of the doctor's habits is the doctor's.
+        return text, any(text == " ".join(t.split()) for t in habit_texts.values())
     return (habit_questions[0], True) if habit_questions else None
 
 
