@@ -2058,9 +2058,9 @@ class Interviewer:
     def _responder(self, key):
         def respond(messages):
             found = self.lists[key]
+            self.calls[key] += 1  # counted first: an unscripted call still shows
             assert found, f"no {key} answer scripted"
-            answer = found[min(self.calls[key], len(found) - 1)]
-            self.calls[key] += 1
+            answer = found[min(self.calls[key] - 1, len(found) - 1)]
             return {"content": answer if isinstance(answer, str) else json.dumps(answer)}
         return respond
 
@@ -2455,20 +2455,42 @@ async def test_interview_reply_denying_breathing_continues(client, fake_llm):
 
 
 @pytest.mark.parametrize("reply", [
-    "No fever but I can't breathe",                    # an affirmed term
+    "I can't breathe",                                 # a plain emergency
+    "No fever but I have chest pain",                  # an affirmed term
+    "No fever but I can't breathe",
     "I did not faint. Well I did",                     # a retraction
     "No trouble breathing but he is not breathing",    # an M4 synonym probe
+    "No trouble breathing. Can't.",                    # an elliptical negation
     "I don't want to hurt myself",                     # self-harm: never relaxed
 ])
 async def test_interview_reply_not_a_plain_denial_is_emergency(client, fake_llm, reply):
-    from safety import detect_emergency
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)
-    Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
-                judges=[judged(signs=absent("fever", *detect_emergency(reply, [])))])
+    # No judge answer: the program checks decide before any model call (R19).
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}])
     await start_interview(client, fake_llm, h, doctor_id)
     the_agent_hands_off(fake_llm)
     assert_emergency(*await interview_reply(client, fake_llm, h, doctor_id, reply))
+    assert talk.calls["judge"] == 0
+
+
+@pytest.mark.parametrize("reply", [
+    "No fever and no trouble breathing. It is clear mucus. "
+    "I have not taken any medicine for it.",
+    "No trouble breathing, the redness started two days ago",
+])
+async def test_interview_reply_denial_with_other_details_continues(client, fake_llm, reply):
+    h = await confirmed(client, fake_llm)
+    doctor_id, ids = await interview_doctor(client, fake_llm)
+    talk = Interviewer(fake_llm, three_items(ids), questions=[{"question": FEVER_Q}],
+                       judges=[judged(signs=absent("fever", "trouble breathing"))])
+    await start_interview(client, fake_llm, h, doctor_id)
+    main_calls = len(fake_llm.calls)
+    body, q = await interview_reply(client, fake_llm, h, doctor_id, reply)
+    assert len(fake_llm.calls) == main_calls and talk.calls["judge"] == 1
+    assert body["kind"] == "clarify" and body["questions"] == [
+        {"text": REDNESS_Q, "doctor": True}], body
+    assert (q.status, q.intake["rounds"][0]["reply"]) == ("waiting_on_patient", reply)
 
 
 @pytest.mark.parametrize("judge", [

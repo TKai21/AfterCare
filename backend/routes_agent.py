@@ -33,7 +33,9 @@ from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
-from safety import _canon, denial_clears, detect_emergency, match_terms, warning_terms
+from safety import (
+    _canon, denial_clears, denial_possible, detect_emergency, match_terms, warning_terms,
+)
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -293,9 +295,10 @@ async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, o
     reply judge's reading to reuse for this round when none does. The one place
     the backstop is relaxed (spec 4.4): [] only when the patient plainly denies
     every matched danger sign and the judge reads each as "absent" (see
-    denial_clears). The judge call is made here, before the decision; a failed
-    or malformed judge, or an unreadable intake, keeps every term."""
-    if not iv.items or not iv.rounds:
+    denial_clears). The program checks run first: a plain emergency never waits
+    on the model (R19). The judge call is made here, before the decision; a
+    failed or malformed judge, or an unreadable intake, keeps every term."""
+    if not iv.items or not iv.rounds or not denial_possible(reply, terms, document_terms):
         return terms, None
     judge_terms, _ = interview_judge_terms(iv, reply, match_pool, terms)
     try:
@@ -620,9 +623,11 @@ async def ask(
         document_terms = warning_terms(items)
         backstop_judged: Optional[Judged] = None  # the judge's reading, reused this round
         denied: list[str] = []  # emergency terms a plain denial cleared (spec 4.4)
-        if resumed and terms:
-            # Only an interview reply turn may relax the backstop; without the
-            # doctor's warning terms the judge's term list is incomplete: no relaxing.
+        if resumed and terms and denial_possible(body.question, terms, document_terms):
+            # Only an interview reply turn whose words plainly deny every matched
+            # term may relax the backstop (checked before any read or model
+            # call); without the doctor's warning terms the judge's term list
+            # is incomplete: no relaxing.
             doctor_terms = await load_doctor_terms()
             if doctor_terms is not None:
                 counted, backstop_judged = await interview_backstop(

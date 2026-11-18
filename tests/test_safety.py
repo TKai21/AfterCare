@@ -401,9 +401,36 @@ def test_denial_needs_every_term_denied_and_rerun_clean():
                              [], {"trouble breathing", "can't breathe"})
     # A self-negating label ("can't breathe") has no plain denial.
     assert not clears("I can't breathe", {"can't breathe"})
-    # Words other than a plain denial anywhere in the reply keep the emergency.
-    assert not clears("No trouble breathing, the redness started two days ago",
-                      {"trouble breathing"})
+
+
+DEMO_REPLY = ("No fever and no trouble breathing. It is clear mucus. "
+              "I have not taken any medicine for it.")
+
+
+def test_denial_allows_other_clauses_that_are_not_emergencies():
+    assert clears(DEMO_REPLY, {"trouble breathing", "fever"})
+    assert clears("No trouble breathing, the redness started two days ago",
+                  {"trouble breathing"})
+
+
+# A clause of only a negation is not a "no": "can't" alone may mean "I can't breathe".
+ELLIPTICAL = ["No trouble breathing... can't", "No trouble breathing. Can't.",
+              "No trouble breathing, unable", "No chest pain. Won't."]
+
+
+@pytest.mark.parametrize("message", ELLIPTICAL)
+def test_denial_with_an_elliptical_negation_stays_emergency(message):
+    assert not clears(message, {"fever", *detect_emergency(message, [])})
+
+
+def test_denial_program_checks_need_no_judge():
+    from safety import denial_possible
+    for message in ("I can't breathe", "I don't want to hurt myself",
+                    "No fever but I have chest pain", *ELLIPTICAL):
+        assert not denial_possible(message, detect_emergency(message, []), []), message
+    assert denial_possible(DEMO_REPLY, ["trouble breathing"], [])
+    # The judge still decides: a possible denial the judge does not confirm stays.
+    assert not clears(DEMO_REPLY, {"fever"})
 
 
 def test_no_m4_probe_is_cleared_by_an_all_absent_judge():

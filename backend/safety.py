@@ -357,35 +357,40 @@ def negated_terms(message: str, terms: list[str]) -> set[str]:
 # Labels a denial never clears: a patient who writes about suicide or self-harm
 # at all is shown the emergency answer, whatever the wording.
 SELF_HARM_LABELS = frozenset({"suicidal", "want to die", "kill myself", "self harm", "overdose"})
-# Symptom words a reply may deny next to a danger sign ("No fever and no
-# trouble breathing"). Only these, the terms the judge read and the document's
-# terms count: a denial of anything else ("not true", "never mind") may be a
-# retraction and keeps the emergency answer.
-_DENIABLE_WORDS = GENERIC_SINGLE_WORDS - {"your", "call", "doctor", "home"}
-_BARE_DENIALS = frozenset({"not", "nope", "nah"})
-_CLAUSE_PARTS = re.compile(
-    r"([.;,!?:\n]|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b)", re.IGNORECASE)
-_LIST_JOINERS = frozenset({"or", "nor"})
+# A clause of only these words is a bare "no" (raw words, before negations fold
+# to "not": "can't" or "unable" alone is not a "no", it may mean "I can't breathe").
+_BARE_NO = frozenset({"no", "nope", "nah"})
+# Words that, in any other clause of a reply that denies a danger sign, may take
+# the denial back, affirm it, say it comes and goes or point to it again:
+# "Well I did", "Yup", "Not true", "Never mind", "it hurts", "until now". Stemmed
+# like _words. The reviewers' M4 probes are the test of this list.
+_TAKE_BACK = frozenset(_stem(w) for w in """
+    yes yeah yep yup ya yah yea yess sure ok okay uh huh mhm hmm actually wait lied lie
+    lying liar kidding kid jk joke joking true truth wrong false mind back again anymore
+    until till except only unless sometimes whenever other comes come came goes going gone
+    happened happen happens happening once twice before later earlier still worse worst
+    oops misread meant mean sorry correct correction changed change hold thought do does did
+    done there here now got had hurt hurts hurting ache aches aching feel feels felt
+    feeling hard difficult struggle struggling bad badly terrible awful horrible severe
+    intense unbearable""".split())
+# A start verb ("It started an hour ago") takes a denial back unless the clause
+# names its own subject first ("the redness started two days ago").
+_START = frozenset(_stem(w) for w in "start started starts starting began begin begun".split())
+_REFERS_BACK = frozenset(_stem(w) for w in "it its it's that this these those they them one some".split())
+_CLAUSE_PARTS = re.compile(r"[.;,!?:\n]|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b",
+                           re.IGNORECASE)
 
 
 def _term_words(term: str) -> frozenset[str]:
     return frozenset(_words(term)) - {"not"}
 
 
-def _named_term(words: list[str], vocab: list[frozenset[str]]) -> frozenset[str] | None:
-    """The vocabulary term `words` names exactly, each word once, or None."""
-    if not words or len(set(words)) != len(words):
-        return None
-    return next((t for t in vocab if frozenset(words) == t), None)
-
-
-def _denied_term(words: list[str], vocab: list[frozenset[str]]) -> frozenset[str] | None:
-    """The vocabulary term a clause plainly denies: [I/have/do...] + negator +
-    up to 2 filler words + exactly that term's words, each once + optionally
-    "at all"/"though"/"either"/"today". None for any other clause."""
+def _denies_exactly(words: list[str], term: frozenset[str]) -> bool:
+    """[I/have/do...] + negator + up to 2 filler words + exactly `term`'s words,
+    each once + optionally "at all"/"though"/"either"/"today"."""
     n = next((i for i, w in enumerate(words) if w in _NEGATOR_STEMS), None)
     if n is None or not all(w in _NEGATION_PREFIX for w in words[:n]):
-        return None
+        return False
     rest = words[n + 1:]
     for k in range(_MAX_FILLERS + 1):
         if not all(w in _NEGATION_FILLERS for w in rest[:k]):
@@ -394,63 +399,80 @@ def _denied_term(words: list[str], vocab: list[frozenset[str]]) -> frozenset[str
             end = len(rest) - len(tail)
             if end <= k or tuple(rest[end:]) != tail:
                 continue
-            found = _named_term(rest[k:end], vocab)
-            if found is not None:
-                return found
-    return None
+            portion = rest[k:end]
+            if len(set(portion)) == len(portion) and frozenset(portion) == term:
+                return True
+    return False
 
 
-def denial_clears(message: str, matched: list[str], extra_terms: list[str],
-                  judged_absent: set[str]) -> bool:
-    """True when an interview reply's emergency match is a plain denial the
-    emergency answer may skip (spec 4.4). All must hold, else False:
+def _takes_back(words: list[str]) -> bool:
+    """A clause that is not a denial of a matched term but may undo one."""
+    if any(w in _TAKE_BACK for w in words):
+        return True
+    # An elliptical inability: "Can't.", "I can't", "unable", "he is not".
+    if all(w == "not" or w in _NEGATION_PREFIX for w in words):
+        return True
+    start = next((i for i, w in enumerate(words) if w in _START), None)
+    return start is not None and all(
+        w in _REFERS_BACK or w in _STOP_STEMS or w in _NEGATION_PREFIX for w in words[:start])
 
-    - no matched label is a self-harm or suicide label, and none denies itself
+
+def denial_possible(message: str, matched: list[str], extra_terms: list[str]) -> bool:
+    """The program half of the spec 4.4 rule, checked before any model call: a
+    plain emergency ("I can't breathe", self-harm, an affirmed term) never
+    waits on the reply judge. True when all hold, else False:
+
+    - no label is a self-harm or suicide label, and none denies itself
       ("can't breathe" has no plain denial);
-    - negated_terms finds every matched term denied in its own clause;
-    - every matched term is in `judged_absent` (the reply judge said "absent");
-    - every clause of the reply is a bare "no" or a plain denial of exactly one
-      known term (a matched one, one the judge read, a document term or a
-      common symptom word), so a retraction ("I did not faint. Well I did"),
-      an affirmation or any other words keep the emergency answer;
-    - detect_emergency, rerun on the reply without the clauses that deny a
-      matched term, finds nothing.
+    - negated_terms finds every label denied in its own clause, and every
+      clause that names a label's words denies exactly that label, each word
+      once ("No chest pain chest pain" and "he is not breathing" do not);
+    - no other clause may take the denial back (_TAKE_BACK, an elliptical
+      "can't", "It started ...") and the reply is plain ASCII (look-alike
+      letters such as a Cyrillic "I" hide words);
+    - detect_emergency, rerun on the reply without the denied clauses, finds
+      nothing. Other clauses are allowed ("It is clear mucus").
 
     `matched` is joined with the backstop's own reading of `message`, so a
     term left out by the caller is still checked. It errs toward the
     emergency answer: a missed denial only shows that answer once more."""
     labels = list(dict.fromkeys([*matched, *detect_emergency(message, extra_terms)]))
-    if not labels:
+    if not labels or not normalize(message).isascii():
         return False
-    absent = {_canon(t).casefold() for t in judged_absent}
     for label in labels:
         key = _canon(label).casefold()
-        if key in SELF_HARM_LABELS or "not" in _words(label) or key not in absent:
+        if key in SELF_HARM_LABELS or "not" in _words(label):
             return False
     if not {_canon(label) for label in labels} <= negated_terms(message, labels):
         return False
-    matched_words = {_term_words(label) for label in labels}
-    vocab = list(dict.fromkeys(
-        t for t in (*matched_words,
-                    *(_term_words(term) for term in (*judged_absent, *extra_terms)),
-                    *(_term_words(w) for w in _DENIABLE_WORDS)) if t))
-    parts = _CLAUSE_PARTS.split(message)
+    label_words = [_term_words(label) for label in labels]
     kept: list[str] = []
-    listing = False  # the previous clause denied a term: "no fever or chills"
-    for i in range(0, len(parts), 2):
-        clause, joiner = parts[i], parts[i - 1].strip().lower() if i else ""
+    for clause in _CLAUSE_PARTS.split(message):
         words = _words(clause)
-        if not words:
+        if not words or set(_canon(clause).split()) <= _BARE_NO:
             continue
-        if all(w in _BARE_DENIALS for w in words):
-            listing = False
-            continue
-        found = _denied_term(words, vocab)
-        if found is None and listing and joiner in _LIST_JOINERS:
-            found = _named_term(words, vocab)
-        if found is None:
+        mentioned = [t for t in label_words if set(words) & _content_words(t)]
+        if mentioned:
+            if not any(_denies_exactly(words, t) for t in mentioned):
+                return False
+            continue  # a denied clause: left out of the rerun
+        if _takes_back(words):
             return False
-        listing = True
-        if found not in matched_words:
-            kept.append(clause)
+        kept.append(clause)
     return not detect_emergency(". ".join(kept), extra_terms)
+
+
+def _content_words(term_words: frozenset[str]) -> frozenset[str]:
+    return frozenset(w for w in term_words if w not in _STOP_STEMS)
+
+
+def denial_clears(message: str, matched: list[str], extra_terms: list[str],
+                  judged_absent: set[str]) -> bool:
+    """True when an interview reply's emergency match is a plain denial the
+    emergency answer may skip (spec 4.4): denial_possible holds and the reply
+    judge listed every matched term as "absent" (`judged_absent`)."""
+    if not denial_possible(message, matched, extra_terms):
+        return False
+    absent = {_canon(t).casefold() for t in judged_absent}
+    labels = dict.fromkeys([*matched, *detect_emergency(message, extra_terms)])
+    return all(_canon(label).casefold() in absent for label in labels)
