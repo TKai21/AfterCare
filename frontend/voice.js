@@ -129,7 +129,21 @@ export function attachDictation(button, textarea, {onBusy = () => {}} = {}) {
   if (!recorderSupported()) { button.hidden = true; return () => {}; }
   let mode = 'idle', disposed = false, generation = 0;
   let stream = null, recorder = null, parts = [], ticker = null, deadline = null, started = 0;
-  let wasDisabled = false, errorEl = null;
+  let wasDisabled = false, errorEl = null, noteEl = null;
+
+  // Messages go under the text box; in the chat composer the box and its buttons
+  // share one row, so they go under that row.
+  const anchor = () => textarea.closest('.composer-box') || textarea;
+
+  // While a recording is being made or sent: where the audio goes.
+  function setNote(on) {
+    if (!on) { noteEl?.remove(); noteEl = null; return; }
+    if (noteEl) return;
+    noteEl = document.createElement('p');
+    noteEl.className = 'dictate-note';
+    noteEl.textContent = 'Your recording is sent to a speech service to be turned into text. It is not kept.';
+    anchor().insertAdjacentElement('afterend', noteEl);
+  }
 
   function setError(message) {
     if (!message) { errorEl?.remove(); errorEl = null; return; }
@@ -137,7 +151,7 @@ export function attachDictation(button, textarea, {onBusy = () => {}} = {}) {
       errorEl = document.createElement('p');
       errorEl.className = 'form-error dictate-error';
       errorEl.setAttribute('role', 'alert');
-      textarea.insertAdjacentElement('afterend', errorEl);
+      anchor().insertAdjacentElement('afterend', errorEl);
     }
     errorEl.textContent = message;
   }
@@ -163,6 +177,7 @@ export function attachDictation(button, textarea, {onBusy = () => {}} = {}) {
     const text = mode === 'recording' ? `<span class="dictate-text" aria-hidden="true">Stop</span><span class="dictate-time" aria-hidden="true">${clock(0)}</span>`
       : mode === 'idle' ? '<span class="dictate-text">Dictate</span>' : '';
     button.innerHTML = icon + text;
+    setNote(mode !== 'idle');
   }
 
   function finish(message = '') {
@@ -269,6 +284,7 @@ export function attachDictation(button, textarea, {onBusy = () => {}} = {}) {
     generation++;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     release();
+    setNote(false);
     button.removeEventListener('click', onClick);
     textarea.removeEventListener('input', clearError);
     setError('');

@@ -17,11 +17,13 @@ import routes_documents
 import routes_voice
 from confidence import load_threshold
 from config import PROJECT_DIR, Settings, get_settings
+from drugnames import get_lexicon
 from druglabels import DEMO_LABELS, LabelClient, approved_rxcuis, fixture_transport, mark_interrupted
 from db import init_db, make_engine, make_session_factory
 from foods import FoodTable
 from knowledge import open_store
 from llm import LLMClient
+from privacy import PrivateLLM, vault_loader
 from voice_storage import VoiceStorage
 
 FRONTEND_DIR = PROJECT_DIR / "frontend"
@@ -61,6 +63,15 @@ def create_app(
     settings.validate()
     if llm is None and settings.llm_model:
         llm = LLMClient(settings)  # no API key required, so a self-hosted server works
+    engine = make_engine(settings.database_url)
+    session_factory = make_session_factory(engine)
+    if llm is not None and settings.privacy_masking and not isinstance(llm, PrivateLLM):
+        # Every model call goes through this wrapper, the library's included.
+        lexicon = get_lexicon()
+        llm = PrivateLLM(llm, vault_loader(session_factory),
+                         is_medical=lambda word: bool(lexicon.find(word)))
+        if store is not None:
+            store.llm = llm
     if store is None and llm is not None:
         store = open_store(settings, llm)
     if foods is None:
@@ -69,8 +80,6 @@ def create_app(
     if label_client is None:
         # LABEL_FIXTURES=1 (dev only) answers from the recorded demo labels, offline.
         label_client = LabelClient(fixture_transport(DEMO_LABELS) if settings.label_fixtures else None)
-    engine = make_engine(settings.database_url)
-
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Tables are created automatically; sql/schema.sql is the manual alternative.
@@ -96,7 +105,7 @@ def create_app(
     app = FastAPI(title="AfterCare", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
-    app.state.session_factory = make_session_factory(engine)
+    app.state.session_factory = session_factory
     app.state.llm = llm
     app.state.store = store
     # store.reranker is the source of truth; this is a convenience alias for the spec.

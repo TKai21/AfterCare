@@ -66,6 +66,9 @@ class Settings:
     # hit@5 to embedding-only search (README, "Library search"). RERANK_ENABLED=1
     # turns it on. Without it, library search is embedding-only.
     rerank_enabled: bool = False
+    # De-identify every text sent to the model (privacy.PrivateLLM). PRIVACY_MASKING=0
+    # turns it off, for a model that runs on our own machine.
+    privacy_masking: bool = True
     # Calibrated by scripts/eval_library.py --sweep on the tune split.
     rag_min_rerank: float = -6.5
     # The clone's confidence gate. CLONE_MIN_CONFIDENCE wins; else the threshold
@@ -130,6 +133,7 @@ def get_settings() -> Settings:
         label_fixtures=env.get("LABEL_FIXTURES", "") == "1",
         rerank_model=env.get("RERANK_MODEL", defaults.rerank_model),
         rerank_enabled=env.get("RERANK_ENABLED", "") == "1",
+        privacy_masking=env.get("PRIVACY_MASKING", "1") != "0",
         rag_min_rerank=float(env.get("RAG_MIN_RERANK", defaults.rag_min_rerank)),
         clone_min_confidence=(
             float(env["CLONE_MIN_CONFIDENCE"]) if env.get("CLONE_MIN_CONFIDENCE") else None

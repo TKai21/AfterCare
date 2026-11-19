@@ -86,6 +86,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
+| `PRIVACY_MASKING` | on | Names, phone numbers and other identifiers are replaced by placeholders before any text is sent to the model, see [docs/privacy.md](docs/privacy.md); `0` turns it off |
 | `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
 | `GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`, `GUIDANCE_TOP_K` | 0.40, 0.05, 6 | Doctor guidance retrieval, see [Doctor clone](#doctor-clone). `GUIDANCE_MIN_SIMILARITY` is the floor's old name and is read when `GUIDANCE_FLOOR` is unset |
 | `FOODS_PATH` | `data/foods.json` | Food table |

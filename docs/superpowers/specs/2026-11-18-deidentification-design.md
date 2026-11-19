@@ -1,6 +1,6 @@
 # De-identification before the model - design
 
-Date: 2026-11-18. Status: draft, waiting for the team's approval.
+Date: 2026-11-18. Approved by the team in conversation; built the same day.
 
 ## 1. Intent
 
@@ -60,10 +60,12 @@ grounding, the emergency backstop and storage work on the original text.
 ### 4.2 What is masked
 
 An identifier is a (kind, value) pair; each value gets a stable placeholder per
-request, `[PATIENT]`, `[DOCTOR_1]`, `[FACILITY_1]`, `[PHONE_1]`, `[EMAIL_1]`,
-`[ID_1]`, `[ADDRESS_1]`.
+request, `[PATIENT_1]`, `[DOCTOR_1]`, `[FACILITY_1]`, `[PHONE_1]`, `[EMAIL_1]`,
+`[ID_1]`, `[ADDRESS_1]`, `[DOB_1]`.
 
-Sources, all computed locally:
+Sources, all computed locally (the known values are reloaded from the
+database at most every 30 seconds; the rules below also run on every outbound
+text, so a document is masked in the very call that first sends it):
 1. **Known values**: the patient's and every doctor's account name
    (`display_name`, `username` when it is a real name), with and without "Dr.".
 2. **Document header lines**, read by rules when a document is uploaded and
@@ -71,13 +73,15 @@ Sources, all computed locally:
    `Attending:` / `Physician:` / `Provider:`, and the facility line (the first
    line that ends in "Hospital", "Medical Center", "Clinic", ...). Also every
    "Dr. Firstname Lastname" in the text.
-3. **Patterns** in any outbound text: phone numbers, e-mail addresses, URLs
-   with a host, SSN-shaped and MRN-labelled numbers, street addresses.
+3. **Patterns** in any outbound text: phone numbers, e-mail addresses,
+   SSN-shaped numbers, street addresses. URLs are not masked: the ones a call
+   carries are the library's public sources.
 
 Matching is case-insensitive on word boundaries, longest value first; a full
 name also masks its parts ("Sam Delgado", "Delgado", "Sam") when the part is
-at least 3 letters and is not a word of the drug lexicon or a common English
-word list bundled with the app.
+capitalised, at least 3 letters, and is not a drug name or one of a short
+list of everyday words that are also names ("May", "Rose", "Pain"). Each part
+has its own placeholder, so unmasking restores exactly what was written.
 
 Not masked: drug names, doses, any number that is not one of the patterns
 above, symptoms, diagnoses, and **dates** (see section 7).
@@ -92,10 +96,11 @@ treated as a failed call, so no placeholder reaches a person.
 
 ### 4.4 Stored vectors
 
-Existing vectors were computed from unmasked text. The index records the
-embedding model name; the wrapper reports a different name
-(`<model>+masked`), so the existing "model changed, re-index" path rebuilds
-them from masked text.
+Existing vectors were computed from unmasked text and are kept: a masked
+query differs from them only where a name or number stood, which does not
+decide a match, and rebuilding the library index costs model calls for no
+privacy gain (those texts were already sent). New vectors are computed from
+masked text.
 
 ### 4.5 Dictation
 
@@ -154,4 +159,5 @@ De-identify at the boundary rather than switch to a local model (2026-11-18).
 
 Keep dates; mask clinician and facility names as well as the patient's; fail
 closed on a leftover identifier; no name recogniser in the first version;
-dictation keeps the cloud speech model with a notice.
+dictation keeps the cloud speech model with a notice; URLs not masked; stored
+vectors kept; a `PRIVACY_MASKING=0` switch for a model on our own machine.

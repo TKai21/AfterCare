@@ -65,7 +65,7 @@ async def test_draft_lifecycle_send_and_stats(client, fake_llm):
     def drafting(messages):
         seen.append(messages)
         return draft_reply(("Take it with breakfast.", [1]), ("Call me if it hurts.", []))
-    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai"), drafting)
+    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]"), drafting)
     resp = await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)
     assert resp.status_code == 200, resp.text
     first = resp.json()
@@ -108,7 +108,7 @@ async def test_draft_errors(client, fake_llm):
     _h, _doc, qid = await asked(client, fake_llm)
     _h2, _d2, q2 = await asked(client, fake_llm, username="bob")
     dh = await doctor_headers(client)
-    prompt = drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai")
+    prompt = drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]")
     fake_llm.route(prompt, lambda m: {"content": "not json"})
     assert (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).status_code == 502
     fake_llm.route(prompt, lambda m: draft_reply())
@@ -139,7 +139,7 @@ async def test_draft_uses_only_guidance_the_patient_may_see(client, fake_llm):
         general=True, answer="Warfarin: keep your kale steady.", drug_tags=["warfarin"]))
     _h2, _d2, q2 = await asked(client, fake_llm, username="bob")
     seen = []
-    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai"),
+    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]"),
                    lambda m: seen.append(m) or draft_reply(("Fine.", [])))
     await client.post(f"/api/doctor/questions/{q2}/draft", headers=dh)
     assert "kale" not in seen[0][1]["content"]
@@ -169,7 +169,7 @@ async def test_stats_bucket_by_week(client, fake_llm):
 async def test_cited_evidence_is_renumbered_from_one(client, fake_llm):
     _h, _doc, qid = await asked(client, fake_llm)
     dh = await doctor_headers(client)
-    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai"),
+    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]"),
                    lambda m: draft_reply(("A.", [3]), ("B.", [1, 3])))
     d = (await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)).json()
     assert [s["sources"] for s in d["sentences"]] == [[1], [1, 2]]
@@ -180,7 +180,7 @@ async def test_cited_evidence_is_renumbered_from_one(client, fake_llm):
 async def test_support_check_flags_sentences_their_source_does_not_back(client, fake_llm):
     _h, _doc, qid = await asked(client, fake_llm)
     dh = await doctor_headers(client)
-    prompt = drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai")
+    prompt = drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]")
     fake_llm.route(prompt, lambda m: draft_reply(
         ("You can drive.", [1]), ("Rest today.", []), ("Take it with food.", [1])))
     seen = []
@@ -211,7 +211,7 @@ async def test_draft_context_has_asked_and_reply(client, fake_llm):
     def drafting(messages):
         seen.append(messages)
         return draft_reply(("Come in.", []))
-    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. Ting Kai"), drafting)
+    fake_llm.route(drafts.DRAFT_PROMPT.replace("{DOCTOR}", "Dr. [DOCTOR_1]"), drafting)
     resp = await client.post(f"/api/doctor/questions/{qid}/draft", headers=dh)
     assert resp.status_code == 200, resp.text
     content = seen[0][1]["content"]

@@ -14,6 +14,7 @@ from conftest import auth_headers
 from guidance import embed_entry
 from knowledge import KnowledgeStore
 from llm import LLMClient, LLMError
+from privacy import PrivateLLM
 from models import CareTeamQuestion, ChatMessage, DoctorGuidance, DrugLabel, User
 from test_routes_documents import DOC, upload_text
 
@@ -283,7 +284,9 @@ def test_create_app_builds_llm_client_and_store_from_settings(tmp_path):
         llm_model="local-model", rag_db_path=str(tmp_path / "index.sqlite3"),
     )
     app = create_app(settings, label_client=LabelClient(fixture_transport(DEMO_LABELS)))
-    assert isinstance(app.state.llm, LLMClient)
+    # Every call is de-identified on the way out (privacy.PrivateLLM).
+    assert isinstance(app.state.llm, PrivateLLM) and isinstance(app.state.llm.inner, LLMClient)
+    assert app.state.store.llm is app.state.llm
     assert isinstance(app.state.store, KnowledgeStore)
     assert app.state.store.path == tmp_path / "index.sqlite3"
     assert app.state.foods.lookup("almonds")[0]["name"] == "Almonds"
@@ -428,7 +431,8 @@ async def test_ask_cites_eligible_doctor_advice(client, fake_llm):
     }]
     assert body["guidance_ids"] == [entry.id]
     assert body["doctor_name"] == "Dr. Ting Kai"
-    assert "sent it to Dr. Ting Kai" in fake_llm.calls[-1][0][0]["content"]
+    # The model sees the doctor's name masked (privacy.PrivateLLM).
+    assert "sent it to Dr. [DOCTOR_1]" in fake_llm.calls[-1][0][0]["content"]
     # The entry was prefetched for the question, so the tool hit reuses its number.
     first_user = [m for m in fake_llm.calls[-2][0] if m["role"] == "user"][-1]["content"]
     assert f"[4] My earlier advice, {date} (general advice)" in first_user
@@ -2049,7 +2053,8 @@ class Interviewer:
                       "judge": list(judges), "question": list(questions)}
         self.calls = {k: 0 for k in self.lists}
         prompts = {"build": interview.BUILD_PROMPT, "extract": interview.EXTRACT_PROMPT,
-                   "question": interview.QUESTION_PROMPT.format(doctor="Dr. Ting Kai")}
+                   # The model sees the doctor's name masked (privacy.PrivateLLM).
+                   "question": interview.QUESTION_PROMPT.format(doctor="Dr. [DOCTOR_1]")}
         import agent
         prompts["judge"] = agent.REPLY_JUDGE_PROMPT
         for key, prompt in prompts.items():

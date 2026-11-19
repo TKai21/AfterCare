@@ -413,7 +413,8 @@ async def test_ask_cites_a_rule_and_shows_the_doctors_words(client, fake_llm):
         n = evidence_number_of(first, "Take your pill with food.")
         return {"content": json.dumps({"kind": "answer", "answer": f"Take it with food [{n}].",
                                        "citations": [n], "care_team_question": None})}
-    fake_llm.route(agent.system_prompt("Dr. Ting Kai"), clone)
+    # The model sees the doctor's name masked (privacy.PrivateLLM).
+    fake_llm.route(agent.system_prompt("Dr. [DOCTOR_1]"), clone)
     resp = await client.post("/api/ask", headers=h, json={
         "question": "Should I take my pill with food?", "doctor_id": doctor_id})
     assert resp.status_code == 200, resp.text
