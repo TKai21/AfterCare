@@ -210,3 +210,23 @@ the emergency answer; medicines were not asked in any of the ten, so a patient
 who had stopped a medicine was not found out; a case closed although the
 patient was unsure how bad the problem was; a symptom the document only
 touches on was answered from the document without an interview.
+
+### Second amendment (2026-11-20)
+
+- Whether the patient takes their medicines as directed is asked whenever the
+  document lists a medication (in the ten cases the build call never judged
+  medicines relevant, so a patient who had stopped one was not found out);
+  what else they took stays conditional.
+- A case is not closed when the patient could not say how long, how bad, or
+  whether it is changing.
+- At the end of an interview the clone closes in the doctor's own words or
+  hands the case over. It no longer delivers an answer it composed from what
+  the patient said: one run told a patient "Your headache may be related to
+  not taking colchicine".
+
+Third run of the ten patients: three emergency answers without a danger sign,
+one case closed by the clone, five handed to the doctor with a confirmed
+summary, 4.3 questions on average. The emergency answers differ from run to
+run because the follow-ups asked differ; the remaining cause is the same in
+all three: a natural denial the rules do not accept ("No, I have not had any
+additional symptoms such as wheezing, cough, or shortness of breath").

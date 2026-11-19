@@ -31,8 +31,8 @@ STAGE_NAMES = {SAFETY: "Safety check", PROBLEM: "Your symptoms", FOLLOW_UP: "A f
                MEDICATION: "Your medicines"}
 # Core items: key -> (stage, label, fixed question). The three about the problem
 # are in every interview of the procedure: they are the facts every case is
-# compared on. The two about medicines are asked only when the build call says
-# medicines matter to this complaint. There is no closing "anything else?"
+# compared on. "medicines" is asked whenever the document lists a medication,
+# "other_medicines" only when the build call says medicines matter here. There is no closing "anything else?"
 # question: it invited patients to retell everything (trial of 2026-11-19); the
 # summary they confirm is where they add or correct.
 CORE = {
@@ -375,15 +375,16 @@ def _medicines_question(medications: Sequence[str]) -> str:
 def core_items(core_habits: dict[str, list[int]], medications: Sequence[str],
                ask_medicines: bool = True) -> list[Item]:
     """The procedure's core items, each with its fixed question and the
-    doctor's habits that ask the same thing. The medicines items only with
-    `ask_medicines`, and no "as directed" item when the document lists no
-    medication."""
+    doctor's habits that ask the same thing. Whether the patient takes their
+    medicines as directed is asked whenever the document lists a medication
+    (a patient who stopped one says so only when asked: trial of 2026-11-20);
+    what else they took only with `ask_medicines`."""
     fixed = {key: question for key, (_, _, question) in CORE.items()}
     fixed["medicines"] = _medicines_question(medications)
     return [Item(label, list(core_habits.get(key, [])), False, stage=stage, core=key,
                  fixed=fixed[key])
             for key, (stage, label, _) in CORE.items()
-            if fixed[key] and (stage != MEDICATION or ask_medicines)]
+            if fixed[key] and (key != "other_medicines" or ask_medicines)]
 
 
 async def build_items(llm, question: str, ask_habits, warning_habits, document_terms: list[str],
@@ -663,3 +664,14 @@ def open_question(iv: Interview) -> Optional[tuple[int, str, bool]]:
     if n is None or iv.rounds[-1].get("reply") is not None:
         return None
     return n, iv.rounds[-1].get("asked") or "", bool(iv.rounds[-1].get("doctor"))
+
+
+PROBLEM_CORE = ("duration", "severity", "course")
+
+
+def unsettled_problem_item(iv: Interview) -> Optional[str]:
+    """The label of a core question about the problem (how long, how bad, better
+    or worse) the patient could not answer: the clone does not close a case it
+    cannot describe."""
+    return next((i.label for i in iv.items
+                 if i.core in PROBLEM_CORE and i.status != "answered"), None)

@@ -29,7 +29,7 @@ from interview import (
     STAGE_NAMES, Interview, as_pending, ask_confirmation, ask_next, asked_item,
     awaiting_confirmation, build_items, done, dump_interview, extract, habit_ids, is_interview,
     is_procedure, live_habit_texts, load_interview, mark, open_question, open_safety_item,
-    NOT_SURE_REPLY, similar_case_habits, so_far, stage_of, steps,
+    NOT_SURE_REPLY, similar_case_habits, so_far, stage_of, steps, unsettled_problem_item,
 )
 from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
@@ -323,6 +323,8 @@ async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, o
     return [], judged
 
 
+DOCTOR_DECIDES = "Interview complete: the doctor decides"
+NOT_SURE_REASON = "Patient is not sure: {label}"
 SUMMARY_CORRECTED = "The patient added to or corrected the summary: see their last reply."
 
 
@@ -883,6 +885,8 @@ async def ask(
                 label = open_safety_item(iv)
                 if label is not None:
                     blocker = WARNING_REASON.format(term=label)
+                elif unsettled_problem_item(iv) is not None:
+                    blocker = NOT_SURE_REASON.format(label=unsettled_problem_item(iv))
 
         threshold = request.app.state.clone_threshold
         # The gate never runs when the backstop saw an emergency term: that
@@ -921,7 +925,16 @@ async def ask(
                         gate_score, gate_passed = second, True
 
     settle: Optional[Settle] = None
-    if pending is not None:
+    if (iv is not None and is_procedure(iv) and pending is not None and not terms
+            and result.kind == "answer" and result.replies_to_questions is not False):
+        # The patient reported a problem and answered the questions: there is
+        # nothing to "answer". The clone ends such a case in the doctor's own
+        # closing words or not at all; advice it would compose from what the
+        # patient said is the doctor's decision (trial of 2026-11-20: "Your
+        # headache may be related to not taking colchicine").
+        result, settle = handoff_result(name), Settle("open", NEEDS_DOCTOR,
+                                                      blocker or DOCTOR_DECIDES)
+    elif pending is not None:
         result, settle = settle_reply(result, terms, blocker, gate_passed, name)
         if result.replies_to_questions is False and result.kind == "answer" and not gate_passed:
             result = low_confidence_result(body.question, name)  # the new question's gate

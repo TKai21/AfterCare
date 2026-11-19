@@ -57,8 +57,11 @@ def test_core_items_and_their_stages():
     assert all(i.fixed.endswith("?") and not i.safety for i in items)
     # No medication in the document: nothing to ask about taking it.
     assert [i.core for i in iv_mod.core_items({}, [])][3:] == ["other_medicines"]
-    # Medicines do not matter to this complaint: only the three about the problem.
+    # Medicines do not matter to this complaint: still whether they are taken as
+    # directed, but not what else was taken.
     assert [i.core for i in iv_mod.core_items({}, ["colchicine"], ask_medicines=False)] == [
+        "duration", "severity", "course", "medicines"]
+    assert [i.core for i in iv_mod.core_items({}, [], ask_medicines=False)] == [
         "duration", "severity", "course"]
 
 
@@ -94,10 +97,10 @@ def test_build_without_the_procedure_is_unchanged():
 def test_a_doctor_with_no_habits_still_gets_the_core_items():
     (_, items), _ = build({"reports_symptom": True, "items": [], "ask_medicines": True}, [])
     assert [i.core for i in items] == list(iv_mod.CORE)
-    # Medicines are asked only when the build call says they matter here.
+    # What else was taken is asked only when the build call says medicines matter here.
     for flag in ({}, {"ask_medicines": False}, {"ask_medicines": "yes"}):
         (_, items), _ = build({"reports_symptom": True, "items": [], **flag}, [])
-        assert [i.core for i in items] == ["duration", "severity", "course"]
+        assert [i.core for i in items] == ["duration", "severity", "course", "medicines"]
 
 
 def test_one_danger_sign_is_asked_once_and_worsening_is_left_to_its_own_question():
@@ -389,12 +392,24 @@ async def test_an_emergency_reply_shows_no_end_line(client, fake_llm):
     assert body["emergency"]["banner"] is True and "interview_end" not in body
 
 
-async def test_medicines_are_not_asked_when_they_do_not_matter(client, fake_llm):
+async def test_only_taking_them_as_directed_is_asked_when_medicines_do_not_matter(client, fake_llm):
     h, doctor_id, _talk, body = await begin(client, fake_llm, medicines=False)
-    rounds = [(q, d, r, step) for q, d, r, step in ROUNDS if step != 4]
-    body = await to_summary(client, h, doctor_id, body, rounds=rounds, stages=3)
+    body = await to_summary(client, h, doctor_id, body, rounds=ROUNDS[:-1])
     assert body["interview"]["confirm"] is True
-    assert {i["stage"] for i in body["interview"]["so_far"]} == {1, 2, 3}
+    assert [i["label"] for i in body["interview"]["so_far"] if i["stage"] == 4] == [
+        "taking prescribed medicines"]
+
+
+async def test_a_case_the_patient_cannot_describe_is_not_closed(client, fake_llm):
+    h, doctor_id, talk, body = await begin(client, fake_llm, medicines=False)
+    rounds = [r if r[0] != SEVERITY_Q else (r[0], r[1], "I'm not sure.", r[3]) for r in ROUNDS[:-1]]
+    body = await to_summary(client, h, doctor_id, body, rounds=rounds)
+    fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
+    talk.lists["judge"] = [judged(signs=absent("fever"), close=5)]
+    body = (await confirm(client, h, doctor_id, body["interview"]["round"])).json()
+    assert body["kind"] == "not_covered", body
+    (q,) = await all_questions(client)
+    assert q.status == "open" and q.stopped_by == "Patient is not sure: how bad it is"
 
 
 async def test_a_reply_that_is_no_answer_is_asked_again_once(client, fake_llm):
@@ -413,3 +428,16 @@ async def test_a_reply_that_is_no_answer_is_asked_again_once(client, fake_llm):
     assert body["answer"] == SEVERITY_Q
     assert {"label": "how long it has lasted", "status": "unsure", "quote": "",
             "stage": 2} in body["interview"]["so_far"]
+
+
+async def test_the_clone_does_not_compose_advice_at_the_end_of_an_interview(client, fake_llm):
+    h, doctor_id, talk, body = await begin(client, fake_llm, medicines=False)
+    body = await to_summary(client, h, doctor_id, body, rounds=ROUNDS[:-1])
+    # The model writes an answer of its own instead of closing in the doctor's words.
+    fake_llm.script(final("answer", "Take amoxicillin 500 mg three times daily [2].", [2]))
+    body = (await confirm(client, h, doctor_id, body["interview"]["round"])).json()
+    assert body["kind"] == "not_covered" and "amoxicillin" not in body["answer"]
+    assert body["interview_end"] == iv_mod.END_TEXT
+    (q,) = await all_questions(client)
+    assert q.status == "open" and q.stopped_by == "Interview complete: the doctor decides"
+    assert q.intake["confirmed"] is True
