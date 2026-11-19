@@ -25,11 +25,13 @@ def build_llm(reply):
     return llm
 
 
-def build(reply, asks, warns=(), medications=("amoxicillin",)):
+def build(reply, asks, warns=(), medications=("amoxicillin",), question="My incision is red.",
+          problems=(), document_text=""):
     llm = build_llm(reply)
-    got = asyncio.run(iv_mod.build_items(llm, "My incision is red.", list(asks), list(warns), [],
+    got = asyncio.run(iv_mod.build_items(llm, question, list(asks), list(warns), [],
                                          [], max_items=5, max_safety=3,
-                                         procedure=list(medications)))
+                                         procedure=list(medications), problems=problems,
+                                         document_text=document_text))
     return got, llm
 
 
@@ -57,12 +59,29 @@ def test_core_items_and_their_stages():
     assert all(i.fixed.endswith("?") and not i.safety for i in items)
     # No medication in the document: nothing to ask about taking it.
     assert [i.core for i in iv_mod.core_items({}, [])][3:] == ["other_medicines"]
-    # Medicines do not matter to this complaint: still whether they are taken as
-    # directed, but not what else was taken.
-    assert [i.core for i in iv_mod.core_items({}, ["colchicine"], ask_medicines=False)] == [
-        "duration", "severity", "course", "medicines"]
-    assert [i.core for i in iv_mod.core_items({}, [], ask_medicines=False)] == [
-        "duration", "severity", "course"]
+    # The complaint has nothing to do with the document: one question, what the
+    # patient takes now, in its fixed words and with no word about the document.
+    for medications in (["colchicine"], []):
+        items = iv_mod.core_items({"medicines": [4], "other_medicines": [5]}, medications,
+                                  related=False)
+        assert [i.core for i in items] == ["duration", "severity", "course", "current_medicines"]
+        assert items[-1].habits == [] and items[-1].stage == MEDICATION
+        assert items[-1].fixed == ("What medicines are you taking right now, including anything "
+                                   "you took for this?")
+
+
+@pytest.mark.parametrize("question, expected", [
+    ("My gout is back in the same toe.", True),
+    ("I think the naproxen upsets my stomach.", True),
+    ("My left knee hurts again.", True),  # "Left knee pain": side and "pain" do not tell
+    ("I have a runny nose since yesterday.", False),
+    ("My toe hurts.", False),  # the model's call, not the program's
+    ("I have pain in my arm.", False),
+])
+def test_names_document(question, expected):
+    assert iv_mod.names_document(question, ["colchicine", "naproxen"],
+                                 ["Chronic gout of multiple sites", "Left knee pain",
+                                  "Rest and raise your right foot when you can."]) is expected
 
 
 def test_build_maps_habits_to_core_items():
@@ -73,7 +92,8 @@ def test_build_maps_habits_to_core_items():
         "items": [{"label": "how long the redness lasted", "habits": [1]},
                   {"label": "incision discharge", "habits": [2]}],
         "core": {"duration": [1], "other_medicines": [3, 99, "x"], "severity": "no"},
-        "ask_medicines": True, "relevant_document_terms": []}, asks, warns)
+        "document_related": True, "relevant_document_terms": []}, asks, warns,
+        problems=["Gout", "Rest your foot."], document_text="Diagnosis:\nAcute gout flare.")
     assert symptom is True
     by_core = {i.core: i for i in items if i.core}
     assert by_core["duration"].habits == [1] and by_core["other_medicines"].habits == [3]
@@ -81,7 +101,11 @@ def test_build_maps_habits_to_core_items():
     # The redness item only had the duration habit: it is the core item now.
     assert [i.label for i in items if not i.core and not i.safety] == ["incision discharge"]
     assert [(i.label, i.stage) for i in items if i.safety] == [("fever", SAFETY)]
-    assert iv_mod.CORE_REQUEST in llm.routed_calls[0][0][1]["content"]
+    sent = llm.routed_calls[0][0][1]["content"]
+    assert iv_mod.CORE_REQUEST in sent
+    assert "Document problems:\n- Gout\n- Rest your foot." in sent
+    assert "Document medicines:\n- amoxicillin" in sent
+    assert "Discharge document:\nDiagnosis:\nAcute gout flare." in sent
 
 
 def test_build_without_the_procedure_is_unchanged():
@@ -95,12 +119,47 @@ def test_build_without_the_procedure_is_unchanged():
 
 
 def test_a_doctor_with_no_habits_still_gets_the_core_items():
-    (_, items), _ = build({"reports_symptom": True, "items": [], "ask_medicines": True}, [])
-    assert [i.core for i in items] == list(iv_mod.CORE)
-    # What else was taken is asked only when the build call says medicines matter here.
-    for flag in ({}, {"ask_medicines": False}, {"ask_medicines": "yes"}):
+    (_, items), _ = build({"reports_symptom": True, "items": [], "document_related": True}, [])
+    assert [i.core for i in items] == [
+        "duration", "severity", "course", "medicines", "other_medicines"]
+    # Anything but a clear yes: the question that fits every complaint.
+    for flag in ({}, {"document_related": False}, {"document_related": "yes"}):
         (_, items), _ = build({"reports_symptom": True, "items": [], **flag}, [])
-        assert [i.core for i in items] == ["duration", "severity", "course", "medicines"]
+        assert [i.core for i in items] == ["duration", "severity", "course", "current_medicines"]
+
+
+def test_a_message_that_names_the_document_is_related_whatever_the_model_says():
+    reply = {"reports_symptom": True, "items": [], "document_related": False}
+    (_, items), _ = build(reply, [], question="The amoxicillin gives me a rash.")
+    assert [i.core for i in items][3:] == ["medicines", "other_medicines"]
+    (_, items), _ = build(reply, [], question="My gout is back.", problems=["Chronic gout"])
+    assert [i.core for i in items][3:] == ["medicines", "other_medicines"]
+
+
+def test_a_habit_about_medicines_is_not_asked_beside_the_one_question():
+    asks = [Habit(3, "What have you tried?")]
+    (_, items), _ = build({"reports_symptom": True, "document_related": False,
+                           "items": [{"label": "things tried", "habits": [3]}],
+                           "core": {"other_medicines": [3]}}, asks)
+    assert [(i.core, i.habits) for i in items] == [
+        ("duration", []), ("severity", []), ("course", []), ("current_medicines", [])]
+
+
+def test_the_doctor_reads_what_the_patient_takes_next_to_the_document_list():
+    items = iv_mod.core_items({}, ["colchicine", "naproxen"], related=False)
+    iv = Interview(items=items, medications=["colchicine", "naproxen"])
+    assert "discharge document lists" not in iv_mod.summary_text(iv)  # not asked yet
+    items[-1].status, items[-1].quote = "answered", "Only colchicine."
+    assert 'medicines taken now ("Only colchicine.")' in iv_mod.summary_text(iv)
+    assert "The discharge document lists: colchicine, naproxen" in iv_mod.summary_text(iv)
+    again = iv_mod.load_interview(iv_mod.dump_interview(iv))
+    assert again.medications == ["colchicine", "naproxen"]
+    assert again.items[-1].core == "current_medicines"
+    # The related questions name the medicines themselves: no list is added.
+    related = Interview(items=iv_mod.core_items({}, ["colchicine"]), medications=["colchicine"])
+    for i in related.items:
+        i.status = "answered"
+    assert "discharge document lists" not in iv_mod.summary_text(related)
 
 
 def test_one_danger_sign_is_asked_once_and_worsening_is_left_to_its_own_question():
@@ -216,6 +275,9 @@ ROUNDS = [(FEVER_Q, False, "No fever at all.", 1),
           (DISCHARGE_Q, True, "No", 3),
           (MEDICINES_Q, False, "Yes I am.", 4),
           (OTHER_Q, False, "I'm not sure.", 4)]
+CURRENT_Q = iv_mod.CORE["current_medicines"][2]
+# A complaint that has nothing to do with the document: one medicine question.
+UNRELATED = [*ROUNDS[:5], (CURRENT_Q, False, "Only amoxicillin.", 4)]
 
 
 def procedure_on(client):
@@ -226,7 +288,7 @@ def procedure_build(ids, medicines=True):
     return {"reports_symptom": True,
             "items": [{"label": "how long the redness lasted", "habits": [ids[REDNESS_Q]]},
                       {"label": "incision discharge", "habits": [ids[DISCHARGE_Q]]}],
-            "core": {"duration": [ids[REDNESS_Q]]}, "ask_medicines": medicines}
+            "core": {"duration": [ids[REDNESS_Q]]}, "document_related": medicines}
 
 
 async def begin(client, fake_llm, judges=None, medicines=True):
@@ -392,17 +454,20 @@ async def test_an_emergency_reply_shows_no_end_line(client, fake_llm):
     assert body["emergency"]["banner"] is True and "interview_end" not in body
 
 
-async def test_only_taking_them_as_directed_is_asked_when_medicines_do_not_matter(client, fake_llm):
+async def test_a_complaint_unrelated_to_the_document_is_asked_what_the_patient_takes_now(
+        client, fake_llm):
     h, doctor_id, _talk, body = await begin(client, fake_llm, medicines=False)
-    body = await to_summary(client, h, doctor_id, body, rounds=ROUNDS[:-1])
+    body = await to_summary(client, h, doctor_id, body, rounds=UNRELATED)
     assert body["interview"]["confirm"] is True
-    assert [i["label"] for i in body["interview"]["so_far"] if i["stage"] == 4] == [
-        "taking prescribed medicines"]
+    assert [(i["label"], i["quote"]) for i in body["interview"]["so_far"] if i["stage"] == 4] == [
+        ("medicines taken now", "Only amoxicillin.")]
+    (q,) = await all_questions(client)
+    assert q.intake["medications"] == ["amoxicillin"]
 
 
 async def test_a_case_the_patient_cannot_describe_is_not_closed(client, fake_llm):
     h, doctor_id, talk, body = await begin(client, fake_llm, medicines=False)
-    rounds = [r if r[0] != SEVERITY_Q else (r[0], r[1], "I'm not sure.", r[3]) for r in ROUNDS[:-1]]
+    rounds = [r if r[0] != SEVERITY_Q else (r[0], r[1], "I'm not sure.", r[3]) for r in UNRELATED]
     body = await to_summary(client, h, doctor_id, body, rounds=rounds)
     fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
     talk.lists["judge"] = [judged(signs=absent("fever"), close=5)]
@@ -432,7 +497,7 @@ async def test_a_reply_that_is_no_answer_is_asked_again_once(client, fake_llm):
 
 async def test_the_clone_does_not_compose_advice_at_the_end_of_an_interview(client, fake_llm):
     h, doctor_id, talk, body = await begin(client, fake_llm, medicines=False)
-    body = await to_summary(client, h, doctor_id, body, rounds=ROUNDS[:-1])
+    body = await to_summary(client, h, doctor_id, body, rounds=UNRELATED)
     # The model writes an answer of its own instead of closing in the doctor's words.
     fake_llm.script(final("answer", "Take amoxicillin 500 mg three times daily [2].", [2]))
     body = (await confirm(client, h, doctor_id, body["interview"]["round"])).json()

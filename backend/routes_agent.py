@@ -1,4 +1,5 @@
 import logging
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional, Sequence
@@ -421,9 +422,29 @@ def document_medications(items, lexicon) -> list[str]:
     return names
 
 
+DOCUMENT_LINES_MAX = 40
+DOCUMENT_LINE_CHARS = 160
+_ITEM_LABEL = re.compile(r"^[^:]{1,40}:\s*")
+
+
+def document_problems(items) -> list[str]:
+    """What the document is about, for telling whether a complaint has to do
+    with it: its problems and instructions (every item but the medications,
+    which go by name), without a leading label ("Active problem: Gout")."""
+    lines: list[str] = []
+    for item in items:
+        if item.category == "medication" or item.status == "rejected":
+            continue
+        line = " ".join(_ITEM_LABEL.sub("", item.text or "").split())[:DOCUMENT_LINE_CHARS]
+        if line and line not in lines:
+            lines.append(line)
+    return lines[:DOCUMENT_LINES_MAX]
+
+
 async def start_interview(session: AsyncSession, llm, question: str, doctor_id: int,
                           doctor_name: str, document_terms: list[str], allowed_drugs,
                           settings, medications: Sequence[str] = (),
+                          problems: Sequence[str] = (), document_text: str = "",
                           ) -> Optional[tuple[Interview, AgentResult, dict]]:
     """A first turn the 4.7 intake would act on becomes the interview's first
     question: (state, clarify, payload additions). None keeps the agent's
@@ -451,10 +472,11 @@ async def start_interview(session: AsyncSession, llm, question: str, doctor_id: 
                               max_items=(settings.interview_procedure_max_items if procedure
                                          else settings.interview_max_items),
                               max_safety=settings.interview_max_safety,
-                              procedure=list(medications) if procedure else None)
+                              procedure=list(medications) if procedure else None,
+                              problems=problems, document_text=document_text)
     if built is None or not built[0] or not built[1]:
         return None
-    iv = Interview(items=built[1])
+    iv = Interview(items=built[1], medications=list(medications))
     max_rounds = interview_rounds_cap(settings, procedure)
     await extract(llm, iv, question, "",
                   [*(t for w in warns for t in (w.warning_terms or [])), *document_terms])
@@ -985,7 +1007,8 @@ async def ask(
         elif side_iv is None and pending is None and not terms and result.intake_eligible:
             started = await start_interview(
                 session, llm, body.question, doctor_id, name, document_terms, allowed_drugs,
-                settings, medications=document_medications(items, get_lexicon()))
+                settings, medications=document_medications(items, get_lexicon()),
+                problems=document_problems(items), document_text=doc.text or "")
             if started is not None:
                 first_iv, result, interview_extra = started
 

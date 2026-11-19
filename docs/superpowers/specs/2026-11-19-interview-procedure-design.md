@@ -278,3 +278,41 @@ document without an interview.
 Calls made by Claude: the rule for when the check may be asked; typed words
 during a check get the emergency answer; the check is limited to the
 procedure; the button's reach at the close gate.
+
+### Fourth amendment (2026-11-21): medicine questions follow the complaint
+
+A team member with a runny nose was asked "Have you been taking colchicine and
+naproxen as your discharge instructions say?". The question pulls the
+conversation back to the gout document and reads as the clone not listening.
+The second amendment had made it unconditional because the build call never
+judged medicines relevant; the cause was that the call was never shown the
+document.
+
+- **The decision.** The build call now gets the document's text (first 4000
+  characters), its problems and instructions, and its medicine names, and
+  returns `document_related`: the complaint is a symptom, flare or
+  complication of what the document treats, or a known side effect of one of
+  its medicines. The program also decides "related" by itself when the message
+  names a document medicine or problem (`interview.names_document`). Anything
+  but a clear yes is "not related".
+- **Related** (toe pain after a gout flare): as before, whether the medicines
+  are taken as the discharge instructions say, and what else was taken.
+- **Not related** (a runny nose): one question in fixed words, "What medicines
+  are you taking right now, including anything you took for this?", with no
+  word about the document. A habit of the doctor that asks about medicines is
+  not asked beside it.
+- **The doctor's side.** The interview keeps the document's medicine names,
+  and the summary the doctor reads adds "The discharge document lists: ..."
+  under the patient's answer, so a medicine the patient left out is seen. The
+  doctor judges it; the clone does not ask again.
+
+Checked with the real model on the demo document, twice each: toe pain, a gout
+flare, a swollen red foot, stomach pain since the pain pills and diarrhea were
+read as related; a runny nose, a cough, a headache, burning urination and
+constipation as not related. In the app the runny nose, the cough and the
+headache got the new question. Still open: the related complaints were
+answered from the document without an interview in these runs, so the related
+questions were not seen end to end with the real model.
+
+Calls made by Claude: the wording of the one question; "not related" as the
+fallback; the doctor reads the list instead of the clone comparing it.

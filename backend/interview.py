@@ -31,8 +31,10 @@ STAGE_NAMES = {SAFETY: "Safety check", PROBLEM: "Your symptoms", FOLLOW_UP: "A f
                MEDICATION: "Your medicines"}
 # Core items: key -> (stage, label, fixed question). The three about the problem
 # are in every interview of the procedure: they are the facts every case is
-# compared on. "medicines" is asked whenever the document lists a medication,
-# "other_medicines" only when the build call says medicines matter here. There is no closing "anything else?"
+# compared on. The medicine questions depend on whether the complaint has to do
+# with the discharge document (core_items): "medicines" and "other_medicines"
+# when it does, the one "current_medicines" when it does not, so a patient with
+# a runny nose is not asked about their gout instructions. There is no closing "anything else?"
 # question: it invited patients to retell everything (trial of 2026-11-19); the
 # summary they confirm is where they add or correct.
 CORE = {
@@ -45,7 +47,13 @@ CORE = {
     "other_medicines": (MEDICATION, "anything else taken for it",
                         "Have you taken anything else for this, such as an over-the-counter "
                         "medicine?"),
+    "current_medicines": (MEDICATION, "medicines taken now",
+                          "What medicines are you taking right now, including anything you "
+                          "took for this?"),
 }
+# Core items the doctor's habits can be the question of ("current_medicines" is
+# always asked in its fixed words: a habit asks only half of it).
+HABIT_CORE = ("duration", "severity", "course", "medicines", "other_medicines")
 MAX_SIDE_QUESTIONS = 3
 CONFIRM_TEXT = "Here is what I understood. Is this right?"
 # A typed "I don't know": the item is unsure at once, not asked again.
@@ -80,6 +88,9 @@ class Interview:
     rounds: list[dict] = field(default_factory=list)
     side: int = 0  # side questions answered so far (procedure only)
     confirmed: Optional[bool] = None  # the patient's answer to the summary, once given
+    # The document's medicine names, kept when the patient is asked what they
+    # take now: the doctor reads the answer next to them.
+    medications: list[str] = field(default_factory=list)
 
 
 def is_interview(intake) -> bool:
@@ -117,14 +128,17 @@ def load_interview(intake) -> Optional[Interview]:
     rounds = [dict(r) for r in intake.get("rounds") or [] if isinstance(r, dict)]
     side = intake.get("side")
     confirmed = intake.get("confirmed")
+    medications = intake.get("medications")
     return Interview(items=items, rounds=rounds,
                      side=side if isinstance(side, int) and not isinstance(side, bool) else 0,
-                     confirmed=confirmed if isinstance(confirmed, bool) else None)
+                     confirmed=confirmed if isinstance(confirmed, bool) else None,
+                     medications=([m for m in medications if isinstance(m, str)]
+                                  if isinstance(medications, list) else []))
 
 
 def dump_interview(iv: Interview) -> dict:
     return {"items": [asdict(i) for i in iv.items], "rounds": [dict(r) for r in iv.rounds],
-            "side": iv.side, "confirmed": iv.confirmed}
+            "side": iv.side, "confirmed": iv.confirmed, "medications": list(iv.medications)}
 
 
 def is_procedure(iv: Interview) -> bool:
@@ -231,6 +245,9 @@ def summary_text(iv: Interview) -> str:
     if check is not None:
         lines.append(f"Asked \"are you having this right now?\", no answer yet: "
                      f"{', '.join(check_names(check['terms']))}")
+    if iv.medications and any(i.core == "current_medicines" and i.status != "unknown"
+                              for i in iv.items):
+        lines.append(f"The discharge document lists: {', '.join(iv.medications)}")
     if iv.confirmed is True:
         lines.append("The patient confirmed this summary.")
     elif iv.confirmed is False:
@@ -241,6 +258,7 @@ def summary_text(iv: Interview) -> str:
 # ---------- model calls ----------
 
 LABEL_MAX_WORDS = 6
+DOCUMENT_TEXT_CHARS = 4000  # of the document, for telling whether a complaint is about it
 ITEM_ATTEMPTS_MAX = 2
 
 BUILD_PROMPT = (
@@ -260,9 +278,12 @@ CORE_REQUEST = (
     "ask whether it is getting better or worse], \"medicines\": [ids that ask whether the "
     "patient is taking their prescribed medicines], \"other_medicines\": [ids that ask what "
     "else the patient has taken or tried for it]}. Use [] when no habit asks it. A habit listed "
-    "under \"core\" must not also be in \"items\". Also add \"ask_medicines\": true when a "
-    "medicine the patient takes could cause or change this problem, or the patient's message "
-    "mentions a medicine; else false.")
+    "under \"core\" must not also be in \"items\". Also add \"document_related\": true when "
+    "the patient's problem is a symptom, a flare or a complication of what the discharge "
+    "document treats (its diagnosis) or of one of the document problems listed, or a known "
+    "side effect of one of the document medicines listed; false "
+    "when it is a different, unrelated problem (for example a cold in a patient treated for "
+    "gout).")
 EXTRACT_PROMPT = (
     "You read a patient's reply for a doctor's AI clone. Items are things the clone wants to "
     "know. For each item the patient's words already answer (in the original question or the "
@@ -317,6 +338,10 @@ async def _json(llm, system: str, user: str) -> Optional[dict]:
         logger.warning("Interview model call failed: %s", e)
         return None
     return data if isinstance(data, dict) else None
+
+
+def _bullets(lines: Sequence[str]) -> str:
+    return "\n".join(f"- {line}" for line in lines) or "(none)"
 
 
 def _label_ok(label, allowed_drugs: Collection[str]) -> bool:
@@ -387,24 +412,48 @@ def _medicines_question(medications: Sequence[str]) -> str:
     return f"Have you been taking {listed} as your discharge instructions say?"
 
 
+_DOCUMENT_IGNORE = _content("pain pains symptom symptoms problem problems history disease "
+                           "disorder chronic acute left right both multiple site sites other "
+                           "unspecified")
+
+
+def names_document(question: str, medications: Sequence[str], problems: Sequence[str]) -> bool:
+    """The patient's message itself names a document medicine, or every telling
+    word of a document problem ("my gout is back"): the complaint has to do
+    with the document whatever the build call says."""
+    words = _content(question)
+    for phrase in (*medications, *problems):
+        telling = _content(phrase) - _DOCUMENT_IGNORE
+        if telling and telling <= words:
+            return True
+    return False
+
+
 def core_items(core_habits: dict[str, list[int]], medications: Sequence[str],
-               ask_medicines: bool = True) -> list[Item]:
+               related: bool = True) -> list[Item]:
     """The procedure's core items, each with its fixed question and the
-    doctor's habits that ask the same thing. Whether the patient takes their
-    medicines as directed is asked whenever the document lists a medication
-    (a patient who stopped one says so only when asked: trial of 2026-11-20);
-    what else they took only with `ask_medicines`."""
+    doctor's habits that ask the same thing. The medicine questions follow
+    `related`, whether the complaint has to do with the discharge document:
+
+    - related: whether the patient takes the document's medicines as directed
+      (when it lists any; a patient who stopped one says so only when asked:
+      trial of 2026-11-20), and what else they took for it;
+    - not related: one question, what they take now. Asking a patient with a
+      runny nose about their gout instructions reads as not listening; the
+      doctor sees the answer next to the document's list."""
     fixed = {key: question for key, (_, _, question) in CORE.items()}
     fixed["medicines"] = _medicines_question(medications)
-    return [Item(label, list(core_habits.get(key, [])), False, stage=stage, core=key,
-                 fixed=fixed[key])
-            for key, (stage, label, _) in CORE.items()
-            if fixed[key] and (key != "other_medicines" or ask_medicines)]
+    wanted = ("duration", "severity", "course",
+              *(("medicines", "other_medicines") if related else ("current_medicines",)))
+    return [Item(CORE[key][1], list(core_habits.get(key, [])) if key in HABIT_CORE else [],
+                 False, stage=CORE[key][0], core=key, fixed=fixed[key])
+            for key in wanted if fixed[key]]
 
 
 async def build_items(llm, question: str, ask_habits, warning_habits, document_terms: list[str],
                       allowed_drugs, *, max_items: int, max_safety: int,
                       procedure: Optional[Sequence[str]] = None,
+                      problems: Sequence[str] = (), document_text: str = "",
                       ) -> Optional[tuple[bool, list[Item]]]:
     """(reports_symptom, items) for a first-turn message, or None when the model
     call or its output is unusable. Ask habits are grouped by the model; every
@@ -414,13 +463,22 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     With `procedure` (the document's medication names) the items are the staged
     procedure: the core items are added, a habit the model maps to a core item
     is that item's question, not a follow-up, and a danger sign that only says
-    "getting worse" is left to the core question about that."""
+    "getting worse" is left to the core question about that. `problems` are the
+    document's problems and instructions and `document_text` its text (the
+    diagnosis is often only there): with the medication names they tell the model, and the
+    program (names_document), whether the complaint has to do with the document,
+    which decides the medicine questions (core_items). Anything but a clear yes
+    is "not related": that question fits every complaint."""
     listing = "\n".join(f"{h.id}: {h.quote}" for h in ask_habits) or "(none)"
     doc_listing = "\n".join(f"- {t}" for t in document_terms) or "(none)"
     data = await _json(llm, BUILD_PROMPT, f"At most {max_items} items.\n\n"
                        f"Patient message:\n{question}\n\nHabits:\n{listing}\n\n"
                        f"Document warning terms:\n{doc_listing}"
-                       + (f"\n\n{CORE_REQUEST}" if procedure is not None else ""))
+                       + (f"\n\nDischarge document:\n"
+                          f"{document_text[:DOCUMENT_TEXT_CHARS].strip() or '(not given)'}"
+                          f"\n\nDocument problems:\n{_bullets(problems)}\n\n"
+                          f"Document medicines:\n{_bullets(procedure)}\n\n{CORE_REQUEST}"
+                          if procedure is not None else ""))
     if data is None or not isinstance(data.get("reports_symptom"), bool) \
             or not isinstance(data.get("items"), list):
         return None
@@ -428,7 +486,7 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     core_habits: dict[str, list[int]] = {}
     if procedure is not None and isinstance(data.get("core"), dict):
         used: set[int] = set()
-        for key in CORE:
+        for key in HABIT_CORE:
             ids = data["core"].get(key)
             if not isinstance(ids, list):
                 continue
@@ -463,7 +521,9 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
               _safety_terms(warning_habits, relevant, labels, max_safety, allowed_drugs,
                             skip_worsening=procedure is not None)]
     if procedure is not None:
-        items += core_items(core_habits, procedure, data.get("ask_medicines") is True)
+        related = (data.get("document_related") is True
+                   or names_document(question, procedure, problems))
+        items += core_items(core_habits, procedure, related)
     return data["reports_symptom"], items
 
 
