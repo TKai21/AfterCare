@@ -26,11 +26,15 @@ QUOTE_SHOWN_MAX = 60
 
 
 # The procedure's stages, always asked in this order (spec 2026-11-19, 4.1).
-SAFETY, PROBLEM, FOLLOW_UP, MEDICATION, WRAP_UP = 1, 2, 3, 4, 5
+SAFETY, PROBLEM, FOLLOW_UP, MEDICATION = 1, 2, 3, 4
 STAGE_NAMES = {SAFETY: "Safety check", PROBLEM: "Your symptoms", FOLLOW_UP: "A few more questions",
-               MEDICATION: "Your medicines", WRAP_UP: "Anything else"}
-# Core items: in every interview of the procedure. key -> (stage, label, fixed
-# question). The medicines and wrap-up questions are filled in by core_items.
+               MEDICATION: "Your medicines"}
+# Core items: key -> (stage, label, fixed question). The three about the problem
+# are in every interview of the procedure: they are the facts every case is
+# compared on. The two about medicines are asked only when the build call says
+# medicines matter to this complaint. There is no closing "anything else?"
+# question: it invited patients to retell everything (trial of 2026-11-19); the
+# summary they confirm is where they add or correct.
 CORE = {
     "duration": (PROBLEM, "how long it has lasted", "How long has this been going on?"),
     "severity": (PROBLEM, "how bad it is",
@@ -41,10 +45,18 @@ CORE = {
     "other_medicines": (MEDICATION, "anything else taken for it",
                         "Have you taken anything else for this, such as an over-the-counter "
                         "medicine?"),
-    "wrap_up": (WRAP_UP, "anything else", ""),
 }
 MAX_SIDE_QUESTIONS = 3
 CONFIRM_TEXT = "Here is what I understood. Is this right?"
+# A typed "I don't know": the item is unsure at once, not asked again.
+NOT_SURE_REPLY = re.compile(
+    r"^\W*(?:i\W?m|i am)?\s*(?:not (?:really )?sure|unsure|no idea)\b[^?]*$|"
+    r"^\W*i (?:do not|don\W?t|dont) (?:really )?(?:know|remember)\b[^?]*$", re.IGNORECASE)
+
+
+def steps(iv: "Interview") -> list[int]:
+    """The stages this interview has, in order."""
+    return sorted({stage_of(i) for i in iv.items})
 CONFIRMED_TEXT = "That's right."
 END_TEXT = "That's everything I needed. You can ask another question any time."
 
@@ -116,7 +128,7 @@ def dump_interview(iv: Interview) -> dict:
 
 
 def is_procedure(iv: Interview) -> bool:
-    """An interview built as the five-stage procedure (it has core items)."""
+    """An interview built as the staged procedure (it has core items)."""
     return any(i.core for i in iv.items)
 
 
@@ -207,7 +219,7 @@ def summary_text(iv: Interview) -> str:
     if iv.confirmed is True:
         lines.append("The patient confirmed this summary.")
     elif iv.confirmed is False:
-        lines.append("The patient says this summary is wrong: see their last reply.")
+        lines.append("The patient added to or corrected this summary: see their last reply.")
     return "\n".join(lines)
 
 
@@ -233,7 +245,9 @@ CORE_REQUEST = (
     "ask whether it is getting better or worse], \"medicines\": [ids that ask whether the "
     "patient is taking their prescribed medicines], \"other_medicines\": [ids that ask what "
     "else the patient has taken or tried for it]}. Use [] when no habit asks it. A habit listed "
-    "under \"core\" must not also be in \"items\".")
+    "under \"core\" must not also be in \"items\". Also add \"ask_medicines\": true when a "
+    "medicine the patient takes could cause or change this problem, or the patient's message "
+    "mentions a medicine; else false.")
 EXTRACT_PROMPT = (
     "You read a patient's reply for a doctor's AI clone. Items are things the clone wants to "
     "know. For each item the patient's words already answer (in the original question or the "
@@ -303,8 +317,26 @@ def _label_ok(label, allowed_drugs: Collection[str]) -> bool:
     return not lexicon.find(label) - allowed
 
 
+# Words that do not tell two danger signs apart ("chest pain" and "abdominal
+# pain" are different signs).
+_SAME_SIGN_IGNORE = _content("pain pains symptom symptoms")
+# A sign made only of these says "it is getting worse": the procedure asks that
+# as its own question (CORE "course"), and such a term makes no yes/no question.
+_ONLY_WORSENING = _content("worse worsen worsens worsening worsened acute acutely become "
+                           "becomes becoming get gets getting persist persists persisting "
+                           "persistent symptom symptoms")
+
+
+def _same_sign(a: str, b: str) -> bool:
+    """Two wordings of one danger sign ("symptoms worsen acutely", "acute
+    worsening of symptoms"): half of the shorter one's telling words are shared."""
+    x, y = _content(a) - _SAME_SIGN_IGNORE, _content(b) - _SAME_SIGN_IGNORE
+    return bool(x and y) and len(x & y) * 2 >= min(len(x), len(y))
+
+
 def _safety_terms(warning_habits, document_terms: Sequence[str], taken: list[str],
-                  max_safety: int, allowed_drugs: Collection[str]) -> list[str]:
+                  max_safety: int, allowed_drugs: Collection[str],
+                  skip_worsening: bool = False) -> list[str]:
     """Warning terms of the habits, then of the document, deduped and not named
     by an item label already (`taken`), at most `max_safety`. A term that fails
     the label check (digit, drug name outside the allowed ones, advice word, too
@@ -320,6 +352,10 @@ def _safety_terms(warning_habits, document_terms: Sequence[str], taken: list[str
             continue
         key = _loose(term)
         if any(key in _loose(t) or _loose(t) in key for t in [*out, *taken]):
+            continue
+        if any(_same_sign(term, t) for t in out):
+            continue
+        if skip_worsening and not _content(term) - _ONLY_WORSENING:
             continue
         out.append(" ".join(term.split()))
     return out
@@ -337,30 +373,32 @@ def _medicines_question(medications: Sequence[str]) -> str:
 
 
 def core_items(core_habits: dict[str, list[int]], medications: Sequence[str],
-               doctor_name: str) -> list[Item]:
+               ask_medicines: bool = True) -> list[Item]:
     """The procedure's core items, each with its fixed question and the
-    doctor's habits that ask the same thing. No medicines item when the
-    document lists no medication."""
+    doctor's habits that ask the same thing. The medicines items only with
+    `ask_medicines`, and no "as directed" item when the document lists no
+    medication."""
     fixed = {key: question for key, (_, _, question) in CORE.items()}
     fixed["medicines"] = _medicines_question(medications)
-    fixed["wrap_up"] = f"Is there anything else you want {doctor_name} to know?"
     return [Item(label, list(core_habits.get(key, [])), False, stage=stage, core=key,
                  fixed=fixed[key])
-            for key, (stage, label, _) in CORE.items() if fixed[key]]
+            for key, (stage, label, _) in CORE.items()
+            if fixed[key] and (stage != MEDICATION or ask_medicines)]
 
 
 async def build_items(llm, question: str, ask_habits, warning_habits, document_terms: list[str],
                       allowed_drugs, *, max_items: int, max_safety: int,
-                      procedure: Optional[tuple[Sequence[str], str]] = None,
+                      procedure: Optional[Sequence[str]] = None,
                       ) -> Optional[tuple[bool, list[Item]]]:
     """(reports_symptom, items) for a first-turn message, or None when the model
     call or its output is unusable. Ask habits are grouped by the model; every
     id must be one of `ask_habits` and every label plain (a bad item is dropped).
     Safety items (one per warning term, asked first) are added by the program.
 
-    With `procedure` (the document's medication names, the doctor's name) the
-    items are the five-stage procedure: the core items are added, and a habit
-    the model maps to a core item is that item's question, not a follow-up."""
+    With `procedure` (the document's medication names) the items are the staged
+    procedure: the core items are added, a habit the model maps to a core item
+    is that item's question, not a follow-up, and a danger sign that only says
+    "getting worse" is left to the core question about that."""
     listing = "\n".join(f"{h.id}: {h.quote}" for h in ask_habits) or "(none)"
     doc_listing = "\n".join(f"- {t}" for t in document_terms) or "(none)"
     data = await _json(llm, BUILD_PROMPT, f"At most {max_items} items.\n\n"
@@ -406,9 +444,10 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     wanted = {_loose(t) for t in asked_doc if isinstance(t, str)} if isinstance(asked_doc, list) else set()
     relevant = [t for t in document_terms if _loose(t) in wanted]
     items += [Item(t, [], True, stage=SAFETY) for t in
-              _safety_terms(warning_habits, relevant, labels, max_safety, allowed_drugs)]
+              _safety_terms(warning_habits, relevant, labels, max_safety, allowed_drugs,
+                            skip_worsening=procedure is not None)]
     if procedure is not None:
-        items += core_items(core_habits, procedure[0], procedure[1])
+        items += core_items(core_habits, procedure, data.get("ask_medicines") is True)
     return data["reports_symptom"], items
 
 
@@ -431,9 +470,7 @@ async def extract(llm, iv: Interview, original: str, reply: str,
     """Fill every non-safety unknown item whose answer the patient's own words
     contain; returns item index -> quote of the items filled. A quote that is
     not in `original` or `reply` fills nothing (fill checks it)."""
-    # The wrap-up is answered only by the reply to its own question.
-    open_ = [n for n, i in enumerate(iv.items)
-             if i.status == "unknown" and not i.safety and i.core != "wrap_up"]
+    open_ = [n for n, i in enumerate(iv.items) if i.status == "unknown" and not i.safety]
     if not open_:
         return {}
     listing = "\n".join(f"{n}: {iv.items[n].label}" for n in open_)
@@ -475,8 +512,9 @@ def _on_item(question: str, item: Item, habit_texts: dict[int, str]) -> bool:
     return bool(_content(question) & ref)
 
 
-_VERBISH = re.compile(r"^(you|your|i|my)\b|\b(is|are|was|were|has|have|had|feel|feels|feeling|"
-                      r"getting|gets|hurts|hurting|keeps?|started|worse|worsening)\b", re.I)
+_VERBISH = re.compile(r"^(you|your|i|my|unable|cannot|can't|worsen\w*)\b|"
+                      r"\b(is|are|was|were|has|have|had|feel|feels|feeling|becomes?|persists?|"
+                      r"getting|gets|hurts|hurting|keeps?|started|worse|worsening|unable)\b", re.I)
 
 
 def safety_question(term: str, rephrase: bool) -> str:
@@ -505,8 +543,6 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
         return habit_questions[0], True
     if item.fixed and not rephrase and _loose(item.fixed) not in {_loose(q) for q in asked_before}:
         return item.fixed, False  # a core item's fixed question, written by us
-    if item.core == "wrap_up":
-        return None  # asked once; never reworded by the model
     system = QUESTION_PROMPT.format(doctor=doctor_name)
     user = f"Item: {item.label}\nAlready asked: {json.dumps(list(asked_before))}"
     if rephrase:

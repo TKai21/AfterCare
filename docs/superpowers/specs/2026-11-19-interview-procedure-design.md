@@ -175,3 +175,38 @@ questions answered in place, at most three; the confirmation step; the cap of
   clone's own question asked about ("No wheezing" after "... such as
   wheezing, cough, or shortness of breath?"); a citation marker no longer
   starts a line by itself.
+
+## 10. Amended after the trial (2026-11-20)
+
+Ten simulated patients (a model playing each, with its own facts and way of
+talking) went through the procedure of section 9 on copies of the demo
+database. No case was closed by the clone, four patients with no danger sign
+got the emergency answer, and one was asked 16 questions. The team then chose
+a shorter procedure whose fixed questions are the facts every case is
+compared on. Changes:
+
+- **Stages.** Safety, the problem, the doctor's follow-ups (at most 3), and
+  medicines only when the build call says a medicine matters to the complaint.
+  No closing "anything else?" question: it made patients retell everything;
+  the summary's second button is "Add or correct something".
+- **A reply answers its question.** In the procedure the reply to a question
+  is stored as that item's answer, word for word, when the judge reads it as a
+  reply. Replies are no longer read into other items, and "No." is no longer
+  asked again. A short typed "I'm not sure" marks the item unsure at once.
+- **Danger signs.** Two wordings of one sign are asked once, and a sign that
+  only says "getting worse" is left to the question about that.
+- **Denials** (amends 4.4 of the 2026-11-17 design). A list of known terms
+  that ends in "or"/"nor" is denied as a whole ("no wheezing, cough, or
+  shortness of breath"); every element must be a known term, and the things
+  the clone's own question named count as known. Without the "or", with a
+  hedge, or after anything that is not a denial, the emergency answer stays.
+
+The same ten patients afterwards: two emergency answers without a danger sign
+(was four), three cases settled by the clone (was none), 4.1 questions on
+average in the interviews (was 6.8), 16 questions at most became 7. Still
+open: a talkative patient who denies a danger sign among other remarks, and a
+denial that names a symptom no list knows ("no trouble swallowing"), both get
+the emergency answer; medicines were not asked in any of the ten, so a patient
+who had stopped a medicine was not found out; a case closed although the
+patient was unsure how bad the problem was; a symptom the document only
+touches on was answered from the document without an interview.

@@ -274,7 +274,7 @@ function confirmHtml(payload) {
   const actions = payload.pending === true ? `
     <div class="summary-actions">
       <button type="button" class="btn btn-primary btn-small" data-summary="right">That\u2019s right</button>
-      <button type="button" class="btn btn-secondary btn-small" data-summary="wrong">Something is wrong</button>
+      <button type="button" class="btn btn-secondary btn-small" data-summary="wrong">Add or correct something</button>
     </div>` : '';
   return `<p class="summary-title">Here is what I understood. Is this right?</p>
     <div class="summary">${body}</div>${actions}`;
@@ -669,7 +669,7 @@ function update({clearInput = false, restoreInput = false} = {}) {
   panel.querySelector('#askLead').textContent = currentDoctor()
     ? `Answers come from your discharge document and ${name}'s earlier advice, given by ${name}'s AI clone.`
     : 'Answers come from your discharge document and your doctor\'s earlier advice, given by an AI clone.';
-  panel.querySelector('#askInput').placeholder = awaitingConfirm() ? 'If something is wrong, type it here...'
+  panel.querySelector('#askInput').placeholder = awaitingConfirm() ? 'Add or correct something here...'
     : pendingInterview() ? 'Type your answer...'
     : currentDoctor() ? `Ask ${name}'s AI clone...` : 'Ask a question about your recovery';
   renderTabs();

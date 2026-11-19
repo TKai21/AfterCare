@@ -7,7 +7,7 @@ import pytest
 
 import interview as iv_mod
 from fake_llm import FakeLLM
-from interview import FOLLOW_UP, MEDICATION, PROBLEM, SAFETY, WRAP_UP, Interview, Item
+from interview import FOLLOW_UP, MEDICATION, PROBLEM, SAFETY, Interview, Item
 from test_routes_agent import (
     CLOSE_TEXT, DISCHARGE_Q, FEVER_Q, ORIGINAL, REDNESS_Q, Interviewer, absent, all_questions,
     confirmed, final, interview_doctor, judged, post_ask, start_interview,
@@ -25,11 +25,11 @@ def build_llm(reply):
     return llm
 
 
-def build(reply, asks, warns=(), medications=("amoxicillin",), doctor="Dr. Lee"):
+def build(reply, asks, warns=(), medications=("amoxicillin",)):
     llm = build_llm(reply)
     got = asyncio.run(iv_mod.build_items(llm, "My incision is red.", list(asks), list(warns), [],
                                          [], max_items=5, max_safety=3,
-                                         procedure=(medications, doctor)))
+                                         procedure=list(medications)))
     return got, llm
 
 
@@ -49,15 +49,17 @@ def test_medicines_question(names, expected):
 
 
 def test_core_items_and_their_stages():
-    items = iv_mod.core_items({"duration": [7]}, ["colchicine"], "Dr. Lee")
+    items = iv_mod.core_items({"duration": [7]}, ["colchicine"])
     assert [(i.core, i.stage) for i in items] == [
         ("duration", PROBLEM), ("severity", PROBLEM), ("course", PROBLEM),
-        ("medicines", MEDICATION), ("other_medicines", MEDICATION), ("wrap_up", WRAP_UP)]
+        ("medicines", MEDICATION), ("other_medicines", MEDICATION)]
     assert items[0].habits == [7] and items[1].habits == []
-    assert items[-1].fixed == "Is there anything else you want Dr. Lee to know?"
     assert all(i.fixed.endswith("?") and not i.safety for i in items)
     # No medication in the document: nothing to ask about taking it.
-    assert "medicines" not in [i.core for i in iv_mod.core_items({}, [], "Dr. Lee")]
+    assert [i.core for i in iv_mod.core_items({}, [])][3:] == ["other_medicines"]
+    # Medicines do not matter to this complaint: only the three about the problem.
+    assert [i.core for i in iv_mod.core_items({}, ["colchicine"], ask_medicines=False)] == [
+        "duration", "severity", "course"]
 
 
 def test_build_maps_habits_to_core_items():
@@ -68,7 +70,7 @@ def test_build_maps_habits_to_core_items():
         "items": [{"label": "how long the redness lasted", "habits": [1]},
                   {"label": "incision discharge", "habits": [2]}],
         "core": {"duration": [1], "other_medicines": [3, 99, "x"], "severity": "no"},
-        "relevant_document_terms": []}, asks, warns)
+        "ask_medicines": True, "relevant_document_terms": []}, asks, warns)
     assert symptom is True
     by_core = {i.core: i for i in items if i.core}
     assert by_core["duration"].habits == [1] and by_core["other_medicines"].habits == [3]
@@ -90,14 +92,52 @@ def test_build_without_the_procedure_is_unchanged():
 
 
 def test_a_doctor_with_no_habits_still_gets_the_core_items():
-    (_, items), _ = build({"reports_symptom": True, "items": []}, [])
+    (_, items), _ = build({"reports_symptom": True, "items": [], "ask_medicines": True}, [])
     assert [i.core for i in items] == list(iv_mod.CORE)
+    # Medicines are asked only when the build call says they matter here.
+    for flag in ({}, {"ask_medicines": False}, {"ask_medicines": "yes"}):
+        (_, items), _ = build({"reports_symptom": True, "items": [], **flag}, [])
+        assert [i.core for i in items] == ["duration", "severity", "course"]
+
+
+def test_one_danger_sign_is_asked_once_and_worsening_is_left_to_its_own_question():
+    warns = [Habit(9, "x", ["symptoms become acutely worse", "symptoms worsen acutely",
+                            "neck swelling", "acute worsening of symptoms", "trouble breathing",
+                            "shortness of breath", "chest pain", "abdominal pain"])]
+    (_, items), _ = build({"reports_symptom": True, "items": []}, [], warns)
+    assert [i.label for i in items if i.safety] == ["neck swelling", "trouble breathing",
+                                                    "chest pain"]
+    # Without the procedure there is no question about worsening: the sign stays, once.
+    llm = build_llm({"reports_symptom": True, "items": []})
+    _, items = asyncio.run(iv_mod.build_items(llm, "x", [], warns, [], [], max_items=5,
+                                              max_safety=3))
+    labels = [i.label for i in items]
+    assert labels[:2] == ["symptoms become acutely worse", "neck swelling"]
+    assert "symptoms worsen acutely" not in labels
+
+
+@pytest.mark.parametrize("term, question", [
+    ("fever", "Have you had any fever?"),
+    ("unable to urinate", "Is this happening now: unable to urinate?"),
+    ("symptoms are persisting", "Is this happening now: symptoms are persisting?"),
+])
+def test_safety_question_reads_as_a_sentence(term, question):
+    assert iv_mod.safety_question(term, False) == question
+
+
+@pytest.mark.parametrize("reply, unsure", [
+    ("I'm not sure.", True), ("Not sure", True), ("I do not know", True), ("No idea", True),
+    ("I dont remember", True), ("No.", False), ("Not sure, why?", False),
+    ("Not really.", False), ("I am sure it is mild.", False),
+])
+def test_a_typed_not_sure(reply, unsure):
+    assert bool(iv_mod.NOT_SURE_REPLY.match(reply)) is unsure
 
 
 def procedure_interview():
     items = [Item("incision discharge", [2], False),
              Item("fever", [], True, stage=SAFETY),
-             *iv_mod.core_items({"duration": [1]}, ["amoxicillin"], "Dr. Lee")]
+             *iv_mod.core_items({"duration": [1]}, ["amoxicillin"])]
     return Interview(items=items)
 
 
@@ -109,8 +149,8 @@ def test_items_are_asked_stage_by_stage():
         iv.items[n].status = "answered"
     assert order == [(SAFETY, "fever"), (PROBLEM, "duration"), (PROBLEM, "severity"),
                      (PROBLEM, "course"), (FOLLOW_UP, "incision discharge"),
-                     (MEDICATION, "medicines"), (MEDICATION, "other_medicines"),
-                     (WRAP_UP, "wrap_up")]
+                     (MEDICATION, "medicines"), (MEDICATION, "other_medicines")]
+    assert iv_mod.steps(iv) == [SAFETY, PROBLEM, FOLLOW_UP, MEDICATION]
 
 
 def test_core_question_wording():
@@ -123,19 +163,6 @@ def test_core_question_wording():
     assert ask(core["severity"], {}) == (iv_mod.CORE["severity"][2], False)
     # The habit was suppressed since: the fixed question.
     assert ask(core["duration"], {}) == (iv_mod.CORE["duration"][2], False)
-    # The wrap-up is asked once and never reworded.
-    assert ask(core["wrap_up"], {}) == ("Is there anything else you want Dr. Lee to know?", False)
-    assert ask(core["wrap_up"], {}, asked=[core["wrap_up"].fixed], rephrase=True) is None
-
-
-def test_extract_never_fills_the_wrap_up():
-    iv = procedure_interview()
-    llm = FakeLLM()
-    llm.route(iv_mod.EXTRACT_PROMPT, lambda m: {"content": json.dumps({"items": [
-        {"index": len(iv.items) - 1, "status": "answered", "quote": "nothing else"}]})})
-    assert asyncio.run(iv_mod.extract(llm, iv, "It is red, nothing else.", "")) == {}
-    assert "anything else\n" not in llm.routed_calls[0][0][1]["content"].split("Original")[0] + "\n"
-    assert iv.items[-1].status == "unknown"
 
 
 def test_state_round_trips_and_old_rows_still_load():
@@ -170,7 +197,7 @@ def test_summary_says_whether_the_patient_confirmed():
     iv.confirmed = True
     assert iv_mod.summary_text(iv).endswith("The patient confirmed this summary.")
     iv.confirmed = False
-    assert "summary is wrong" in iv_mod.summary_text(iv)
+    assert "added to or corrected" in iv_mod.summary_text(iv)
 
 
 # ---------- through the app ----------
@@ -178,55 +205,42 @@ def test_summary_says_whether_the_patient_confirmed():
 MEDICINES_Q = "Have you been taking amoxicillin as your discharge instructions say?"
 OTHER_Q = iv_mod.CORE["other_medicines"][2]
 SEVERITY_Q, COURSE_Q = iv_mod.CORE["severity"][2], iv_mod.CORE["course"][2]
-WRAP_Q = "Is there anything else you want Dr. Ting Kai to know?"
-# Item indexes of the build below: 0 discharge, 1 fever, 2 duration, 3 severity,
-# 4 course, 5 medicines, 6 other medicines, 7 wrap-up.
-ROUNDS = [(FEVER_Q, False, "No fever at all.", None),
-          (REDNESS_Q, True, "About two days.", (2, "two days")),
-          (SEVERITY_Q, False, "It is mild.", (3, "mild")),
-          (COURSE_Q, False, "Staying the same.", (4, "Staying the same")),
-          (DISCHARGE_Q, True, "No discharge.", (0, "No discharge")),
-          (MEDICINES_Q, False, "Yes I am.", (5, "Yes I am")),
-          (OTHER_Q, False, "Nothing else.", (6, "Nothing else")),
-          (WRAP_Q, False, "No, that is all.", None)]
-STAGES = [1, 2, 2, 2, 3, 4, 4, 5]
+# (question, the doctor's words?, the reply, the step).
+ROUNDS = [(FEVER_Q, False, "No fever at all.", 1),
+          (REDNESS_Q, True, "About two days.", 2),
+          (SEVERITY_Q, False, "Mild.", 2),
+          (COURSE_Q, False, "No.", 2),
+          (DISCHARGE_Q, True, "No", 3),
+          (MEDICINES_Q, False, "Yes I am.", 4),
+          (OTHER_Q, False, "I'm not sure.", 4)]
 
 
 def procedure_on(client):
     client.app.state.settings = replace(client.app.state.settings, interview_procedure=True)
 
 
-def procedure_build(ids):
+def procedure_build(ids, medicines=True):
     return {"reports_symptom": True,
             "items": [{"label": "how long the redness lasted", "habits": [ids[REDNESS_Q]]},
                       {"label": "incision discharge", "habits": [ids[DISCHARGE_Q]]}],
-            "core": {"duration": [ids[REDNESS_Q]]}}
+            "core": {"duration": [ids[REDNESS_Q]]}, "ask_medicines": medicines}
 
 
-def extracts():
-    filled = [{"items": []}]  # the first message answers nothing
-    for _, _, _, fill in ROUNDS:
-        filled.append({"items": [] if fill is None else [
-            {"index": fill[0], "status": "answered", "quote": fill[1]}]})
-    return filled
-
-
-async def begin(client, fake_llm, judges=None):
+async def begin(client, fake_llm, judges=None, medicines=True):
     procedure_on(client)
     h = await confirmed(client, fake_llm)
     doctor_id, ids = await interview_doctor(client, fake_llm)
-    talk = Interviewer(fake_llm, procedure_build(ids), extracts=extracts(),
+    talk = Interviewer(fake_llm, procedure_build(ids, medicines),
                        judges=judges or [judged(signs=absent("fever"))])
     body = await start_interview(client, fake_llm, h, doctor_id)
     return h, doctor_id, talk, body
 
 
-async def to_summary(client, h, doctor_id, body):
-    for n, (asked, doctor, reply, _) in enumerate(ROUNDS):
+async def to_summary(client, h, doctor_id, body, rounds=ROUNDS, stages=4):
+    for n, (asked, doctor, reply, step) in enumerate(rounds):
         assert body["questions"] == [{"text": asked, "doctor": doctor}], (n, body)
         iv = body["interview"]
-        assert (iv["stage"], iv["stages"], iv["round"]) == (STAGES[n], 5, n + 1)
-        assert iv["stage_name"] == iv_mod.STAGE_NAMES[STAGES[n]]
+        assert (iv["stage"], iv["stages"], iv["round"]) == (step, stages, n + 1)
         body = (await post_ask(client, h, reply, doctor_id=doctor_id)).json()
     return body
 
@@ -241,13 +255,17 @@ async def test_the_procedure_runs_every_stage_then_asks_to_confirm_and_closes(cl
     body = await to_summary(client, h, doctor_id, body)
     assert body["kind"] == "clarify" and body["pending"] is True and body["questions"] == []
     assert body["answer"] == iv_mod.CONFIRM_TEXT and body["interview"]["confirm"] is True
-    assert [(i["stage"], i["label"], i["status"]) for i in body["interview"]["so_far"]] == [
-        (1, "fever", "absent"), (2, "how long it has lasted", "answered"),
-        (2, "how bad it is", "answered"), (2, "getting better or worse", "answered"),
-        (3, "incision discharge", "answered"), (4, "taking prescribed medicines", "answered"),
-        (4, "anything else taken for it", "answered"), (5, "anything else", "answered")]
+    # Each reply is its question's answer, word for word; a typed "not sure" is unsure.
+    assert [(i["stage"], i["label"], i["status"], i["quote"])
+            for i in body["interview"]["so_far"]] == [
+        (1, "fever", "absent", ""), (2, "how long it has lasted", "answered", "About two days."),
+        (2, "how bad it is", "answered", "Mild."), (2, "getting better or worse", "answered", "No."),
+        (3, "incision discharge", "answered", "No"),
+        (4, "taking prescribed medicines", "answered", "Yes I am."),
+        (4, "anything else taken for it", "unsure", "")]
     (q,) = await all_questions(client)
     assert q.status == "waiting_on_patient" and q.intake["confirmed"] is None
+    assert talk.calls["extract"] == 1  # only the first message is read for answers
     calls_before = len(fake_llm.calls)
 
     fake_llm.script(final("close", CLOSE_TEXT + " [5]", [5]))
@@ -273,7 +291,7 @@ async def test_a_typed_correction_of_the_summary_goes_to_the_doctor(client, fake
     (q,) = await all_questions(client)
     assert q.status == "open" and q.intake["confirmed"] is False
     assert q.reason == "Needs doctor after questions"
-    assert q.stopped_by == "The patient says the summary is wrong: see their last reply."
+    assert q.stopped_by == "The patient added to or corrected the summary: see their last reply."
     assert q.patient_reply == "The redness started a week ago."
 
 
@@ -369,3 +387,29 @@ async def test_an_emergency_reply_shows_no_end_line(client, fake_llm):
     fake_llm.script(final("emergency", "Call 911 now.", []))
     body = (await post_ask(client, h, "I have chest pain now.", doctor_id=doctor_id)).json()
     assert body["emergency"]["banner"] is True and "interview_end" not in body
+
+
+async def test_medicines_are_not_asked_when_they_do_not_matter(client, fake_llm):
+    h, doctor_id, _talk, body = await begin(client, fake_llm, medicines=False)
+    rounds = [(q, d, r, step) for q, d, r, step in ROUNDS if step != 4]
+    body = await to_summary(client, h, doctor_id, body, rounds=rounds, stages=3)
+    assert body["interview"]["confirm"] is True
+    assert {i["stage"] for i in body["interview"]["so_far"]} == {1, 2, 3}
+
+
+async def test_a_reply_that_is_no_answer_is_asked_again_once(client, fake_llm):
+    replying, off_topic = judged(signs=absent("fever")), judged(replies=False)
+    h, doctor_id, _talk, body = await begin(client, fake_llm,
+                                            judges=[replying, off_topic, off_topic, replying])
+    body = (await post_ask(client, h, ROUNDS[0][2], doctor_id=doctor_id)).json()
+    assert body["answer"] == REDNESS_Q
+    # Not an answer and not a question: the item stays open and is asked again...
+    fake_llm.route(iv_mod.QUESTION_PROMPT.format(doctor="Dr. [DOCTOR_1]"), lambda m: {
+        "content": json.dumps({"question": "When did the redness first appear?"})})
+    body = (await post_ask(client, h, "My cat is called Momo.", doctor_id=doctor_id)).json()
+    assert body["answer"] == "When did the redness first appear?"
+    # ...once: then it is "not sure" and the interview moves on.
+    body = (await post_ask(client, h, "She is a tabby.", doctor_id=doctor_id)).json()
+    assert body["answer"] == SEVERITY_Q
+    assert {"label": "how long it has lasted", "status": "unsure", "quote": "",
+            "stage": 2} in body["interview"]["so_far"]

@@ -283,8 +283,10 @@ def test_negated_is_subset_of_matched():
 
 @pytest.mark.parametrize("msg,want", [
     ("no fever and vomiting", {"fever"}),
-    ("no fever or chills", {"fever"}),
-    ("no fever nor chills", {"fever"}),
+    # "or"/"nor" continue a denial of known terms (2026-11-20); "and" does not.
+    ("no fever or chills", {"fever", "chills"}),
+    ("no fever nor chills", {"fever", "chills"}),
+    ("no fever or a little vomiting", {"fever"}),
     ("I have no fever, no vomiting", {"fever", "vomiting"}),
 ])
 def test_and_or_end_the_negation_clause(msg, want):
@@ -536,3 +538,44 @@ def test_a_clean_denial_may_name_what_was_asked():
 def test_asked_terms_never_relax_a_hedge_or_an_affirmed_sign(reply):
     from safety import asked_terms, denial_possible
     assert denial_possible(reply, detect_emergency(reply, []), [], asked_terms(ASKED)) is False
+
+
+# ---------- a denied list: "no A, B, or C" (2026-11-20) ----------
+
+@pytest.mark.parametrize("reply", [
+    "I have not had any wheezing, cough, or shortness of breath.",
+    "No wheezing, cough or shortness of breath.",
+    "No cough, wheezing, nor shortness of breath",
+    "No fever or shortness of breath",
+    "I haven't had any fainting, chest pain, or trouble breathing either.",
+])
+def test_a_list_of_known_terms_ending_in_or_is_denied(reply):
+    from safety import asked_terms, denial_possible
+    matched = detect_emergency(reply, [])
+    assert matched and denial_possible(reply, matched, [], asked_terms(ASKED)) is True
+    assert {t for t in negated_terms(reply, matched)} == set(matched) or len(matched) == 1
+
+
+@pytest.mark.parametrize("reply", [
+    "No wheezing, shortness of breath.",                      # the list never reaches an "or"
+    "No wheezing, cough, shortness of breath.",
+    "No wheezing, cough. Shortness of breath or fever.",      # a new sentence
+    "No wheezing, cough, or fever. Shortness of breath.",
+    "No wheezing, cough, but shortness of breath.",
+    "No wheezing, a little shortness of breath, or cough.",   # a hedge inside the list
+    "No fever, well, shortness of breath or cough.",
+    "No cough, or maybe shortness of breath.",
+    "Not sure, cough or shortness of breath.",                # the list does not start with a denial
+    "No, cough or shortness of breath.",
+    "Cough, wheezing or shortness of breath.",
+    "No fever and shortness of breath.",                      # "and" does not continue a denial
+    "No cough or shortness of breath is bad.",
+    "No cough or shortness of breath yesterday but today yes.",
+    "No cough or wheezing. I have shortness of breath.",
+])
+def test_anything_but_a_clean_list_keeps_the_emergency(reply):
+    from safety import asked_terms, denial_possible
+    matched = detect_emergency(reply, [])
+    assert "shortness of breath" in matched
+    assert denial_possible(reply, matched, [], asked_terms(ASKED)) is False
+    assert "shortness of breath" not in negated_terms(reply, matched)

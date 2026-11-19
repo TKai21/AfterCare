@@ -29,7 +29,7 @@ from interview import (
     STAGE_NAMES, Interview, as_pending, ask_confirmation, ask_next, asked_item,
     awaiting_confirmation, build_items, done, dump_interview, extract, habit_ids, is_interview,
     is_procedure, live_habit_texts, load_interview, mark, open_question, open_safety_item,
-    similar_case_habits, so_far, stage_of,
+    NOT_SURE_REPLY, similar_case_habits, so_far, stage_of, steps,
 )
 from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
@@ -323,7 +323,7 @@ async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, o
     return [], judged
 
 
-SUMMARY_CORRECTED = "The patient says the summary is wrong: see their last reply."
+SUMMARY_CORRECTED = "The patient added to or corrected the summary: see their last reply."
 
 
 def open_question_after_side(iv: Interview) -> bool:
@@ -376,8 +376,10 @@ def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: 
     interview = {"so_far": so_far(iv, original), "round": len(iv.rounds), "max_rounds": max_rounds,
                  "item": iv.items[n].label}
     if is_procedure(iv):
-        stage = stage_of(iv.items[n])
-        interview.update(stage=stage, stages=len(STAGE_NAMES), stage_name=STAGE_NAMES[stage])
+        stage, present = stage_of(iv.items[n]), steps(iv)
+        # The step among the stages this interview has (medicines are not always asked).
+        interview.update(stage=present.index(stage) + 1, stages=len(present),
+                         stage_name=STAGE_NAMES[stage])
     return result, {"questions": [{"text": text, "doctor": doctor}], "interview": interview}
 
 
@@ -387,7 +389,7 @@ def confirmation_clarify(iv: Interview, original: str) -> tuple[AgentResult, dic
                          care_team_question=None)
     return result, {"questions": [], "interview": {
         "so_far": so_far(iv, original), "round": len(iv.rounds), "confirm": True,
-        "stages": len(STAGE_NAMES), "stage_names": STAGE_NAMES}}
+        "stages": len(steps(iv)), "stage_names": STAGE_NAMES}}
 
 
 def interview_rounds_cap(settings, procedure: bool) -> int:
@@ -438,9 +440,10 @@ async def start_interview(session: AsyncSession, llm, question: str, doctor_id: 
     if not procedure and not asks and not warns and not document_terms:
         return None
     built = await build_items(llm, question, asks, warns, document_terms, allowed_drugs,
-                              max_items=settings.interview_max_items,
+                              max_items=(settings.interview_procedure_max_items if procedure
+                                         else settings.interview_max_items),
                               max_safety=settings.interview_max_safety,
-                              procedure=(medications, doctor_name) if procedure else None)
+                              procedure=list(medications) if procedure else None)
     if built is None or not built[0] or not built[1]:
         return None
     iv = Interview(items=built[1])
@@ -484,13 +487,7 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
     # question about it: the judge's "new question" is not trusted there.
     # Not answering the asked question is not asking a new one: a reply is a new question
     # only with a "?" or the judge's other_concerns; else a normal round.
-    wrap_up = n is not None and iv.items[n].core == "wrap_up"
-    if wrap_up:
-        # Whatever the patient adds here is the answer; something new reaches the
-        # doctor through the end's other_concerns, not as a side question.
-        mark(iv, n, "answered")
-        iv.items[n].quote = " ".join(reply.split())
-    elif not judged.replies and not denied and ("?" in reply or judged.concerns):
+    if not judged.replies and not denied and ("?" in reply or judged.concerns):
         return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
@@ -500,7 +497,19 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
                 and (k == n or _term_key(item.label) in named)
                 and statuses.get(_term_key(item.label)) == {"absent"}):
             mark(iv, k, "answered")
-    await extract(llm, iv, original, reply, match_pool)
+    if is_procedure(iv):
+        # In the procedure a reply answers the question it was given, word for
+        # word: nothing is read into other items (the trial of 2026-11-19 showed
+        # replies filed under the wrong item, and short ones such as "No." not
+        # filed at all and asked again).
+        if n is not None and iv.items[n].status == "unknown" and not iv.items[n].safety:
+            if NOT_SURE_REPLY.match(reply) and len(reply.split()) <= 6:
+                mark(iv, n, "unsure")
+            elif judged.replies:
+                mark(iv, n, "answered")
+                iv.items[n].quote = " ".join(reply.split())
+    else:
+        await extract(llm, iv, original, reply, match_pool)
     if n is not None and iv.items[n].status == "unknown" \
             and iv.items[n].attempts >= ITEM_ATTEMPTS_MAX:
         mark(iv, n, "unsure")  # asked twice, still unclear

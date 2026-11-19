@@ -91,6 +91,7 @@ class Settings:
     # INTERVIEW_PROCEDURE=0 keeps the shorter habit-only interview.
     interview_procedure: bool = True
     interview_procedure_max_rounds: int = 16  # a safety cap; the items end it
+    interview_procedure_max_items: int = 3  # the doctor's follow-ups in the procedure
 
     def __post_init__(self):
         if self.llm_json_with_tools is None:
@@ -155,4 +156,6 @@ def get_settings() -> Settings:
         interview_procedure=env.get("INTERVIEW_PROCEDURE", "1") != "0",
         interview_procedure_max_rounds=int(env.get("INTERVIEW_PROCEDURE_MAX_ROUNDS")
                                            or defaults.interview_procedure_max_rounds),
+        interview_procedure_max_items=int(env.get("INTERVIEW_PROCEDURE_MAX_ITEMS")
+                                          or defaults.interview_procedure_max_items),
     )
