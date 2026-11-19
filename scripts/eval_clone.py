@@ -1017,7 +1017,8 @@ def load_saved(path: Path) -> dict | None:
 
 
 def _retrieval_check(path: Path) -> int:
-    settings = config.get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(config.get_settings(), interview_procedure=False)
     if not settings.embedding_api_key:
         return _fail("No API key for embeddings: set LLM_API_KEY (or EMBEDDING_API_KEY) in the project .env.")
     if not (DATA_DIR / "memory.json").is_file():
@@ -1043,7 +1044,8 @@ def _generate(model: str, force: bool) -> int:
     path = DATA_DIR / "memory.json"
     if path.exists() and not force:
         return _fail(f"{path} already exists (it may hold hand edits); pass --force to overwrite it.")
-    settings = config.get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(config.get_settings(), interview_procedure=False)
     if not settings.llm_api_key:
         return _fail("LLM_API_KEY is not set. Configure the API key in the project .env.")
 
@@ -1114,7 +1116,8 @@ def main(argv: list[str] | None = None) -> int:
               f"Cohen's kappa {result['kappa']:.2f}")
         return 0
 
-    settings = config.get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(config.get_settings(), interview_procedure=False)
     if not settings.llm_model:
         return _fail("LLM_MODEL is not set. Configure the clone's model in the project .env.")
     if not settings.llm_api_key:

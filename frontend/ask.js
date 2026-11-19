@@ -127,30 +127,44 @@ function pendingInterview() {
   return payload && payload.kind === 'clarify' && payload.pending === true && payload.interview ? payload.interview : null;
 }
 
+// The summary at the end of the interview waits for "That's right" or a typed correction.
+const awaitingConfirm = () => { const iv = pendingInterview(); return !!(iv && iv.confirm); };
+
 function notSure() {
   const interview = pendingInterview();
-  if (!interview || view.busy || inputLocked()) return;
+  if (!interview || interview.confirm || view.busy || inputLocked()) return;
   ask('', {notSure: true, round: interview.round});
 }
 
-async function ask(question, {notSure = false, round = null} = {}) {
+function confirmSummary() {
+  const interview = pendingInterview();
+  if (!interview || !interview.confirm || view.busy || view.dictating || inputLocked()) return;
+  ask('', {confirm: true, round: interview.round});
+}
+
+async function ask(question, {notSure = false, confirm = false, round = null} = {}) {
   const docId = view.docId;
   const doctorId = view.doctorId;
-  const pending = {role: 'user', content: notSure ? "I'm not sure." : question};
+  const button = notSure || confirm;  // a button's reply: the typed draft is kept
+  const pending = {role: 'user', content: notSure ? "I'm not sure." : confirm ? "That's right." : question};
   view.messages.push(pending);
   view.busy = true;
   view.notice = null;
-  if (!notSure) view.draft = '';
-  update({clearInput: !notSure});
+  if (!button) view.draft = '';
+  update({clearInput: !button});
   scrollToLatest('smooth');
   try {
-    const body = notSure ? {question: '', not_sure: true, round, doctor_id: doctorId} : {question, doctor_id: doctorId};
-    const payload = await api('/api/ask', {method: 'POST', json: body});
+    const body = notSure ? {question: '', not_sure: true, round, doctor_id: doctorId}
+      : confirm ? {question: '', confirm: true, round, doctor_id: doctorId}
+      : {question, doctor_id: doctorId};
+    const {aside, ...payload} = await api('/api/ask', {method: 'POST', json: body});
     if (view.docId !== docId || view.doctorId !== doctorId) return;
     // Any reply turn ends the clone's pending questions (the server does the same).
     view.messages.forEach(m => {
       if (m.payload && m.payload.pending) m.payload = {...m.payload, pending: false};
     });
+    // A question asked in the middle of the interview: its answer, then the open question again.
+    if (aside) view.messages.push({role: 'assistant', content: aside.answer, payload: aside});
     view.messages.push({role: 'assistant', content: payload.answer, payload});
     view.busy = false;
     // A new answer brings back the "Ask directly" button in place of the last confirmation.
@@ -165,7 +179,7 @@ async function ask(question, {notSure = false, round = null} = {}) {
     view.messages = view.messages.filter(m => m !== pending);
     view.busy = false;
     view.notice = noticeFor(error);
-    if (!view.draft && !notSure) view.draft = question;  // keep the question so it can be sent again
+    if (!view.draft && !button) view.draft = question;  // keep the question so it can be sent again
     update({restoreInput: true});
     if (error.status === 409 && ctxRef) ctxRef.reloadDocument();
   }
@@ -176,12 +190,16 @@ async function ask(question, {notSure = false, round = null} = {}) {
 // Escapes first, then turns [n] / [n, m] markers into superscript buttons for
 // sources that exist on this answer. Unknown numbers stay as plain text.
 function citeHtml(escapedText, numbers) {
-  return escapedText.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (whole, list) => {
-    const nums = list.split(',').map(n => Number(n.trim()));
-    if (!nums.every(n => numbers.has(n))) return whole;
-    return nums.map(n =>
+  // A marker stays on the line of the word it follows: the word and its markers
+  // are kept together, so a marker never starts a line by itself.
+  const MARKS = /((?:[ \t]*\[\d+(?:\s*,\s*\d+)*\])+)/;
+  return escapedText.replace(new RegExp('([^\\s\\[\\]]*)' + MARKS.source, 'g'), (whole, word, marks) => {
+    const groups = [...marks.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)].map(m => m[1].split(',').map(n => Number(n.trim())));
+    if (!groups.every(nums => nums.every(n => numbers.has(n)))) return whole;
+    const chips = groups.flat().map(n =>
       `<sup class="cite-sup"><button type="button" class="cite" data-n="${n}" aria-label="Source ${n}">${n}</button></sup>`
     ).join('');
+    return `<span class="cite-keep">${word}${chips}</span>`;
   });
 }
 
@@ -206,7 +224,7 @@ function soFarItemHtml(i) {
   let text = `${label}${CHECK_SMALL}<span class="visually-hidden"> (mentioned)</span>`;
   let cls = '';
   if (i.status === 'unsure') [text, cls] = [`${label}: not sure`, ' is-unsure'];
-  else if (i.status === 'absent') text = `No ${label}`;
+  else if (i.status === 'absent') text = `${label}: no`;
   else if (i.quote) text = `${label}: \u201c${esc(i.quote)}\u201d`;
   return `<li class="clarify-sofar-item${cls}">${text}</li>`;
 }
@@ -227,10 +245,39 @@ function clarifyHtml(payload) {
   const soFar = iv && Array.isArray(iv.so_far) && iv.so_far.length
     ? `<div class="clarify-sofar"><p class="clarify-sofar-label">So far</p><ul class="clarify-sofar-list">${iv.so_far.map(soFarItemHtml).join('')}</ul></div>`
     : '';
+  // The procedure names its step; the shorter interview counts its questions.
+  if (iv && iv.stage) {
+    const step = `<p class="clarify-progress clarify-step">Step ${esc(iv.stage)} of ${esc(iv.stages)}<span class="clarify-step-name">${esc(iv.stage_name)}</span></p>`;
+    return `${opener}${step}<ul class="clarify-list">${items}</ul>${soFar}`;
+  }
   const progress = iv && iv.max_rounds
     ? `<p class="clarify-progress">Question ${esc(Math.min(Math.max(Number(iv.round) || 1, 1), iv.max_rounds))} of up to ${esc(iv.max_rounds)}</p>`
     : '';
   return `${opener}${soFar}<ul class="clarify-list">${items}</ul>${progress}`;
+}
+
+// The end of the procedure: what the clone understood, by step, for the patient to confirm.
+function confirmHtml(payload) {
+  const iv = payload.interview;
+  const names = iv.stage_names || {};
+  const groups = [];
+  (Array.isArray(iv.so_far) ? iv.so_far : []).forEach(item => {
+    const last = groups[groups.length - 1];
+    if (last && last.stage === item.stage) last.items.push(item);
+    else groups.push({stage: item.stage, items: [item]});
+  });
+  const body = groups.map(group => `
+    <section class="summary-group">
+      <h3 class="summary-stage">${esc(names[group.stage] || 'Step ' + group.stage)}</h3>
+      <ul class="summary-list">${group.items.map(soFarItemHtml).join('')}</ul>
+    </section>`).join('');
+  const actions = payload.pending === true ? `
+    <div class="summary-actions">
+      <button type="button" class="btn btn-primary btn-small" data-summary="right">That\u2019s right</button>
+      <button type="button" class="btn btn-secondary btn-small" data-summary="wrong">Something is wrong</button>
+    </div>` : '';
+  return `<p class="summary-title">Here is what I understood. Is this right?</p>
+    <div class="summary">${body}</div>${actions}`;
 }
 
 function sourceLabel(source) {
@@ -304,12 +351,15 @@ function assistantHtml(message, index) {
       ${emergency ? emergencyHtml() : ''}
       <article class="answer${payload.kind === 'out_of_scope' ? ' is-muted' : ''}" aria-label="AI clone answer">
         <p class="clone-label">AI clone of ${esc(cloneName(payload))}</p>
-        <div class="answer-text">${payload.kind === 'clarify' && Array.isArray(payload.questions) && payload.questions.length
+        <div class="answer-text">${payload.kind === 'clarify' && payload.interview && payload.interview.confirm
+          ? confirmHtml(payload)
+          : payload.kind === 'clarify' && Array.isArray(payload.questions) && payload.questions.length
           ? clarifyHtml(payload) : answerTextHtml(payload.answer, numbers)}</div>
-        ${payload.kind === 'clarify' && payload.pending === true ? '<p class="reply-hint">Reply below</p>' : ''}
+        ${payload.kind === 'clarify' && payload.pending === true && !(payload.interview && payload.interview.confirm) ? '<p class="reply-hint">Reply below</p>' : ''}
         ${flagged ? `<a class="chip" href="#careteam">${CHECK_ICON}${payload.doctor_name ? 'Sent to ' + esc(payload.doctor_name) : 'Added to your care-team questions'}</a>` : ''}
         ${sourcesHtml(index, sources)}
       </article>
+      ${payload.interview_end ? `<p class="interview-end">${esc(payload.interview_end)}</p>` : ''}
     </li>`;
 }
 
@@ -396,7 +446,7 @@ function syncSend() {
   if (send) send.disabled = view.busy || view.dictating || inputLocked() || !view.draft.trim();
   const unsure = panelRef.querySelector('#askNotSure');
   if (unsure) {
-    unsure.hidden = !pendingInterview();
+    unsure.hidden = !pendingInterview() || awaitingConfirm();
     unsure.disabled = view.busy || view.dictating || inputLocked();
   }
   const mic = panelRef.querySelector('#askDictate');
@@ -619,7 +669,8 @@ function update({clearInput = false, restoreInput = false} = {}) {
   panel.querySelector('#askLead').textContent = currentDoctor()
     ? `Answers come from your discharge document and ${name}'s earlier advice, given by ${name}'s AI clone.`
     : 'Answers come from your discharge document and your doctor\'s earlier advice, given by an AI clone.';
-  panel.querySelector('#askInput').placeholder = pendingInterview() ? 'Type your answer...'
+  panel.querySelector('#askInput').placeholder = awaitingConfirm() ? 'If something is wrong, type it here...'
+    : pendingInterview() ? 'Type your answer...'
     : currentDoctor() ? `Ask ${name}'s AI clone...` : 'Ask a question about your recovery';
   renderTabs();
   renderDirect();
@@ -634,6 +685,13 @@ function update({clearInput = false, restoreInput = false} = {}) {
   autosize(input);
   syncSend();
 
+  panel.querySelectorAll('[data-summary]').forEach(button => {
+    button.disabled = view.busy || !!view.dictating || locked;
+    button.addEventListener('click', () => {
+      if (button.dataset.summary === 'right') confirmSummary();
+      else input.focus();  // the correction is typed in the box below
+    });
+  });
   panel.querySelectorAll('.suggestion').forEach(button => {
     button.addEventListener('click', () => {
       if (view.busy || inputLocked()) return;

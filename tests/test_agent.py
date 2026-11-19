@@ -3450,3 +3450,19 @@ async def test_misattributed_emergency_gets_one_repair(store, foods, items):
     result = await ask(matched, store, foods, document, items, question="Chest pain and diarrhea.",
                        emergency_terms=["chest pain"])
     assert result.answer == agent.EMERGENCY_ANSWER and len(matched.calls) == 1
+
+
+def test_close_habit_that_is_the_tail_of_a_sentence_cannot_close():
+    def habit(n, text):
+        return Evidence(n, "habit", "Usual practice", None, text, check_text=text,
+                        habit_type="close", rule_id=n)
+    tail = {1: habit(1, "please call the office to schedule an appointment.")}
+    whole = {1: habit(1, "If your symptoms persist, please call the office.")}
+    said = json.dumps({"kind": "close", "citations": [1], "care_team_question": None,
+                       "answer": "Please call the office to schedule an appointment [1]."})
+    with pytest.raises(ValueError) as error:
+        validate(said, tail, pending=True)
+    assert str(error.value) == agent.CLOSE_FRAGMENT_ERROR
+    validate(json.dumps({"kind": "close", "citations": [1], "care_team_question": None,
+                         "answer": "If your symptoms persist, please call the office [1]."}),
+             whole, pending=True)

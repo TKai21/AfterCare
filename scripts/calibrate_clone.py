@@ -218,7 +218,8 @@ async def history_world():
     import seed_demo
     from llm import LLMClient
 
-    settings = get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(get_settings(), interview_procedure=False)
     if not settings.llm_model:
         raise SystemExit("Set LLM_MODEL (and the API key) in .env first.")
     llm = LLMClient(settings)
@@ -355,7 +356,8 @@ def library_index_problem() -> Optional[str]:
     """Why the real library index cannot be used for a run, or None when it can.
     Counting documents needs no model client: the store only reads the
     embedding model's name from it."""
-    settings = get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(get_settings(), interview_procedure=False)
     store = KnowledgeStore(settings.rag_db_path,
                            SimpleNamespace(embedding_model=settings.embedding_model))
     if not store.status()["documents"]:

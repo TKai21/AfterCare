@@ -502,3 +502,37 @@ def test_warning_terms_by_level():
     assert warning_terms(items) == [*emergency, *clinic]
     assert detect_emergency("I have black stools", emergency) == []
     assert "black stools" in match_terms("I have black stools", clinic)
+
+
+# ---------- denying what the clone's own question named ----------
+
+ASKED = "Have you had any additional symptoms such as wheezing, cough, or shortness of breath?"
+
+
+def test_asked_terms_are_the_things_a_question_names():
+    from safety import asked_terms
+    assert asked_terms(ASKED) == ["additional symptoms", "wheezing", "cough", "shortness of breath"]
+    assert asked_terms("Have you had any fever?") == ["fever"]
+    assert asked_terms("") == []
+
+
+def test_a_clean_denial_may_name_what_was_asked():
+    from safety import asked_terms, denial_possible
+    reply = "No wheezing, no cough and no shortness of breath."
+    matched = detect_emergency(reply, [])
+    assert matched == ["shortness of breath"]
+    # "wheezing" is no warning term: without the question it is unknown words.
+    assert denial_possible(reply, matched, []) is False
+    assert denial_possible(reply, matched, [], asked_terms(ASKED)) is True
+    assert denial_clears(reply, matched, [], {"shortness of breath"}, asked_terms(ASKED)) is True
+    assert denial_clears(reply, matched, [], set(), asked_terms(ASKED)) is False  # judge disagrees
+
+
+@pytest.mark.parametrize("reply", [
+    "No wheezing but I can't breathe.", "No wheezing, well a little shortness of breath.",
+    "No wheezing. Actually yes shortness of breath.", "No wheezing, no shortness of breath, it is clear mucus.",
+    "No wheezing, I think no shortness of breath.", "Wheezing, no shortness of breath.",
+])
+def test_asked_terms_never_relax_a_hedge_or_an_affirmed_sign(reply):
+    from safety import asked_terms, denial_possible
+    assert denial_possible(reply, detect_emergency(reply, []), [], asked_terms(ASKED)) is False

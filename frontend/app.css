@@ -1848,13 +1848,25 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .clarify-sofar-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .clarify-sofar-item { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clarify-sofar-item.is-unsure { color: var(--text-subtle); }
+.clarify-sofar-item::first-letter { text-transform: uppercase; }
 .clarify-sofar-check { margin-left: 6px; vertical-align: -1px; color: var(--accent); }
 .clarify-progress { color: var(--text-subtle); font-size: 12.5px; letter-spacing: 0.02em; }
+.clarify-step { display: flex; align-items: baseline; gap: 8px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; font-size: 11.5px; }
+.clarify-step-name { font-weight: 500; letter-spacing: 0.02em; text-transform: none; font-size: 12.5px; }
+.clarify-step-name::before { content: '\00B7'; margin-right: 8px; }
+.summary-title { font-weight: 600; }
+.summary { display: flex; flex-direction: column; gap: 12px; }
+.summary-stage { color: var(--text-subtle); font-family: inherit; font-size: 11.5px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
+.summary-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); font-size: 14.5px; line-height: 1.5; }
+.summary-list .clarify-sofar-item { white-space: normal; overflow: visible; }
+.summary-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.interview-end { margin-top: 10px; padding-left: 4px; color: var(--text-subtle); font-size: 13px; }
 .answer-list { padding-left: 22px; list-style: disc; }
 .answer-list li::marker { color: var(--accent); }
 .answer-list li + li { margin-top: 6px; }
 
 .cite-sup { line-height: 0; vertical-align: super; }
+.cite-keep { white-space: nowrap; }
 .cite {
   position: relative;
   min-width: 19px;

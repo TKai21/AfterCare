@@ -1299,6 +1299,11 @@ def _statements(text: str) -> list[tuple[str, bool]]:
     return [(_normal(body), _is_question(end)) for body, end in sentences]
 
 
+CLOSE_FRAGMENT_ERROR = (
+    "That closing habit is only the end of a sentence, so it cannot close the case by itself. "
+    "Use another of my \"How I usually close\" habits that is a whole sentence, or do not close.")
+
+
 def _check_close(answer: str, cited: list[Evidence]) -> None:
     """A close is the doctor's own closing words: it cites at least one "close"
     habit, and every sentence equals a whole sentence of a cited close habit's
@@ -1314,6 +1319,14 @@ def _check_close(answer: str, cited: list[Evidence]) -> None:
     said = _statements(strip_markers(answer))
     if not said or any(s not in own for s in said):
         raise ValueError(CLOSE_WORDS_ERROR)
+    for e in cited:
+        first = re.search(r"[^\W_]", clean_text(e.content))
+        if (e.kind == "habit" and e.habit_type == "close" and first is not None
+                and first.group().islower()):
+            # My words there are the tail of a sentence ("please call the office
+            # ..."): without what it depended on ("If your symptoms persist,
+            # ...") it says something else.
+            raise ValueError(CLOSE_FRAGMENT_ERROR)
 
 
 def _nutrient_label(key: str) -> str:

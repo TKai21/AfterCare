@@ -156,3 +156,22 @@ A complete, fixed procedure that the clone follows to the end (2026-11-19).
 The five stages and the six core items; fixed wording as the fallback; side
 questions answered in place, at most three; the confirmation step; the cap of
 16; the judge saving in 4.6.
+
+## 9. As built (2026-11-19)
+
+- Switch: `INTERVIEW_PROCEDURE` (default on). The evaluation scripts turn it
+  off, because their simulated patients answer the habit-only interview; the
+  PortalPal re-evaluation with the procedure is still to do.
+- Confirmation: the summary card has "That's right" and "Something is wrong".
+  The second focuses the text box, and anything typed there is the correction
+  (no separate box); the composer stays in place.
+- Cost (4.6): the per-round judge already read only the open safety items and
+  the terms a reply names, so nothing changed there. One runny-nose interview
+  on a copy of the demo database: 9 questions, a summary and a close in 27
+  model calls, about $0.008 at gpt-4o-mini prices (estimated from the size of
+  the calls, not billed figures).
+- Found on the way and fixed: a close habit that is only the tail of a
+  sentence can no longer close a case; a clean denial may name what the
+  clone's own question asked about ("No wheezing" after "... such as
+  wheezing, cough, or shortness of breath?"); a citation marker no longer
+  starts a line by itself.

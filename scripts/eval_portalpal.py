@@ -912,7 +912,8 @@ async def write_replies(llm, model: str, path: Path, force: bool) -> list[str]:
 
 
 def _write_replies(model: str, force: bool) -> int:
-    settings = config.get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(config.get_settings(), interview_procedure=False)
     if not settings.llm_api_key:
         return _fail("LLM_API_KEY is not set. Configure the API key in the project .env.")
 
@@ -951,7 +952,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.repeats < 1:
         return _fail("--repeats must be at least 1.")
 
-    settings = config.get_settings()
+    # The evaluations' simulated patients answer the habit-only interview.
+    settings = replace(config.get_settings(), interview_procedure=False)
     if not settings.llm_model:
         return _fail("LLM_MODEL is not set. Configure the clone's model in the project .env.")
     if not settings.llm_api_key:

@@ -40,6 +40,9 @@ async def client(fake_llm, tmp_path):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         jwt_secret="test-secret-not-for-production",
+        # The five-stage procedure has its own tests (test_procedure.py), which
+        # turn it on; the rest exercise the habit-only interview.
+        interview_procedure=False,
     )
     # An empty store under tmp_path, so tests never create the repo's index file.
     app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm),
@@ -76,6 +79,9 @@ async def file_client(fake_llm, tmp_path):
     settings = Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
         jwt_secret="test-secret-not-for-production",
+        # The five-stage procedure has its own tests (test_procedure.py), which
+        # turn it on; the rest exercise the habit-only interview.
+        interview_procedure=False,
     )
     # An empty store under tmp_path, so tests never create the repo's index file.
     app = create_app(settings, llm=fake_llm, store=KnowledgeStore(tmp_path / "index.sqlite3", fake_llm),

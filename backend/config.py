@@ -86,6 +86,11 @@ class Settings:
     interview_max_items: int = 5
     interview_max_safety: int = 3
     interview_max_rounds: int = 6
+    # The five-stage procedure (spec 2026-11-19): fixed stages with core questions,
+    # side questions answered in place, and a summary the patient confirms.
+    # INTERVIEW_PROCEDURE=0 keeps the shorter habit-only interview.
+    interview_procedure: bool = True
+    interview_procedure_max_rounds: int = 16  # a safety cap; the items end it
 
     def __post_init__(self):
         if self.llm_json_with_tools is None:
@@ -147,4 +152,7 @@ def get_settings() -> Settings:
         interview_max_items=int(env.get("INTERVIEW_MAX_ITEMS") or defaults.interview_max_items),
         interview_max_safety=int(env.get("INTERVIEW_MAX_SAFETY") or defaults.interview_max_safety),
         interview_max_rounds=int(env.get("INTERVIEW_MAX_ROUNDS") or defaults.interview_max_rounds),
+        interview_procedure=env.get("INTERVIEW_PROCEDURE", "1") != "0",
+        interview_procedure_max_rounds=int(env.get("INTERVIEW_PROCEDURE_MAX_ROUNDS")
+                                           or defaults.interview_procedure_max_rounds),
     )

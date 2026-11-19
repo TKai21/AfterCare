@@ -25,6 +25,30 @@ ITEM_STATUSES = ("unknown", "answered", "unsure", "skipped")
 QUOTE_SHOWN_MAX = 60
 
 
+# The procedure's stages, always asked in this order (spec 2026-11-19, 4.1).
+SAFETY, PROBLEM, FOLLOW_UP, MEDICATION, WRAP_UP = 1, 2, 3, 4, 5
+STAGE_NAMES = {SAFETY: "Safety check", PROBLEM: "Your symptoms", FOLLOW_UP: "A few more questions",
+               MEDICATION: "Your medicines", WRAP_UP: "Anything else"}
+# Core items: in every interview of the procedure. key -> (stage, label, fixed
+# question). The medicines and wrap-up questions are filled in by core_items.
+CORE = {
+    "duration": (PROBLEM, "how long it has lasted", "How long has this been going on?"),
+    "severity": (PROBLEM, "how bad it is",
+                 "How bad is it right now: mild, moderate or severe?"),
+    "course": (PROBLEM, "getting better or worse",
+               "Is it getting better, getting worse, or staying the same?"),
+    "medicines": (MEDICATION, "taking prescribed medicines", ""),
+    "other_medicines": (MEDICATION, "anything else taken for it",
+                        "Have you taken anything else for this, such as an over-the-counter "
+                        "medicine?"),
+    "wrap_up": (WRAP_UP, "anything else", ""),
+}
+MAX_SIDE_QUESTIONS = 3
+CONFIRM_TEXT = "Here is what I understood. Is this right?"
+CONFIRMED_TEXT = "That's right."
+END_TEXT = "That's everything I needed. You can ask another question any time."
+
+
 @dataclass
 class Item:
     label: str
@@ -33,12 +57,17 @@ class Item:
     status: str = "unknown"
     quote: str = ""
     attempts: int = 0
+    stage: int = FOLLOW_UP
+    core: str = ""  # a key of CORE, or "" for a habit or safety item
+    fixed: str = ""  # a core item's fixed question, used when the doctor has none
 
 
 @dataclass
 class Interview:
     items: list[Item]
     rounds: list[dict] = field(default_factory=list)
+    side: int = 0  # side questions answered so far (procedure only)
+    confirmed: Optional[bool] = None  # the patient's answer to the summary, once given
 
 
 def is_interview(intake) -> bool:
@@ -57,28 +86,49 @@ def load_interview(intake) -> Optional[Interview]:
             attempts = int(raw.get("attempts") or 0)
         except (TypeError, ValueError):
             return None
+        safety = bool(raw.get("safety"))
+        stage = raw.get("stage")
+        core = raw.get("core")
         items.append(Item(
             label=raw["label"],
             habits=[h for h in raw.get("habits") or [] if isinstance(h, int)],
-            safety=bool(raw.get("safety")),
+            safety=safety,
             status=status if status in ITEM_STATUSES else "unknown",
             quote=str(raw.get("quote") or ""),
             attempts=attempts,
+            # A row saved before the stages: safety first, then the rest.
+            stage=(stage if isinstance(stage, int) and not isinstance(stage, bool)
+                   and stage in STAGE_NAMES else SAFETY if safety else FOLLOW_UP),
+            core=core if isinstance(core, str) and core in CORE else "",
+            fixed=str(raw.get("fixed") or ""),
         ))
     rounds = [dict(r) for r in intake.get("rounds") or [] if isinstance(r, dict)]
-    return Interview(items=items, rounds=rounds)
+    side = intake.get("side")
+    confirmed = intake.get("confirmed")
+    return Interview(items=items, rounds=rounds,
+                     side=side if isinstance(side, int) and not isinstance(side, bool) else 0,
+                     confirmed=confirmed if isinstance(confirmed, bool) else None)
 
 
 def dump_interview(iv: Interview) -> dict:
-    return {"items": [asdict(i) for i in iv.items], "rounds": [dict(r) for r in iv.rounds]}
+    return {"items": [asdict(i) for i in iv.items], "rounds": [dict(r) for r in iv.rounds],
+            "side": iv.side, "confirmed": iv.confirmed}
+
+
+def is_procedure(iv: Interview) -> bool:
+    """An interview built as the five-stage procedure (it has core items)."""
+    return any(i.core for i in iv.items)
 
 
 def next_item(iv: Interview) -> Optional[int]:
+    """The next unknown item: by stage, then in list order (safety is stage 1)."""
     unknown = [n for n, i in enumerate(iv.items) if i.status == "unknown"]
-    for n in unknown:
-        if iv.items[n].safety:
-            return n
-    return unknown[0] if unknown else None
+    return min(unknown, key=lambda n: (stage_of(iv.items[n]), n)) if unknown else None
+
+
+def stage_of(item: Item) -> int:
+    """A safety item is always the first stage."""
+    return SAFETY if item.safety else item.stage
 
 
 def done(iv: Interview, max_rounds: int) -> bool:
@@ -129,15 +179,20 @@ def so_far(iv: Interview, original: str = "") -> list[dict]:
     (the patient denied it); an answered item whose quote is the patient's whole
     first message is "mentioned", with no quote (as is a quote longer than the shown cap taken from it); else a quote shortened."""
     out = []
-    for i in iv.items:
+    staged = is_procedure(iv)
+    # In the procedure the list is by stage (stable: list order inside a stage).
+    for i in (sorted(iv.items, key=stage_of) if staged else iv.items):
         if i.status == "unsure":
-            out.append({"label": i.label, "status": "unsure", "quote": ""})
+            entry = {"label": i.label, "status": "unsure", "quote": ""}
         elif i.status == "answered" and i.safety:
-            out.append({"label": i.label, "status": "absent", "quote": ""})
+            entry = {"label": i.label, "status": "absent", "quote": ""}
         elif i.status == "answered" and original and _mostly_original(i.quote, original):
-            out.append({"label": i.label, "status": "mentioned", "quote": ""})
+            entry = {"label": i.label, "status": "mentioned", "quote": ""}
         elif i.status == "answered":
-            out.append({"label": i.label, "status": "answered", "quote": _shorten(i.quote)})
+            entry = {"label": i.label, "status": "answered", "quote": _shorten(i.quote)}
+        else:
+            continue
+        out.append({**entry, "stage": stage_of(i)} if staged else entry)
     return out
 
 
@@ -149,6 +204,10 @@ def summary_text(iv: Interview) -> str:
     lines = [f"{name}: {', '.join(vals)}"
              for name, vals in (("Known", known), ("Not sure", unsure), ("Not answered", open_))
              if vals]
+    if iv.confirmed is True:
+        lines.append("The patient confirmed this summary.")
+    elif iv.confirmed is False:
+        lines.append("The patient says this summary is wrong: see their last reply.")
     return "\n".join(lines)
 
 
@@ -167,6 +226,14 @@ BUILD_PROMPT = (
     "and no advice, \"habits\": [habit ids from the list]}], \"relevant_document_terms\": "
     "[the discharge-document warning terms listed that a doctor would ask this patient about "
     "given this message, copied exactly; [] when none]}. Use only ids from the list.")
+# Added to BUILD_PROMPT's user message in the procedure: which habits ask a core question.
+CORE_REQUEST = (
+    "Also add to the JSON \"core\": {\"duration\": [ids of habits that ask how long the "
+    "problem has lasted], \"severity\": [ids that ask how bad it is], \"course\": [ids that "
+    "ask whether it is getting better or worse], \"medicines\": [ids that ask whether the "
+    "patient is taking their prescribed medicines], \"other_medicines\": [ids that ask what "
+    "else the patient has taken or tried for it]}. Use [] when no habit asks it. A habit listed "
+    "under \"core\" must not also be in \"items\".")
 EXTRACT_PROMPT = (
     "You read a patient's reply for a doctor's AI clone. Items are things the clone wants to "
     "know. For each item the patient's words already answer (in the original question or the "
@@ -258,22 +325,64 @@ def _safety_terms(warning_habits, document_terms: Sequence[str], taken: list[str
     return out
 
 
+def _medicines_question(medications: Sequence[str]) -> str:
+    names = list(dict.fromkeys(" ".join(m.split()) for m in medications if m and m.strip()))
+    if not names:
+        return ""
+    if len(names) > 3:
+        listed = "your medicines"
+    else:
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    return f"Have you been taking {listed} as your discharge instructions say?"
+
+
+def core_items(core_habits: dict[str, list[int]], medications: Sequence[str],
+               doctor_name: str) -> list[Item]:
+    """The procedure's core items, each with its fixed question and the
+    doctor's habits that ask the same thing. No medicines item when the
+    document lists no medication."""
+    fixed = {key: question for key, (_, _, question) in CORE.items()}
+    fixed["medicines"] = _medicines_question(medications)
+    fixed["wrap_up"] = f"Is there anything else you want {doctor_name} to know?"
+    return [Item(label, list(core_habits.get(key, [])), False, stage=stage, core=key,
+                 fixed=fixed[key])
+            for key, (stage, label, _) in CORE.items() if fixed[key]]
+
+
 async def build_items(llm, question: str, ask_habits, warning_habits, document_terms: list[str],
-                      allowed_drugs, *, max_items: int,
-                      max_safety: int) -> Optional[tuple[bool, list[Item]]]:
+                      allowed_drugs, *, max_items: int, max_safety: int,
+                      procedure: Optional[tuple[Sequence[str], str]] = None,
+                      ) -> Optional[tuple[bool, list[Item]]]:
     """(reports_symptom, items) for a first-turn message, or None when the model
     call or its output is unusable. Ask habits are grouped by the model; every
     id must be one of `ask_habits` and every label plain (a bad item is dropped).
-    Safety items (one per warning term, asked first) are added by the program."""
+    Safety items (one per warning term, asked first) are added by the program.
+
+    With `procedure` (the document's medication names, the doctor's name) the
+    items are the five-stage procedure: the core items are added, and a habit
+    the model maps to a core item is that item's question, not a follow-up."""
     listing = "\n".join(f"{h.id}: {h.quote}" for h in ask_habits) or "(none)"
     doc_listing = "\n".join(f"- {t}" for t in document_terms) or "(none)"
     data = await _json(llm, BUILD_PROMPT, f"At most {max_items} items.\n\n"
                        f"Patient message:\n{question}\n\nHabits:\n{listing}\n\n"
-                       f"Document warning terms:\n{doc_listing}")
+                       f"Document warning terms:\n{doc_listing}"
+                       + (f"\n\n{CORE_REQUEST}" if procedure is not None else ""))
     if data is None or not isinstance(data.get("reports_symptom"), bool) \
             or not isinstance(data.get("items"), list):
         return None
     known = {h.id for h in ask_habits}
+    core_habits: dict[str, list[int]] = {}
+    if procedure is not None and isinstance(data.get("core"), dict):
+        used: set[int] = set()
+        for key in CORE:
+            ids = data["core"].get(key)
+            if not isinstance(ids, list):
+                continue
+            core_habits[key] = [i for i in dict.fromkeys(
+                i for i in ids if isinstance(i, int) and not isinstance(i, bool))
+                if i in known and i not in used]
+            used.update(core_habits[key])
+    in_core = {i for ids in core_habits.values() for i in ids}
     items: list[Item] = []
     for raw in data["items"]:
         if len(items) >= max_items:
@@ -285,7 +394,10 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
                 or not all(isinstance(i, int) and not isinstance(i, bool) and i in known
                            for i in ids)):
             continue
-        items.append(Item(" ".join(raw["label"].split()), list(dict.fromkeys(ids)), False))
+        ids = [i for i in dict.fromkeys(ids) if i not in in_core]
+        if not ids:
+            continue  # every habit of it asks a core question
+        items.append(Item(" ".join(raw["label"].split()), ids, False))
     labels = [i.label for i in items]
     # Document warning terms become questions only when the model marked them
     # relevant to this complaint (and they are in the list); the static backstop
@@ -293,8 +405,10 @@ async def build_items(llm, question: str, ask_habits, warning_habits, document_t
     asked_doc = data.get("relevant_document_terms")
     wanted = {_loose(t) for t in asked_doc if isinstance(t, str)} if isinstance(asked_doc, list) else set()
     relevant = [t for t in document_terms if _loose(t) in wanted]
-    items += [Item(t, [], True) for t in
+    items += [Item(t, [], True, stage=SAFETY) for t in
               _safety_terms(warning_habits, relevant, labels, max_safety, allowed_drugs)]
+    if procedure is not None:
+        items += core_items(core_habits, procedure[0], procedure[1])
     return data["reports_symptom"], items
 
 
@@ -317,7 +431,9 @@ async def extract(llm, iv: Interview, original: str, reply: str,
     """Fill every non-safety unknown item whose answer the patient's own words
     contain; returns item index -> quote of the items filled. A quote that is
     not in `original` or `reply` fills nothing (fill checks it)."""
-    open_ = [n for n, i in enumerate(iv.items) if i.status == "unknown" and not i.safety]
+    # The wrap-up is answered only by the reply to its own question.
+    open_ = [n for n, i in enumerate(iv.items)
+             if i.status == "unknown" and not i.safety and i.core != "wrap_up"]
     if not open_:
         return {}
     listing = "\n".join(f"{n}: {iv.items[n].label}" for n in open_)
@@ -370,7 +486,7 @@ def safety_question(term: str, rephrase: bool) -> str:
     if rephrase:
         return f"Just to be sure, do you have any {term} right now?"
     if _VERBISH.search(term):
-        return f"Have you noticed this: {term}?"
+        return f"Is this happening now: {term}?"
     return f"Have you had any {term}?"
 
 
@@ -387,6 +503,10 @@ async def write_question(llm, item: Item, habit_texts: dict[int, str], asked_bef
     habit_questions = _habit_questions(item, habit_texts, asked_before)
     if habit_questions and not rephrase:
         return habit_questions[0], True
+    if item.fixed and not rephrase and _loose(item.fixed) not in {_loose(q) for q in asked_before}:
+        return item.fixed, False  # a core item's fixed question, written by us
+    if item.core == "wrap_up":
+        return None  # asked once; never reworded by the model
     system = QUESTION_PROMPT.format(doctor=doctor_name)
     user = f"Item: {item.label}\nAlready asked: {json.dumps(list(asked_before))}"
     if rephrase:
@@ -474,7 +594,10 @@ async def ask_next(llm, iv: Interview, habit_texts: dict[int, str], allowed_drug
             mark(iv, n, "unsure" if rephrase else "skipped")
             continue
         item.attempts += 1
-        iv.rounds.append({"asked": got[0], "item": n, "reply": None})
+        asked = {"asked": got[0], "item": n, "reply": None}
+        if is_procedure(iv):
+            asked["doctor"] = got[1]  # to show the question again after a side question
+        iv.rounds.append(asked)
         return n, got[0], got[1]
     return None
 
@@ -483,3 +606,24 @@ def open_safety_item(iv: Interview) -> Optional[str]:
     """The label of a safety item the patient did not deny (unknown, unsure or
     skipped): the case cannot close."""
     return next((i.label for i in iv.items if i.safety and i.status != "answered"), None)
+
+
+# ---------- the procedure's summary and side questions ----------
+
+def awaiting_confirmation(iv: Interview) -> bool:
+    """The last round showed the summary and the patient has not answered it."""
+    return bool(iv.rounds) and iv.rounds[-1].get("confirm") is True \
+        and iv.rounds[-1].get("reply") is None
+
+
+def ask_confirmation(iv: Interview) -> None:
+    iv.rounds.append({"asked": CONFIRM_TEXT, "item": None, "reply": None, "confirm": True})
+
+
+def open_question(iv: Interview) -> Optional[tuple[int, str, bool]]:
+    """The question still waiting for a reply (item index, text, is the doctor's
+    words), so it can be shown again after a side question."""
+    n = asked_item(iv)
+    if n is None or iv.rounds[-1].get("reply") is not None:
+        return None
+    return n, iv.rounds[-1].get("asked") or "", bool(iv.rounds[-1].get("doctor"))

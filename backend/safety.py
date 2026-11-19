@@ -7,7 +7,7 @@ words dropped, crude stemming, negations folded to "not"), so the document's
 """
 
 import re
-from typing import Optional
+from typing import Optional, Sequence
 
 from extraction import normalize
 from models import ExtractedItem
@@ -422,7 +422,27 @@ def _denied_term(words: list[str], vocab: list[frozenset[str]]) -> Optional[froz
     return None
 
 
-def denial_possible(message: str, matched: list[str], extra_terms: list[str]) -> bool:
+_ASKED_SPLIT = re.compile(r"[,;:?.!]|\b(?:or|and|such as|like|including|any)\b", re.IGNORECASE)
+_ASKED_TERM_MAX_WORDS = 4
+
+
+def asked_terms(question: str) -> list[str]:
+    """The things a question of the clone names ("... such as wheezing, cough,
+    or shortness of breath?" -> wheezing, cough, shortness of breath): a
+    patient who answers "No wheezing" denies something they were asked about,
+    even when it is no warning term. Used only as words a denial may name
+    (denial_possible `known_terms`), never as emergency terms."""
+    out: list[str] = []
+    for part in _ASKED_SPLIT.split(question or ""):
+        phrase = " ".join(part.split())
+        if (phrase and len(phrase.split()) <= _ASKED_TERM_MAX_WORDS and phrase not in out
+                and _content(phrase)):  # not just "Have you had"
+            out.append(phrase)
+    return out
+
+
+def denial_possible(message: str, matched: list[str], extra_terms: list[str],
+                    known_terms: Sequence[str] = ()) -> bool:
     """The program half of the spec 4.4 rule, checked before any model call: a
     plain emergency ("I can't breathe", self-harm, an affirmed term) never
     waits on the reply judge. True when all hold, else False:
@@ -431,8 +451,9 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str]) ->
       ("can't breathe" has no plain denial);
     - negated_terms finds every label denied in its own clause;
     - every clause of the reply is an explicit denial naming what it denies:
-      a negator and exactly one known term (a matched label, a document term
-      or a common symptom word), each word once. A bare "No." or "Not
+      a negator and exactly one known term (a matched label, a document term,
+      a common symptom word, or one of `known_terms`: what the clone's own
+      question named), each word once. A bare "No." or "Not
       really.", a hedge ("Well, a little.", "I think"), a retraction ("Well I
       did") or any other words ("It is clear mucus") keep the emergency
       answer; hedged retractions cannot be listed, so only clean denials pass
@@ -457,6 +478,7 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str]) ->
     matched_words = {_term_words(label) for label in labels}
     vocab = list(dict.fromkeys(
         t for t in (*matched_words, *(_term_words(term) for term in extra_terms),
+                    *(_term_words(term) for term in known_terms),
                     *(_term_words(w) for w in _DENIABLE_WORDS)) if t))
     parts = _CLAUSE_PARTS.split(message)
     kept: list[str] = []
@@ -478,11 +500,11 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str]) ->
 
 
 def denial_clears(message: str, matched: list[str], extra_terms: list[str],
-                  judged_absent: set[str]) -> bool:
+                  judged_absent: set[str], known_terms: Sequence[str] = ()) -> bool:
     """True when an interview reply's emergency match is a plain denial the
     emergency answer may skip (spec 4.4): denial_possible holds and the reply
     judge listed every matched term as "absent" (`judged_absent`)."""
-    if not denial_possible(message, matched, extra_terms):
+    if not denial_possible(message, matched, extra_terms, known_terms):
         return False
     absent = {_canon(t).casefold() for t in judged_absent}
     labels = dict.fromkeys([*matched, *detect_emergency(message, extra_terms)])

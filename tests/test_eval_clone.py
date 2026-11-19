@@ -105,7 +105,8 @@ class FakeJudge:
 
 
 def make_settings(tmp_path, **overrides):
-    return Settings(database_url=f"sqlite+aiosqlite:///{tmp_path / 'world.sqlite3'}",
+    return Settings(interview_procedure=False,  # as the evaluation scripts run it
+                    database_url=f"sqlite+aiosqlite:///{tmp_path / 'world.sqlite3'}",
                     jwt_secret="test-secret-not-for-production", llm_model="fake-clone", **overrides)
 
 

@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import (
-    HISTORY_LIMIT, AgentResult, GuidanceUnavailable, Judged, PendingClarify, cited_only,
+    NOT_COVERED_REASON, HISTORY_LIMIT, AgentResult, GuidanceUnavailable, Judged, PendingClarify, cited_only,
     clarify_questions, dedupe_terms, emergency_result, fallback_answer, judge_reply, rounds_text, run_agent,
     strip_markers,
 )
@@ -25,16 +25,18 @@ from druglabels import patient_rxcuis
 from drugnames import allowed_drug_names, get_lexicon, prescribed_drug_names
 from guidance import Unit, doctor_habits, retrieve
 from interview import (
-    ITEM_ATTEMPTS_MAX, NOT_SURE_TEXT, Interview, as_pending, ask_next, asked_item, build_items,
-    done, dump_interview, extract, habit_ids, is_interview, live_habit_texts, load_interview,
-    mark, open_safety_item, similar_case_habits, so_far,
+    CONFIRM_TEXT, CONFIRMED_TEXT, END_TEXT, ITEM_ATTEMPTS_MAX, MAX_SIDE_QUESTIONS, NOT_SURE_TEXT,
+    STAGE_NAMES, Interview, as_pending, ask_confirmation, ask_next, asked_item,
+    awaiting_confirmation, build_items, done, dump_interview, extract, habit_ids, is_interview,
+    is_procedure, live_habit_texts, load_interview, mark, open_question, open_safety_item,
+    similar_case_habits, so_far, stage_of,
 )
 from llm import LLMError
 from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import (
-    CLINIC, EMERGENCY, _canon, denial_clears, denial_possible, detect_emergency, match_terms,
+    CLINIC, EMERGENCY, _canon, asked_terms, denial_clears, denial_possible, detect_emergency, match_terms,
     warning_terms,
 )
 
@@ -205,11 +207,15 @@ class AskBody(BaseModel):
     # The interview's "Not sure" button, for the question of round `round`.
     not_sure: bool = False
     round: Optional[int] = None
+    # The procedure's "That's right" button under the summary of round `round`.
+    confirm: bool = False
 
     @model_validator(mode="after")
     def _question_or_not_sure(self):
         if self.not_sure:
             self.question = NOT_SURE_TEXT  # the client's text is never used
+        elif self.confirm:
+            self.question = CONFIRMED_TEXT
         elif not self.question:
             raise ValueError("A question is required.")
         return self
@@ -299,7 +305,8 @@ async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, o
     denial_clears). The program checks run first: a plain emergency never waits
     on the model (R19). The judge call is made here, before the decision; a
     failed or malformed judge, or an unreadable intake, keeps every term."""
-    if not iv.items or not iv.rounds or not denial_possible(reply, terms, document_terms):
+    asked = asked_terms(iv.rounds[-1].get("asked") or "") if iv.rounds else []
+    if not iv.items or not iv.rounds or not denial_possible(reply, terms, document_terms, asked):
         return terms, None
     judge_terms, _ = interview_judge_terms(iv, reply, match_pool, terms)
     try:
@@ -311,9 +318,21 @@ async def interview_backstop(llm, terms: list[str], reply: str, iv: Interview, o
         return terms, None
     statuses = judged_statuses(judged)
     absent = {t for t in judge_terms if statuses.get(_term_key(t)) == {"absent"}}
-    if not denial_clears(reply, terms, document_terms, absent):
+    if not denial_clears(reply, terms, document_terms, absent, asked):
         return terms, None
     return [], judged
+
+
+SUMMARY_CORRECTED = "The patient says the summary is wrong: see their last reply."
+
+
+def open_question_after_side(iv: Interview) -> bool:
+    """Reopen the round a side question interrupted (its reply was the side
+    question, not an answer); False when there is no such round."""
+    if asked_item(iv) is None:
+        return False
+    iv.rounds[-1]["reply"] = None
+    return True
 
 
 @dataclass
@@ -327,6 +346,7 @@ class InterviewStep:
     asked: Optional[tuple[int, str, bool]] = None
     habit_texts: dict[int, str] = field(default_factory=dict)
     new_question: bool = False
+    confirm: bool = False  # the procedure is complete: show the summary to confirm
 
 
 def interview_expired(waiting: CareTeamQuestion, timeout_hours: float) -> bool:
@@ -353,16 +373,48 @@ def interview_clarify(iv: Interview, asked: tuple[int, str, bool], habit_texts: 
     result = AgentResult(kind="clarify", answer=text, sources=[], flagged=False,
                          care_team_question=None,
                          habit_rule_ids=[habit_id] if habit_id is not None else [])
-    return result, {
-        "questions": [{"text": text, "doctor": doctor}],
-        "interview": {"so_far": so_far(iv, original), "round": len(iv.rounds), "max_rounds": max_rounds,
-                      "item": iv.items[n].label},
-    }
+    interview = {"so_far": so_far(iv, original), "round": len(iv.rounds), "max_rounds": max_rounds,
+                 "item": iv.items[n].label}
+    if is_procedure(iv):
+        stage = stage_of(iv.items[n])
+        interview.update(stage=stage, stages=len(STAGE_NAMES), stage_name=STAGE_NAMES[stage])
+    return result, {"questions": [{"text": text, "doctor": doctor}], "interview": interview}
+
+
+def confirmation_clarify(iv: Interview, original: str) -> tuple[AgentResult, dict]:
+    """The summary the patient confirms once every item is settled (spec 4.4)."""
+    result = AgentResult(kind="clarify", answer=CONFIRM_TEXT, sources=[], flagged=False,
+                         care_team_question=None)
+    return result, {"questions": [], "interview": {
+        "so_far": so_far(iv, original), "round": len(iv.rounds), "confirm": True,
+        "stages": len(STAGE_NAMES), "stage_names": STAGE_NAMES}}
+
+
+def interview_rounds_cap(settings, procedure: bool) -> int:
+    return settings.interview_procedure_max_rounds if procedure else settings.interview_max_rounds
+
+
+def document_medications(items, lexicon) -> list[str]:
+    """The names of the document's medications, for the procedure's question
+    about taking them: the item's own name, else the drug its text names."""
+    names: list[str] = []
+    for item in items:
+        if item.category != "medication" or item.status == "rejected":
+            continue
+        name = (item.details or {}).get("name")
+        if not isinstance(name, str) or not name.strip():
+            found = sorted(lexicon.find(item.text or ""))
+            name = found[0] if found else ""
+        name = " ".join(name.split()).lower()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 async def start_interview(session: AsyncSession, llm, question: str, doctor_id: int,
                           doctor_name: str, document_terms: list[str], allowed_drugs,
-                          settings) -> Optional[tuple[Interview, AgentResult, dict]]:
+                          settings, medications: Sequence[str] = (),
+                          ) -> Optional[tuple[Interview, AgentResult, dict]]:
     """A first turn the 4.7 intake would act on becomes the interview's first
     question: (state, clarify, payload additions). None keeps the agent's
     result (4.7): no similar case habits nor document warning terms, the
@@ -381,22 +433,25 @@ async def start_interview(session: AsyncSession, llm, question: str, doctor_id: 
         except Exception:
             log.exception("Rollback after failing to read the similar cases failed")
         return None
-    if not asks and not warns and not document_terms:
+    procedure = settings.interview_procedure
+    # The procedure has its core questions even when the doctor has no habit.
+    if not procedure and not asks and not warns and not document_terms:
         return None
     built = await build_items(llm, question, asks, warns, document_terms, allowed_drugs,
                               max_items=settings.interview_max_items,
-                              max_safety=settings.interview_max_safety)
+                              max_safety=settings.interview_max_safety,
+                              procedure=(medications, doctor_name) if procedure else None)
     if built is None or not built[0] or not built[1]:
         return None
     iv = Interview(items=built[1])
+    max_rounds = interview_rounds_cap(settings, procedure)
     await extract(llm, iv, question, "",
                   [*(t for w in warns for t in (w.warning_terms or [])), *document_terms])
     texts = {h.id: h.quote for h in asks if isinstance(h.quote, str)}
-    asked = await ask_next(llm, iv, texts, allowed_drugs, doctor_name,
-                           settings.interview_max_rounds)
+    asked = await ask_next(llm, iv, texts, allowed_drugs, doctor_name, max_rounds)
     if asked is None:
         return None
-    result, extra = interview_clarify(iv, asked, texts, settings.interview_max_rounds, question)
+    result, extra = interview_clarify(iv, asked, texts, max_rounds, question)
     return iv, result, extra
 
 
@@ -429,7 +484,13 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
     # question about it: the judge's "new question" is not trusted there.
     # Not answering the asked question is not asking a new one: a reply is a new question
     # only with a "?" or the judge's other_concerns; else a normal round.
-    if not judged.replies and not denied and ("?" in reply or judged.concerns):
+    wrap_up = n is not None and iv.items[n].core == "wrap_up"
+    if wrap_up:
+        # Whatever the patient adds here is the answer; something new reaches the
+        # doctor through the end's other_concerns, not as a side question.
+        mark(iv, n, "answered")
+        iv.items[n].quote = " ".join(reply.split())
+    elif not judged.replies and not denied and ("?" in reply or judged.concerns):
         return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
@@ -469,8 +530,12 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
                                           judged=judged, denied=denied)
         if stop is not None:
             return stop
-    max_rounds = settings.interview_max_rounds
+    procedure = is_procedure(iv)
+    max_rounds = interview_rounds_cap(settings, procedure)
     if done(iv, max_rounds):
+        if procedure and iv.confirmed is None:
+            ask_confirmation(iv)
+            return InterviewStep(confirm=True)
         return InterviewStep()
     try:
         texts = await live_habit_texts(session, doctor_id, habit_ids(iv))
@@ -483,6 +548,9 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
             log.exception("Rollback after failing to read the interview's habits failed")
         return InterviewStep(settle=Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER))
     asked = await ask_next(llm, iv, texts, allowed_drugs, doctor_name, max_rounds)
+    if asked is None and procedure and iv.confirmed is None:
+        ask_confirmation(iv)  # the last items had no question to ask
+        return InterviewStep(confirm=True)
     return InterviewStep(asked=asked, habit_texts=texts)
 
 
@@ -504,7 +572,10 @@ async def deliver_interview_step(session: AsyncSession, step: InterviewStep, iv:
     The waiting row moves only while it is still waiting (settle_waiting); a
     case settled meanwhile is handed off instead of asked again."""
     extra = None
-    if step.asked is not None:
+    if step.confirm:
+        result, extra = confirmation_clarify(iv, pending.question)
+        settle = Settle(WAITING, asked=result.answer)
+    elif step.asked is not None:
         result, extra = interview_clarify(iv, step.asked, step.habit_texts, max_rounds,
                                           pending.question)
         settle = Settle(WAITING, asked=result.answer)
@@ -518,6 +589,8 @@ async def deliver_interview_step(session: AsyncSession, step: InterviewStep, iv:
     payload = answer_payload(result, [], doctor_id, doctor_name)
     if extra is not None:
         payload.update(pending=True, waiting_question_id=next_id, **extra)
+    elif is_procedure(iv):
+        payload["interview_end"] = END_TEXT
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user", content=reply))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
                             content=result.answer, payload=payload))
@@ -592,6 +665,13 @@ async def ask(
         if found is None:
             raise HTTPException(status_code=409, detail="There is no question to answer.")
         return found[0].payload
+    # The procedure's summary waits for "That's right" or a typed correction.
+    awaiting = resumed and awaiting_confirmation(iv)
+    if (body.confirm and (not awaiting or len(iv.rounds) != body.round)) \
+            or (body.not_sure and awaiting):
+        if found is None:
+            raise HTTPException(status_code=409, detail="There is nothing to confirm.")
+        return found[0].payload
     # On a reply turn the patient's original message also names drugs they
     # asked about (with the lexicon's equivalents).
     asked_text = body.question if pending is None else "\n".join(
@@ -599,6 +679,7 @@ async def ask(
     allowed_drugs = frozenset(
         allowed_drug_names(items, library_rxcuis, asked_text, get_lexicon()))
     gate_score: Optional[float] = None  # the confidence gate's score, when it ran
+    side_iv: Optional[Interview] = None  # the interview a side question interrupts
     first_iv: Optional[Interview] = None  # a first turn that starts the interview
     interview_extra: dict = {}
     gate_passed = True
@@ -632,7 +713,9 @@ async def ask(
         document_terms = warning_terms(items)
         backstop_judged: Optional[Judged] = None  # the judge's reading, reused this round
         denied: list[str] = []  # emergency terms a plain denial cleared (spec 4.4)
-        if resumed and terms and denial_possible(body.question, terms, document_terms):
+        if resumed and terms and denial_possible(
+                body.question, terms, document_terms,
+                asked_terms(iv.rounds[-1].get("asked") or "") if iv.rounds else ()):
             # Only an interview reply turn whose words plainly deny every matched
             # term may relax the backstop (checked before any read or model
             # call); without the doctor's warning terms the judge's term list
@@ -666,19 +749,36 @@ async def ask(
         doctor_terms = doctor_terms or []
         settings = request.app.state.settings
         if resumed and not terms:
-            step = await interview_turn(
-                session, llm, iv, pending.question, body.question, not_sure=body.not_sure,
-                doctor_id=doctor_id, doctor_name=name, allowed_drugs=allowed_drugs,
-                settings=settings, match_pool=[*doctor_terms, *document_terms],
-                terms_failed=terms_failed, judged=backstop_judged, denied=denied)
-            if step.settle is not None or step.asked is not None:
+            if awaiting:
+                # The summary's answer: confirmed, the agent ends the case below;
+                # anything typed instead is a correction for the doctor.
+                iv.rounds[-1]["reply"] = body.question
+                iv.confirmed = body.confirm
+                step = InterviewStep() if body.confirm else InterviewStep(
+                    settle=Settle("open", NEEDS_DOCTOR, SUMMARY_CORRECTED))
+            else:
+                step = await interview_turn(
+                    session, llm, iv, pending.question, body.question, not_sure=body.not_sure,
+                    doctor_id=doctor_id, doctor_name=name, allowed_drugs=allowed_drugs,
+                    settings=settings, match_pool=[*doctor_terms, *document_terms],
+                    terms_failed=terms_failed, judged=backstop_judged, denied=denied)
+            if step.settle is not None or step.asked is not None or step.confirm:
                 return await deliver_interview_step(
                     session, step, iv, pending, body.question, clarify_id=clarify_id,
                     waiting_id=waiting_id, user_id=user_id, doc_id=doc_id, doctor_id=doctor_id,
-                    doctor_name=name, max_rounds=settings.interview_max_rounds)
-            # The interview is over: the agent answers (the new question, when
-            # the patient asked one) or closes, no more questions.
-            new_question = step.new_question
+                    doctor_name=name,
+                    max_rounds=interview_rounds_cap(settings, is_procedure(iv)))
+            if (step.new_question and is_procedure(iv) and iv.side < MAX_SIDE_QUESTIONS
+                    and open_question_after_side(iv)):
+                # A side question in the procedure: the agent answers it as a
+                # question of its own, then the open question is shown again
+                # and the interview goes on (spec 2026-11-19, 4.3).
+                iv.side += 1
+                side_iv, iv, pending = iv, None, None
+            else:
+                # The interview is over: the agent answers (the new question, when
+                # the patient asked one) or closes, no more questions.
+                new_question = step.new_question
         memory_failed = False
 
         async def guidance_search(query: str) -> list[Unit]:
@@ -730,6 +830,7 @@ async def ask(
                 clinic_terms=clinic_signs,
             )
         except LLMError as exc:
+            log.warning("The model call failed on an ask turn: %s", exc)
             if not terms:
                 raise HTTPException(
                     status_code=502,
@@ -746,9 +847,14 @@ async def ask(
             # settle_reply then answers it and hands the symptom off (4.3).
             result = replace(result, replies_to_questions=False)
 
-        if pending is None and not terms and result.intake_eligible:
-            started = await start_interview(session, llm, body.question, doctor_id, name,
-                                            document_terms, allowed_drugs, settings)
+        if side_iv is not None and result.kind == "clarify":
+            # No second interview inside the first: that question goes to the doctor.
+            result = replace(handoff_result(name), care_team_question=body.question,
+                             care_team_reason=NOT_COVERED_REASON)
+        elif side_iv is None and pending is None and not terms and result.intake_eligible:
+            started = await start_interview(
+                session, llm, body.question, doctor_id, name, document_terms, allowed_drugs,
+                settings, medications=document_medications(items, get_lexicon()))
             if started is not None:
                 first_iv, result, interview_extra = started
 
@@ -842,6 +948,9 @@ async def ask(
         payload["waiting_question_id"] = next_waiting_id
         # Each question marked as the doctor's (a habit) or the clone's own.
         payload.update(interview_extra or clarify_questions(result.answer, result.sources))
+    if (iv is not None and is_procedure(iv) and not terms
+            and result.kind not in ("clarify", "emergency")):
+        payload["interview_end"] = END_TEXT
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
                             content=body.question))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
@@ -855,6 +964,21 @@ async def ask(
             doctor_id=doctor_id,
             dedupe=result.care_team_reason == SOURCES_DISAGREE,
         )
+    if side_iv is not None and not terms:
+        # Back to the interview: the question that was open is shown again.
+        await session.flush()  # the side answer is stored before the question
+        waiting_row = await session.get(CareTeamQuestion, waiting_id)
+        again = open_question(side_iv)
+        if waiting_row is not None and waiting_row.status == WAITING and again is not None:
+            waiting_row.intake = dump_interview(side_iv)
+            asked_again, extra = interview_clarify(
+                side_iv, again, {}, interview_rounds_cap(settings, True), waiting_row.question)
+            again_payload = answer_payload(asked_again, [], doctor_id, name)
+            again_payload.update(pending=True, waiting_question_id=waiting_id, **extra)
+            session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
+                                    content=asked_again.answer, payload=again_payload))
+            await session.commit()
+            return {**again_payload, "aside": payload}
     await session.commit()
     return payload
 

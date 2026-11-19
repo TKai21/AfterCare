@@ -322,8 +322,8 @@ def test_safety_item_question_is_yes_no_template():
     iv = make(("chest pain", True, "unknown"))
     got = asyncio.run(iv_mod.write_question(None, iv.items[0], {}, [], [], "Dr. Ting Kai", False))
     assert got == ("Have you had any chest pain?", False)
-    assert iv_mod.safety_question("you are confused", False) == "Have you noticed this: you are confused?"
-    assert iv_mod.safety_question("fever is rising", False) == "Have you noticed this: fever is rising?"
+    assert iv_mod.safety_question("you are confused", False) == "Is this happening now: you are confused?"
+    assert iv_mod.safety_question("fever is rising", False) == "Is this happening now: fever is rising?"
 
 
 def test_safety_item_rephrase_template():
