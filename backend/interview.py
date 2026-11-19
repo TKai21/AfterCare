@@ -205,6 +205,13 @@ def so_far(iv: Interview, original: str = "") -> list[dict]:
         else:
             continue
         out.append({**entry, "stage": stage_of(i)} if staged else entry)
+    if staged:
+        # A sign the patient denied with the danger check's No, next to the safety items.
+        listed = {_squash(e["label"]) for e in out}
+        denied = [{"label": name, "status": "absent", "quote": "", "stage": SAFETY}
+                  for name in check_names(confirmed_absent(iv)) if _squash(name) not in listed]
+        first = sum(1 for e in out if e["stage"] == SAFETY)
+        out[first:first] = denied
     return out
 
 
@@ -216,6 +223,14 @@ def summary_text(iv: Interview) -> str:
     lines = [f"{name}: {', '.join(vals)}"
              for name, vals in (("Known", known), ("Not sure", unsure), ("Not answered", open_))
              if vals]
+    denied = confirmed_absent(iv)
+    if denied:
+        lines.append(f"Asked \"are you having this right now?\", the patient chose No: "
+                     f"{', '.join(check_names(denied))}")
+    check = danger_check(iv)
+    if check is not None:
+        lines.append(f"Asked \"are you having this right now?\", no answer yet: "
+                     f"{', '.join(check_names(check['terms']))}")
     if iv.confirmed is True:
         lines.append("The patient confirmed this summary.")
     elif iv.confirmed is False:
@@ -675,3 +690,57 @@ def unsettled_problem_item(iv: Interview) -> Optional[str]:
     cannot describe."""
     return next((i.label for i in iv.items
                  if i.core in PROBLEM_CORE and i.status != "answered"), None)
+
+
+# ---------- the danger check: ask, do not guess (2026-11-21) ----------
+
+CHECK_ONE = "Are you having this right now?"
+CHECK_MANY = "Are you having any of these right now?"
+CHECK_ADVICE = ("If you are, call 911 or follow the emergency instructions in your discharge "
+                "document.")
+CHECK_YES_TEXT = "Yes, I am."
+CHECK_NO_TEXT = "No, I am not."
+# Backstop labels in the past tense, as the question names them.
+_CHECK_NAMES = {"fainted": "fainting", "passed out": "passing out", "collapsed": "collapsing"}
+
+
+def check_names(terms: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(_CHECK_NAMES.get(t, t) for t in terms))
+
+
+def check_text(terms: Sequence[str]) -> str:
+    """The danger check as plain text (the page shows the same words as a card)."""
+    names = check_names(terms)
+    title = CHECK_ONE if len(names) == 1 else CHECK_MANY
+    return f"{title[:-1]}: {', '.join(names)}? {CHECK_ADVICE}"
+
+
+def ask_danger_check(iv: Interview, terms: Sequence[str], reply: str) -> None:
+    """Hold `reply` (it names `terms`, and the program cannot tell whether it
+    denies them) on the open round until the patient answers the check."""
+    iv.rounds[-1]["check"] = {"terms": list(terms), "held": reply}
+
+
+def danger_check(iv: Interview) -> Optional[dict]:
+    """The check waiting for the patient's Yes or No: {terms, held}, or None."""
+    check = iv.rounds[-1].get("check") if iv.rounds else None
+    if (not isinstance(check, dict) or iv.rounds[-1].get("reply") is not None
+            or not isinstance(check.get("held"), str) or not isinstance(check.get("terms"), list)
+            or not check["terms"] or not all(isinstance(t, str) for t in check["terms"])):
+        return None
+    return check
+
+
+def answer_danger_check(iv: Interview) -> tuple[list[str], str]:
+    """The patient chose No: (the terms, the held reply). The terms stay on the
+    round as denied by the patient's own button, for the doctor and the close."""
+    check = iv.rounds[-1].pop("check")
+    iv.rounds[-1]["denied"] = list(dict.fromkeys(
+        [*(iv.rounds[-1].get("denied") or []), *check["terms"]]))
+    return list(check["terms"]), check["held"]
+
+
+def confirmed_absent(iv: Interview) -> list[str]:
+    """Every danger sign the patient denied with the check's No button."""
+    return list(dict.fromkeys(
+        t for r in iv.rounds for t in (r.get("denied") or []) if isinstance(t, str)))

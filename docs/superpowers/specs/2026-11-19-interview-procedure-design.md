@@ -230,3 +230,51 @@ summary, 4.3 questions on average. The emergency answers differ from run to
 run because the follow-ups asked differ; the remaining cause is the same in
 all three: a natural denial the rules do not accept ("No, I have not had any
 additional symptoms such as wheezing, cough, or shortness of breath").
+
+### Third amendment (2026-11-21): ask, do not guess
+
+Three runs left two to four of ten patients with the emergency answer for a
+danger sign they had denied in ordinary words. Each wording the denial rules
+were widened for was followed by another, and every widening raised the risk
+of reading a real emergency as a denial. The team chose to stop reading
+denials and ask instead.
+
+- **The danger check.** In the procedure, when a reply names a danger sign and
+  is not a plain denial, the program may show one question in place of the
+  emergency answer: "Are you having this right now?", the signs, "If you are,
+  call 911 or follow the emergency instructions in your discharge document",
+  and two buttons, "Yes, I am" and "No, I am not". No model call is made. The
+  reply is held, the composer is disabled until a button is pressed, and the
+  doctor's card shows the held reply and the unanswered check if it times out.
+- **When it is asked** (`safety.check_possible`): only when every sentence
+  that names a danger sign also has a word of denial. A sign with no such word
+  in its sentence ("Yes, I have chest pain", "Not sure. Maybe some chest
+  pain."), a self-harm or suicide term, a term that is itself a negation
+  ("can't breathe"), and text with look-alike letters get the emergency answer
+  at once, as before. So does a first message, and a reply outside the
+  procedure.
+- **Yes**, or anything typed in place of a button: the fixed emergency answer
+  with no model call, and the case goes to the doctor with the held reply, the
+  check and the patient's answer.
+- **No**: the interview goes on with the held reply. The signs are stored on
+  the round as denied by the patient's own answer; this, not the reply judge's
+  reading, is their status. The summary the patient confirms and the doctor's
+  card name them. At the close gate the button stands in for the plain denial
+  of that sign in that reply only; the model must still read it as absent.
+- **Plain denials** ("No fever.", "No chest pain or fainting") still pass
+  without a check, by the rules of 2026-11-17. The list rule of the first
+  amendment ("no A, B, or C") is withdrawn: such a reply now gets the check.
+
+Fourth run of the ten patients: no emergency answer without a danger sign
+(was three), two checks shown, both answered No; the patient who has
+shortness of breath got the emergency answer at once, with no check. Two cases
+closed by the clone, five handed to the doctor with a confirmed summary, 5.4
+questions on average. Still open: a "call the clinic" sign denied in ordinary
+words ("I haven't had any headache, fever, vomiting, or diarrhea") blocks the
+close with the reason "Warning sign: you have diarrhea", which misleads the
+doctor; and a symptom the document only touches on is still answered from the
+document without an interview.
+
+Calls made by Claude: the rule for when the check may be asked; typed words
+during a check get the emergency answer; the check is limited to the
+procedure; the button's reach at the close gate.

@@ -352,73 +352,17 @@ def _negated_in_clause(words: list[str], content: frozenset[str],
     return False
 
 
-_SENTENCE_BREAK = re.compile(r"[.;!?:\n]")
-_LIST_PARTS = re.compile(r"(,|\bbut\b|\band\b|\bor\b|\bnor\b|\bhowever\b|\balthough\b)",
-                         re.IGNORECASE)
-
-
-def _bare_term(words: list[str], vocab: list[frozenset[str]]) -> Optional[frozenset[str]]:
-    """The known term a list member names: at most 2 filler words ("any", "a"),
-    then exactly that term's words, then optionally "at all"/"either"/..."""
-    for k in range(min(_MAX_FILLERS, len(words)) + 1):
-        if not all(w in _NEGATION_FILLERS for w in words[:k]):
-            break
-        for tail in _NEGATION_TAILS:
-            end = len(words) - len(tail)
-            if end <= k or tuple(words[end:]) != tail:
-                continue
-            found = _named_term(words[k:end], vocab)
-            if found is not None:
-                return found
-    return None
-
-
-def _denied_list_members(message: str, vocab: list[frozenset[str]]) -> list[list[str]]:
-    """The clauses that continue a plain denial as a list: "no wheezing, cough,
-    or shortness of breath" denies all three. Every element is a known term:
-    the list starts at a clause that plainly denies one (_denied_term), each
-    further member is a bare known term, and the members count only when the
-    list reaches its "or"/"nor" inside the same sentence. "No fever, chest
-    pain." (no "or"), "No fever and chest pain", "Not sure, chest pain or
-    fainting" and "No fever, well, a little chest pain or so" continue nothing."""
-    members: list[list[str]] = []
-    for sentence in _SENTENCE_BREAK.split(message):
-        parts = _LIST_PARTS.split(sentence)
-        in_list, waiting = False, []  # waiting: members after a comma, before the "or"
-        for i in range(0, len(parts), 2):
-            words = _words(parts[i])
-            if not words:
-                continue  # ", or": the next clause's joiner is the "or"
-            joiner = parts[i - 1].strip().lower() if i else ""
-            if _denied_term(words, vocab) is not None:
-                in_list, waiting = True, []
-            elif in_list and joiner == "," and _bare_term(words, vocab) is not None:
-                waiting.append(words)
-            elif in_list and joiner in _LIST_JOINERS and _bare_term(words, vocab) is not None:
-                members += [*waiting, words]
-                waiting = []
-            else:
-                in_list, waiting = False, []
-    return members
-
-
-def negated_terms(message: str, terms: list[str],
-                  vocab: Optional[list[frozenset[str]]] = None) -> set[str]:
+def negated_terms(message: str, terms: list[str]) -> set[str]:
     """The matched terms (labels from match_terms) the patient plainly denies.
 
     A term is negated only when every clause (split on . ; , ! ? : and the words
     but/and/or/nor/however/although) that mentions its words is a plain denial,
     see _negated_in_clause: a negator, at most 2 filler words, the term, nothing
-    else; or a member of a denied list (_denied_list_members) that is exactly
-    the term. Hedges, double negatives and qualifiers ("until", "just", "more")
-    fail. `vocab` are the word sets a denial may name (default: the terms').
+    else. Hedges, double negatives and qualifiers ("until", "just", "more") fail.
     It errs toward not negated: a missed negation only sends a case to the
     doctor, a false one could let a warning sign through."""
     matched = set(match_terms(message, terms))
     clauses = [_words(c) for c in _CLAUSE_SPLIT.split(message)]
-    if vocab is None:
-        vocab = [t for t in dict.fromkeys(_term_words(term) for term in terms) if t]
-    listed = _denied_list_members(message, vocab)
     out: set[str] = set()
     for term in terms:
         label = _canon(term)
@@ -426,10 +370,7 @@ def negated_terms(message: str, terms: list[str],
             continue
         content = _content(term) - {"not"}
         term_words = frozenset(_words(term)) - {"not"}
-        if content and all(
-                _negated_in_clause(c, content, term_words)
-                or (c in listed and _bare_term(c, [term_words]) is not None)
-                for c in clauses):
+        if content and all(_negated_in_clause(c, content, term_words) for c in clauses):
             out.add(label)
     return out
 
@@ -515,9 +456,7 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str],
       question named), each word once. A bare "No." or "Not
       really.", a hedge ("Well, a little.", "I think"), a retraction ("Well I
       did") or any other words ("It is clear mucus") keep the emergency
-      answer; a list of known terms is denied as a whole only when it ends
-      with "or"/"nor" ("no wheezing, cough, or shortness of breath"), see
-      _denied_list_members; hedged retractions cannot be listed, so only clean denials pass
+      answer; hedged retractions cannot be listed, so only clean denials pass
       (team decision 2026-11-17). A known term after "or"/"nor" continues a
       denial ("No fever or chills");
     - the reply is plain ASCII after normalize (look-alike letters hide words);
@@ -534,14 +473,13 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str],
         key = _canon(label).casefold()
         if key in SELF_HARM_LABELS or "not" in _words(label):
             return False
+    if not {_canon(label) for label in labels} <= negated_terms(message, labels):
+        return False
     matched_words = {_term_words(label) for label in labels}
     vocab = list(dict.fromkeys(
         t for t in (*matched_words, *(_term_words(term) for term in extra_terms),
                     *(_term_words(term) for term in known_terms),
                     *(_term_words(w) for w in _DENIABLE_WORDS)) if t))
-    if not {_canon(label) for label in labels} <= negated_terms(message, labels, vocab):
-        return False
-    listed = _denied_list_members(message, vocab)
     parts = _CLAUSE_PARTS.split(message)
     kept: list[str] = []
     listing = False  # the previous clause denied a term: "no fever or chills"
@@ -553,8 +491,6 @@ def denial_possible(message: str, matched: list[str], extra_terms: list[str],
         found = _denied_term(words, vocab)
         if found is None and listing and joiner in _LIST_JOINERS:
             found = _named_term(words, vocab)
-        if found is None and words in listed:
-            found = _bare_term(words, vocab)  # "no wheezing, cough, or ..."
         if found is None:
             return False
         listing = True
@@ -573,3 +509,42 @@ def denial_clears(message: str, matched: list[str], extra_terms: list[str],
     absent = {_canon(t).casefold() for t in judged_absent}
     labels = dict.fromkeys([*matched, *detect_emergency(message, extra_terms)])
     return all(_canon(label).casefold() in absent for label in labels)
+
+
+# ---------- asking instead of guessing (2026-11-21) ----------
+
+_CHECK_SENTENCES = re.compile(r"[.;!?\n]")
+# A reply that names a danger sign may be asked about it only when a word of
+# denial stands in the same sentence ("no", "n't" and "never" fold to "not").
+_CHECK_DENIERS = frozenset({"not", "deny", "deni", "without", "none", "neither", "nor"})
+
+
+def check_possible(message: str, matched: list[str], extra_terms: list[str]) -> bool:
+    """Whether an interview reply that names a danger sign may be answered with
+    one yes/no question ("Are you having this right now?") in place of the
+    emergency answer. The program does not decide that the patient denied the
+    sign; it only refuses to ask when the reply cannot be a denial:
+
+    - a self-harm or suicide label, or a label that is itself a negation
+      ("can't breathe"): the emergency answer, always;
+    - text that is not plain ASCII after normalize (look-alike letters);
+    - a sentence that names a danger sign with no word of denial in it ("Yes,
+      I have chest pain.", "Not sure. Maybe some chest pain."); when the sign
+      is only matched across sentences, the reply as a whole needs such a word.
+
+    False keeps the emergency answer. True is not "safe": the question shown
+    says to call 911, and only the patient's "No" continues the interview."""
+    labels = list(dict.fromkeys([*matched, *detect_emergency(message, extra_terms)]))
+    if not labels or not normalize(message).isascii():
+        return False
+    for label in labels:
+        if _canon(label).casefold() in SELF_HARM_LABELS or "not" in _words(label):
+            return False
+    named_in_a_sentence = False
+    for sentence in _CHECK_SENTENCES.split(message):
+        if not detect_emergency(sentence, extra_terms):
+            continue
+        named_in_a_sentence = True
+        if not _CHECK_DENIERS & set(_words(sentence)):
+            return False
+    return named_in_a_sentence or bool(_CHECK_DENIERS & set(_words(message)))

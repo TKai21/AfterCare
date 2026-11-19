@@ -1860,6 +1860,12 @@ fieldset:disabled .dropzone-label { cursor: not-allowed; }
 .summary-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); font-size: 14.5px; line-height: 1.5; }
 .summary-list .clarify-sofar-item { white-space: normal; overflow: visible; }
 .summary-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.check-lead { color: var(--text-muted); font-size: 14.5px; }
+.check { padding: 14px 16px; border: 1px solid var(--danger-line); border-radius: var(--radius-small, 10px); background: var(--danger-soft); }
+.check-title { color: var(--danger-ink); font-weight: 650; }
+.check-list { margin-top: 6px; padding-left: 20px; list-style: disc; color: var(--danger-ink); font-size: 15.5px; }
+.check-list li + li { margin-top: var(--space-half); }
+.check-advice { margin-top: 8px; color: var(--danger-ink); font-size: 14.5px; }
 .interview-end { margin-top: 10px; padding-left: 4px; color: var(--text-subtle); font-size: 13px; }
 .answer-list { padding-left: 22px; list-style: disc; }
 .answer-list li::marker { color: var(--accent); }

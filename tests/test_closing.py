@@ -206,3 +206,18 @@ def test_specific_reasons_come_before_the_general_ones():
                    concerns=True) == "Medication change reported"
     assert blocker("I had a fever", concerns=True,
                    signs=[{"term": "fever", "status": "present"}]) == "Warning sign: fever"
+
+
+def test_the_check_button_stands_in_for_the_plain_denial_not_for_the_model():
+    reply = "No, I have not had any more symptoms such as fever, since Monday"
+    args = (ORIGINAL, reply, [], ["fever"], [])
+    kwargs = dict(other_concerns=False)
+    lexicon = get_lexicon()
+    # Not a plain denial: blocked, as before the danger check.
+    assert close_blocker(*args, absent("fever"), {"amoxicillin"}, lexicon, **kwargs) \
+        == "Warning sign: fever"
+    assert close_blocker(*args, absent("fever"), {"amoxicillin"}, lexicon, **kwargs,
+                         button_denied={"fever"}) is None
+    # The model must still read the sign as absent.
+    assert close_blocker(*args, [{"term": "fever", "status": "present"}], {"amoxicillin"},
+                         lexicon, **kwargs, button_denied={"fever"}) == "Warning sign: fever"

@@ -6,7 +6,7 @@ question or the reply that is not denied by both the program and the model, a
 reported medication change, a drug the patient is not prescribed, no warning
 signs to check against, or any other concern the model reports."""
 import re
-from typing import Optional
+from typing import Collection, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,7 +72,8 @@ def _key(term: str) -> str:
 def close_blocker(original: str, reply: str, emergency_terms: list[str],
                   doctor_warning_terms: list[str], document_warning_terms: list[str],
                   warning_signs: list[dict], prescribed: set[str],
-                  lexicon: DrugLexicon, *, other_concerns) -> Optional[str]:
+                  lexicon: DrugLexicon, *, other_concerns,
+                  button_denied: Collection[str] = ()) -> Optional[str]:
     """None when a close may be delivered, else the reason shown to the doctor.
 
     Checks, in order: emergency terms in the reply; a warning term matched in
@@ -80,7 +81,9 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     in the reply, unless negated_terms finds a plain denial AND the model's
     warning_signs lists that term as "absent" (a term the model left out is
     present, and a term the model lists more than once is absent only when
-    every one of its entries says "absent"); any given term the model does not list as "absent" (present,
+    every one of its entries says "absent"; `button_denied`, the keys of terms
+    the patient denied with the danger check's No button, stand in for the
+    plain denial, never for the model's "absent"); any given term the model does not list as "absent" (present,
     unclear or left out), whether or not the program matched it, so every
     given term must be explicitly absent; medication-change wording in the
     original question or the reply; a lexicon drug name in either that is not
@@ -104,7 +107,8 @@ def close_blocker(original: str, reply: str, emergency_terms: list[str],
     model_absent = {key for key, found in statuses.items() if found == {"absent"}}
     denied = negated_terms(reply, terms)
     for term in match_terms(reply, terms):
-        if not (term in denied and _key(term) in model_absent):
+        if not ((term in denied or _key(term) in button_denied)
+                and _key(term) in model_absent):
             return WARNING_REASON.format(term=term)
     # The model reads meaning the phrase matcher misses ("vomited" for "threw
     # up"): every given term must be explicitly "absent", matched or not; a
@@ -132,7 +136,11 @@ def intake_rounds(q: CareTeamQuestion) -> list[dict]:
     A row from before rounds has no `intake`: its one round is asked/patient_reply.
     An interview's `intake` (a dict with items) keeps its rounds under "rounds"."""
     listed = q.intake.get("rounds") if isinstance(q.intake, dict) else q.intake
-    rounds = [{"asked": r.get("asked"), "reply": r.get("reply")}
+    # A reply held for the danger check (the patient has not chosen Yes or No
+    # yet) is still what the patient said to that question.
+    rounds = [{"asked": r.get("asked"),
+               "reply": (r["check"].get("held") if r.get("reply") is None
+                         and isinstance(r.get("check"), dict) else r.get("reply"))}
               for r in (listed if isinstance(listed, list) else []) if isinstance(r, dict)]
     if q.asked and not (rounds and rounds[-1]["asked"] == q.asked):
         rounds.append({"asked": q.asked, "reply": q.patient_reply})

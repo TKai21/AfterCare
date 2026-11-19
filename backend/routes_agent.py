@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Optional, Sequence
+from typing import Annotated, Literal, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints, model_validator
@@ -25,9 +25,11 @@ from druglabels import patient_rxcuis
 from drugnames import allowed_drug_names, get_lexicon, prescribed_drug_names
 from guidance import Unit, doctor_habits, retrieve
 from interview import (
+    CHECK_ADVICE, CHECK_MANY, CHECK_NO_TEXT, CHECK_ONE, CHECK_YES_TEXT,
     CONFIRM_TEXT, CONFIRMED_TEXT, END_TEXT, ITEM_ATTEMPTS_MAX, MAX_SIDE_QUESTIONS, NOT_SURE_TEXT,
-    STAGE_NAMES, Interview, as_pending, ask_confirmation, ask_next, asked_item,
-    awaiting_confirmation, build_items, done, dump_interview, extract, habit_ids, is_interview,
+    STAGE_NAMES, Interview, answer_danger_check, as_pending, ask_confirmation, ask_danger_check,
+    ask_next, asked_item, awaiting_confirmation, build_items, check_names, check_text,
+    danger_check, done, dump_interview, extract, habit_ids, is_interview,
     is_procedure, live_habit_texts, load_interview, mark, open_question, open_safety_item,
     NOT_SURE_REPLY, similar_case_habits, so_far, stage_of, steps, unsettled_problem_item,
 )
@@ -36,7 +38,7 @@ from models import CareTeamQuestion, ChatMessage, User
 from routes_care_team import MAX_QUESTION_CHARS, add_question
 from routes_documents import active_document, confirmed_document, load_items
 from safety import (
-    CLINIC, EMERGENCY, _canon, asked_terms, denial_clears, denial_possible, detect_emergency, match_terms,
+    CLINIC, EMERGENCY, _canon, asked_terms, check_possible, denial_clears, denial_possible, detect_emergency, match_terms,
     warning_terms,
 )
 
@@ -209,6 +211,8 @@ class AskBody(BaseModel):
     round: Optional[int] = None
     # The procedure's "That's right" button under the summary of round `round`.
     confirm: bool = False
+    # The danger check's Yes or No button, for the check of round `round`.
+    danger: Optional[Literal["yes", "no"]] = None
 
     @model_validator(mode="after")
     def _question_or_not_sure(self):
@@ -216,6 +220,8 @@ class AskBody(BaseModel):
             self.question = NOT_SURE_TEXT  # the client's text is never used
         elif self.confirm:
             self.question = CONFIRMED_TEXT
+        elif self.danger is not None:
+            self.question = CHECK_YES_TEXT if self.danger == "yes" else CHECK_NO_TEXT
         elif not self.question:
             raise ValueError("A question is required.")
         return self
@@ -466,14 +472,17 @@ def _term_key(term: str) -> str:
 
 async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
                                match_pool: list[str], judged: Optional[Judged] = None,
-                               denied: Sequence[str] = ()) -> Optional[InterviewStep]:
+                               denied: Sequence[str] = (),
+                               by_button: bool = False) -> Optional[InterviewStep]:
     """Apply a typed reply to the interview: the reply judge reads the open
     safety items and every warning term the reply names, then the extractor
     fills the items the patient's words answer. A step when the interview ends
     now: a handoff (the judge failed, or a danger sign is present, checked
     first so the doctor sees it), or a new question for the agent; else None.
     `judged` is the backstop's reading of this same reply over the same terms
-    (`denied`: the emergency terms it cleared), reused so the reply is judged once."""
+    (`denied`: the emergency terms it cleared), reused so the reply is judged once.
+    With `by_button` the patient denied the `denied` terms with the danger
+    check's No button: that answer, not the judge's reading, is their status."""
     n = asked_item(iv)
     judge_terms, named_terms = interview_judge_terms(iv, reply, match_pool, denied)
     if judged is None:
@@ -481,6 +490,8 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
     if judged is None:
         return InterviewStep(settle=Settle("open", NEEDS_DOCTOR, COULD_NOT_ANSWER))
     statuses = judged_statuses(judged)
+    if by_button:
+        statuses.update({_term_key(t): {"absent"} for t in denied})
     for term in judge_terms:
         if "present" in statuses.get(_term_key(term), set()):
             return InterviewStep(settle=Settle("open", NEEDS_DOCTOR,
@@ -522,7 +533,7 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
                          *, not_sure: bool, doctor_id: int, doctor_name: str, allowed_drugs,
                          settings, match_pool: list[str], terms_failed: bool,
                          judged: Optional[Judged] = None,
-                         denied: Sequence[str] = ()) -> InterviewStep:
+                         denied: Sequence[str] = (), by_button: bool = False) -> InterviewStep:
     """One reply turn of the interview, the agent not called: record the reply
     on the asked round, read it ("Not sure" marks the item unsure, no judge),
     then pick and ask the next item. Fails closed into a handoff."""
@@ -538,7 +549,7 @@ async def interview_turn(session: AsyncSession, llm, iv: Interview, original: st
             mark(iv, n, "unsure")
     else:
         stop = await read_interview_reply(llm, iv, original, reply, match_pool,
-                                          judged=judged, denied=denied)
+                                          judged=judged, denied=denied, by_button=by_button)
         if stop is not None:
             return stop
     procedure = is_procedure(iv)
@@ -578,8 +589,11 @@ async def end_clarify_message(session: AsyncSession, clarify_id: Optional[int]) 
 async def deliver_interview_step(session: AsyncSession, step: InterviewStep, iv: Interview,
                                  pending: PendingClarify, reply: str, *, clarify_id: int,
                                  waiting_id: int, user_id: int, doc_id: int, doctor_id: int,
-                                 doctor_name: str, max_rounds: int) -> dict:
+                                 doctor_name: str, max_rounds: int,
+                                 said: Optional[str] = None) -> dict:
     """Save and return an interview reply turn that asks again or hands off.
+    `said` is what the patient's message shows when it is not `reply` (the
+    danger check's No, whose reply is the one held before the check).
     The waiting row moves only while it is still waiting (settle_waiting); a
     case settled meanwhile is handed off instead of asked again."""
     extra = None
@@ -602,11 +616,85 @@ async def deliver_interview_step(session: AsyncSession, step: InterviewStep, iv:
         payload.update(pending=True, waiting_question_id=next_id, **extra)
     elif is_procedure(iv):
         payload["interview_end"] = END_TEXT
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
+                            content=reply if said is None else said))
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
+                            content=result.answer, payload=payload))
+    await session.commit()
+    return payload
+
+
+# ---------- the danger check (spec 2026-11-19, third amendment) ----------
+
+async def deliver_danger_check(session: AsyncSession, iv: Interview, pending: PendingClarify,
+                               reply: str, terms: list[str], *, clarify_id: int, waiting_id: int,
+                               user_id: int, doc_id: int, doctor_id: int,
+                               doctor_name: str) -> dict:
+    """An interview reply names a danger sign and the program cannot tell that
+    the patient has it: ask, with two buttons, and hold the reply. The words
+    shown say to call 911; only the patient's No continues the interview."""
+    ask_danger_check(iv, terms, reply)
+    text = check_text(terms)
+    await end_clarify_message(session, clarify_id)
+    next_id = await settle_waiting(session, waiting_id, Settle(WAITING, asked=text), pending,
+                                   reply, user_id, doc_id, doctor_id, intake=dump_interview(iv))
+    if next_id is None:
+        # The case was settled meanwhile: nothing can wait for a No, so the
+        # emergency answer, as before the check existed.
+        result = emergency_result()
+        payload = answer_payload(result, terms, doctor_id, doctor_name)
+    else:
+        names = check_names(terms)
+        result = AgentResult(kind="clarify", answer=text, sources=[], flagged=False,
+                             care_team_question=None)
+        payload = answer_payload(result, [], doctor_id, doctor_name)
+        payload.update(pending=True, waiting_question_id=next_id, questions=[], interview={
+            "check": True, "terms": names, "round": len(iv.rounds),
+            "title": CHECK_ONE if len(names) == 1 else CHECK_MANY, "advice": CHECK_ADVICE})
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user", content=reply))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
                             content=result.answer, payload=payload))
     await session.commit()
     return payload
+
+
+async def deliver_check_emergency(session: AsyncSession, iv: Interview, pending: PendingClarify,
+                                  said: str, typed_terms: list[str], *, clarify_id: int,
+                                  waiting_id: int, user_id: int, doc_id: int, doctor_id: int,
+                                  doctor_name: str) -> dict:
+    """The danger check was answered Yes, or with typed words in place of a
+    button: the fixed emergency answer, no model call, and the case goes to the
+    doctor with the held reply, the check and what the patient answered to it."""
+    check = iv.rounds[-1].pop("check")
+    terms = list(dict.fromkeys([*check["terms"], *typed_terms]))
+    asked = check_text(check["terms"])
+    iv.rounds[-1]["reply"] = check["held"]
+    iv.rounds.append({"asked": asked, "item": None, "reply": said})
+    reply = said
+    result = emergency_result()
+    await end_clarify_message(session, clarify_id)
+    await settle_waiting(session, waiting_id, Settle("open", NEEDS_DOCTOR, EMERGENCY_REASON),
+                         pending, reply, user_id, doc_id, doctor_id, intake=dump_interview(iv))
+    payload = answer_payload(result, terms, doctor_id, doctor_name)
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user", content=said))
+    session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
+                            content=result.answer, payload=payload))
+    await session.commit()
+    return payload
+
+
+def denied_by_button(iv: Interview, terms: Sequence[str]) -> set[str]:
+    """The warning terms (as keys) whose every mention in the patient's replies
+    is in a reply the patient answered the danger check's No about, for that
+    same term: the close gate takes the button for the plain denial it needs."""
+    out: set[str] = set()
+    for term in dict.fromkeys(terms):
+        key = _term_key(term)
+        mentions = [r for r in iv.rounds if match_terms(r.get("reply") or "", [term])]
+        if mentions and all(key in {_term_key(t) for t in r.get("denied") or []
+                                    if isinstance(t, str)} for r in mentions):
+            out.add(key)
+    return out
 
 
 @router.post("/api/ask")
@@ -627,7 +715,8 @@ async def ask(
     # on the model (R19).
     # Only the signs the document sends to 911 or the ER; a "call the clinic"
     # sign is answered from the document and shown to the doctor (below).
-    terms = detect_emergency(body.question, warning_terms(items, EMERGENCY))
+    emergency_terms = warning_terms(items, EMERGENCY)
+    terms = detect_emergency(body.question, emergency_terms)
     try:
         doctor = await require_doctor(session, body.doctor_id)
     except HTTPException:
@@ -637,8 +726,6 @@ async def ask(
         return answer_payload(emergency_result(), terms, None, None)
     doctor_id, name = doctor.id, doctor_label(doctor)
     llm = request.app.state.llm
-    if llm is None and not terms:
-        raise HTTPException(status_code=503, detail="The language model is not configured.")
     # A cheap read, also on an emergency turn: the waiting question must reach
     # the doctor. The pending clarify is this conversation's only (Focus 4).
     try:
@@ -676,6 +763,27 @@ async def ask(
         if found is None:
             raise HTTPException(status_code=409, detail="There is no question to answer.")
         return found[0].payload
+    # A danger check waits for its Yes or No button.
+    check = danger_check(iv) if resumed else None
+    if (body.danger is not None and (check is None or len(iv.rounds) != body.round)) \
+            or (check is not None and (body.not_sure or body.confirm)):
+        if found is None:
+            raise HTTPException(status_code=409, detail="There is nothing to answer.")
+        return found[0].payload
+    said = body.question  # what the patient's message shows in the conversation
+    button_denied: list[str] = []  # danger signs denied with the check's No, this turn
+    if check is not None and body.danger != "no":
+        # Yes, or anything typed in place of a button: the emergency answer.
+        return await deliver_check_emergency(
+            session, iv, pending, said, terms, clarify_id=clarify_id, waiting_id=waiting_id,
+            user_id=user_id, doc_id=doc_id, doctor_id=doctor_id, doctor_name=name)
+    if check is not None:
+        # No: the interview goes on with the reply that was held, its danger
+        # signs denied by the patient's own answer.
+        button_denied, body.question = answer_danger_check(iv)
+        pending = as_pending(iv, waiting.question)
+    if llm is None and not terms:
+        raise HTTPException(status_code=503, detail="The language model is not configured.")
     # The procedure's summary waits for "That's right" or a typed correction.
     awaiting = resumed and awaiting_confirmation(iv)
     if (body.confirm and (not awaiting or len(iv.rounds) != body.round)) \
@@ -723,7 +831,8 @@ async def ask(
 
         document_terms = warning_terms(items)
         backstop_judged: Optional[Judged] = None  # the judge's reading, reused this round
-        denied: list[str] = []  # emergency terms a plain denial cleared (spec 4.4)
+        # Emergency terms a plain denial cleared (spec 4.4), or the check's No.
+        denied: list[str] = list(button_denied)
         if resumed and terms and denial_possible(
                 body.question, terms, document_terms,
                 asked_terms(iv.rounds[-1].get("asked") or "") if iv.rounds else ()):
@@ -738,6 +847,15 @@ async def ask(
                     [*doctor_terms, *document_terms], document_terms)
                 if not counted:
                     denied, terms = terms, []
+        if (resumed and terms and not body.not_sure and not body.confirm and iv.items
+                and iv.rounds and is_procedure(iv)
+                and check_possible(body.question, terms, emergency_terms)):
+            # The reply names a danger sign next to a word of denial the rules
+            # above could not read as a plain one: ask, do not guess.
+            return await deliver_danger_check(
+                session, iv, pending, body.question, terms, clarify_id=clarify_id,
+                waiting_id=waiting_id, user_id=user_id, doc_id=doc_id, doctor_id=doctor_id,
+                doctor_name=name)
         terms_failed = False
         if not terms:  # an emergency answer does not wait on memory
             try:
@@ -772,13 +890,15 @@ async def ask(
                     session, llm, iv, pending.question, body.question, not_sure=body.not_sure,
                     doctor_id=doctor_id, doctor_name=name, allowed_drugs=allowed_drugs,
                     settings=settings, match_pool=[*doctor_terms, *document_terms],
-                    terms_failed=terms_failed, judged=backstop_judged, denied=denied)
+                    terms_failed=terms_failed, judged=backstop_judged, denied=denied,
+                    by_button=bool(button_denied))
             if step.settle is not None or step.asked is not None or step.confirm:
                 return await deliver_interview_step(
                     session, step, iv, pending, body.question, clarify_id=clarify_id,
                     waiting_id=waiting_id, user_id=user_id, doc_id=doc_id, doctor_id=doctor_id,
                     doctor_name=name,
-                    max_rounds=interview_rounds_cap(settings, is_procedure(iv)))
+                    max_rounds=interview_rounds_cap(settings, is_procedure(iv)),
+                    said=said if button_denied else None)
             if (step.new_question and is_procedure(iv) and iv.side < MAX_SIDE_QUESTIONS
                     and open_question_after_side(iv)):
                 # A side question in the procedure: the agent answers it as a
@@ -879,7 +999,9 @@ async def ask(
             blocker = HABITS_UNAVAILABLE if terms_failed else close_blocker(
                 pending.question, replies, terms, doctor_terms, document_terms,
                 result.warning_signs, prescribed_drug_names(items, library_rxcuis, lexicon),
-                lexicon, other_concerns=result.other_concerns)
+                lexicon, other_concerns=result.other_concerns,
+                button_denied=(denied_by_button(iv, [*doctor_terms, *document_terms])
+                               if iv is not None else ()))
             if blocker is None and iv is not None and not new_question:
                 # A danger sign the patient was asked about and did not deny.
                 label = open_safety_item(iv)
@@ -974,7 +1096,7 @@ async def ask(
             and result.kind not in ("clarify", "emergency")):
         payload["interview_end"] = END_TEXT
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="user",
-                            content=body.question))
+                            content=said))
     session.add(ChatMessage(document_id=doc_id, doctor_id=doctor_id, role="assistant",
                             content=result.answer, payload=payload))
     if result.care_team_question:

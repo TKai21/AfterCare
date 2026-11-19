@@ -441,3 +441,139 @@ async def test_the_clone_does_not_compose_advice_at_the_end_of_an_interview(clie
     (q,) = await all_questions(client)
     assert q.status == "open" and q.stopped_by == "Interview complete: the doctor decides"
     assert q.intake["confirmed"] is True
+
+
+# ---------- the danger check: ask, do not guess (third amendment) ----------
+
+HELD = "About two days, and I have not had any chest pain or fainting though."
+CHECK_TERMS = ["chest pain", "fainted"]
+
+
+async def danger(client, h, doctor_id, answer, round_number):
+    return await client.post("/api/ask", headers=h, json={
+        "doctor_id": doctor_id, "question": "", "danger": answer, "round": round_number})
+
+
+async def to_check(client, fake_llm):
+    h, doctor_id, talk, body = await begin(client, fake_llm)
+    body = (await post_ask(client, h, ROUNDS[0][2], doctor_id=doctor_id)).json()
+    assert body["answer"] == REDNESS_Q
+    calls_before = len(fake_llm.calls)
+    body = (await post_ask(client, h, HELD, doctor_id=doctor_id)).json()
+    assert len(fake_llm.calls) == calls_before  # asked by the program, no model call
+    return h, doctor_id, talk, body
+
+
+async def test_a_reply_that_may_deny_a_danger_sign_is_asked_not_answered_with_911(client, fake_llm):
+    h, doctor_id, _talk, body = await to_check(client, fake_llm)
+    assert body["kind"] == "clarify" and body["pending"] is True and body["questions"] == []
+    assert body["emergency"] == {"terms": [], "banner": False}
+    assert body["interview"] == {
+        "check": True, "terms": ["chest pain", "fainting"], "round": 2,
+        "title": iv_mod.CHECK_MANY, "advice": iv_mod.CHECK_ADVICE}
+    assert body["answer"] == (
+        "Are you having any of these right now: chest pain, fainting? If you are, call 911 or "
+        "follow the emergency instructions in your discharge document.")
+    (q,) = await all_questions(client)
+    assert q.status == "waiting_on_patient" and q.asked == body["answer"]
+    assert q.intake["rounds"][-1] == {
+        "asked": REDNESS_Q, "item": q.intake["rounds"][-1]["item"], "reply": None, "doctor": True,
+        "check": {"terms": CHECK_TERMS, "held": HELD}}
+    from closing import intake_rounds, intake_summary
+    assert 'no answer yet: chest pain, fainting' in intake_summary(q)
+    # The doctor sees the held reply and the unanswered check, should it time out.
+    assert intake_rounds(q)[1:] == [{"asked": REDNESS_Q, "reply": HELD},
+                                    {"asked": body["answer"], "reply": None}]
+
+
+async def test_no_continues_the_interview_with_the_held_reply(client, fake_llm):
+    h, doctor_id, talk, body = await to_check(client, fake_llm)
+    # The judge misreads the reply: the patient's own No is the answer.
+    talk.lists["judge"] = [judged(signs=[{"term": "chest pain", "status": "present"}])]
+    body = (await danger(client, h, doctor_id, "no", 2)).json()
+    assert body["kind"] == "clarify" and body["answer"] == SEVERITY_Q, body
+    assert body["interview"]["round"] == 3 and body["emergency"]["banner"] is False
+    # The summary names what the patient denied with the button, with the safety items.
+    assert body["interview"]["so_far"] == [
+        {"label": "fever", "status": "absent", "quote": "", "stage": 1},
+        {"label": "chest pain", "status": "absent", "quote": "", "stage": 1},
+        {"label": "fainting", "status": "absent", "quote": "", "stage": 1},
+        {"label": "how long it has lasted", "status": "answered", "stage": 2,
+         "quote": iv_mod._shorten(HELD)}]
+    (q,) = await all_questions(client)
+    assert q.status == "waiting_on_patient"
+    assert q.intake["rounds"][1]["reply"] == HELD
+    assert q.intake["rounds"][1]["denied"] == CHECK_TERMS and "check" not in q.intake["rounds"][1]
+    from closing import intake_summary
+    assert 'the patient chose No: chest pain, fainting' in intake_summary(q)
+    from test_routes_agent import get_conversation
+    messages = (await get_conversation(client, h, doctor_id)).json()["messages"]
+    assert [m["content"] for m in messages[-4:]] == [
+        HELD, iv_mod.check_text(CHECK_TERMS), iv_mod.CHECK_NO_TEXT, SEVERITY_Q]
+    assert messages[-3]["payload"]["pending"] is False
+
+
+@pytest.mark.parametrize("answer", ["yes", "I think so, it hurts a bit"])
+async def test_yes_or_typed_words_get_the_emergency_answer(client, fake_llm, answer):
+    import agent
+    h, doctor_id, _talk, body = await to_check(client, fake_llm)
+    calls_before = len(fake_llm.calls)
+    if answer == "yes":
+        body = (await danger(client, h, doctor_id, "yes", 2)).json()
+        said = iv_mod.CHECK_YES_TEXT
+    else:
+        body, said = (await post_ask(client, h, answer, doctor_id=doctor_id)).json(), answer
+    assert body["kind"] == "emergency" and body["answer"] == agent.EMERGENCY_ANSWER
+    assert body["emergency"] == {"terms": CHECK_TERMS, "banner": True}
+    assert "interview_end" not in body and body.get("pending") is not True
+    assert len(fake_llm.calls) == calls_before  # never waits on the model
+    (q,) = await all_questions(client)
+    assert (q.status, q.reason, q.stopped_by) == (
+        "open", "Needs doctor after questions", "Emergency terms")
+    assert q.patient_reply == said
+    assert [(r["asked"], r["reply"]) for r in q.intake["rounds"][1:]] == [
+        (REDNESS_Q, HELD), (iv_mod.check_text(CHECK_TERMS), said)]
+    from closing import intake_rounds
+    assert intake_rounds(q)[1:] == [{"asked": REDNESS_Q, "reply": HELD},
+                                    {"asked": iv_mod.check_text(CHECK_TERMS), "reply": said}]
+
+
+async def test_the_check_takes_only_its_own_buttons(client, fake_llm):
+    h, doctor_id, _talk, body = await begin(client, fake_llm)
+    # No check is waiting: the current question comes back.
+    assert (await danger(client, h, doctor_id, "no", 1)).json()["answer"] == FEVER_Q
+    await post_ask(client, h, ROUNDS[0][2], doctor_id=doctor_id)
+    check = (await post_ask(client, h, HELD, doctor_id=doctor_id)).json()
+    for stale in ({"danger": "no", "round": 1}, {"not_sure": True, "round": 2},
+                  {"confirm": True, "round": 2}):
+        resp = await client.post("/api/ask", headers=h, json={
+            "doctor_id": doctor_id, "question": "", **stale})
+        assert resp.json() == check, stale
+    (q,) = await all_questions(client)
+    assert q.status == "waiting_on_patient" and "check" in q.intake["rounds"][-1]
+
+
+async def test_a_danger_button_with_nothing_waiting_is_409(client, fake_llm):
+    procedure_on(client)
+    h = await confirmed(client, fake_llm)
+    doctor_id, _ = await interview_doctor(client, fake_llm)
+    assert (await danger(client, h, doctor_id, "yes", 1)).status_code == 409
+
+
+async def test_a_sign_with_no_word_of_denial_is_never_asked_about(client, fake_llm):
+    h, doctor_id, _talk, body = await begin(client, fake_llm)
+    fake_llm.script(final("emergency", "Call 911 now.", []))
+    body = (await post_ask(client, h, "Not sure. Maybe some chest pain.", doctor_id=doctor_id)).json()
+    assert body["kind"] == "emergency" and body["emergency"]["banner"] is True
+
+
+def test_the_no_button_stands_in_for_the_plain_denial_only_in_its_own_reply():
+    from routes_agent import denied_by_button
+    iv = Interview(items=[], rounds=[
+        {"asked": "q1", "item": None, "reply": "No chest pain, since Monday I think",
+         "denied": ["chest pain"]},
+        {"asked": "q2", "item": None, "reply": "Mild."}])
+    assert denied_by_button(iv, ["chest pain", "fever"]) == {"chest pain"}
+    # The same sign in a reply the check was not about: the button does not cover it.
+    iv.rounds.append({"asked": "q3", "item": None, "reply": "The pain moved to my chest."})
+    assert denied_by_button(iv, ["chest pain", "fever"]) == set()
