@@ -240,6 +240,15 @@ function soFarItemHtml(i) {
   return `<li class="clarify-sofar-item${cls}">${text}</li>`;
 }
 
+// What the patient has told so far is folded under the question; once opened it
+// stays open for the following questions (toggle does not bubble: capture).
+let soFarOpen = false;
+document.addEventListener('toggle', event => {
+  if (event.target instanceof Element && event.target.matches('details.clarify-sofar')) {
+    soFarOpen = event.target.open;
+  }
+}, true);
+
 // A clarify's questions, each marked as the doctor's own (a habit of theirs) or
 // the clone's follow-up. An older clarify has no per-question list: plain text.
 function clarifyHtml(payload) {
@@ -254,7 +263,7 @@ function clarifyHtml(payload) {
   const opener = payload.opener ? `<p>${esc(payload.opener)}</p>` : '';
   const iv = payload.interview;
   const soFar = iv && Array.isArray(iv.so_far) && iv.so_far.length
-    ? `<div class="clarify-sofar"><p class="clarify-sofar-label">So far</p><ul class="clarify-sofar-list">${iv.so_far.map(soFarItemHtml).join('')}</ul></div>`
+    ? `<details class="clarify-sofar"${soFarOpen ? ' open' : ''}><summary class="clarify-sofar-label">So far<span class="clarify-sofar-count">${iv.so_far.length} ${iv.so_far.length === 1 ? 'answer' : 'answers'}</span></summary><ul class="clarify-sofar-list">${iv.so_far.map(soFarItemHtml).join('')}</ul></details>`
     : '';
   // The procedure names its step; the shorter interview counts its questions.
   if (iv && iv.stage) {
