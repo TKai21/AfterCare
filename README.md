@@ -26,6 +26,72 @@ the question and answer boxes (the text is checked and sent like typed text). Se
 recorded voice clips was removed on 2026-11-18; clips sent earlier still play. Install
 FFmpeg on the backend host. See [Voice](docs/VOICE_MESSAGES.md) for setup and tests.
 
+## How it works: models, retrieval and data
+
+A one-page overview. The sections below it give the details and the measured results.
+
+### Models
+
+| Use | Model | Where it runs |
+|-----|-------|---------------|
+| Answers, interview, reading and checking | `gpt-4o-mini` (`LLM_MODEL`) | OpenAI API |
+| Embeddings for retrieval | `text-embedding-3-small` | OpenAI API |
+| Dictation (speech to text) | `gpt-4o-mini-transcribe` | OpenAI API |
+| Library reranker | `ms-marco-MiniLM-L-6-v2` cross-encoder | on the server, off by default |
+
+The app talks to any OpenAI-compatible server, so the chat and embedding models can be replaced by self-hosted ones without a code change (see [Model configuration](#model-configuration)).
+
+### LLM techniques
+
+- **A tool-calling agent.** The answering model decides which tools to call: `search_doctor_guidance`, `search_education_library`, `lookup_food` and `add_care_team_question`.
+- **Structured output.** Every reading, extraction and classification call returns JSON that the program checks field by field. A malformed reply counts as a failure, never as an answer.
+- **Several small calls that check each other**, not one call that decides: the answer; a second look at the document when the answer says "not covered"; a verifier that scores the answer against its cited sources; a reply judge during the interview (does the reply answer the question, name a danger sign, or raise something else); and readers that turn a discharge document into items, a doctor's reply into rules and habits, and a doctor's reply into a decision.
+- **A calibrated confidence gate.** The verifier's threshold is chosen by conformal risk control on a labelled calibration set, not by hand (see [Calibrated confidence gate](#calibrated-confidence-gate)).
+- **Program rules as the last line.** Emergency terms, denials, the drug-name rule and the conditions for closing a case are plain code. They hold when the model is wrong or down. When anything fails, the case goes to the doctor.
+- **Untrusted text stays data.** The document and the patient's messages are passed inside tags that carry a random value per request, marked as data, so an instruction written inside a document is not followed.
+- **De-identification.** Every text sent to a model first has names, facilities, phone numbers, e-mail addresses, record numbers, addresses and dates of birth replaced by placeholders, which are put back in the reply (see [docs/privacy.md](docs/privacy.md)). Symptoms and conditions are sent: the model needs them to answer.
+- **Temperature 0** on every chat call.
+
+### Retrieval (RAG)
+
+The model answers from what was retrieved, with a citation for every statement. Four sources, highest authority first; when two disagree the higher one wins:
+
+| Rank | Source | How it is found |
+|------|--------|-----------------|
+| 1 | The patient's discharge document | Not retrieved: the whole document is given, as numbered paragraphs |
+| 2 | The doctor's advice for this patient | Embedding similarity |
+| 3 | The doctor's general advice | Embedding similarity, after an applicability filter |
+| 4 | Education library, approved drug labels, food table | Embedding search over 500-character chunks (100 overlap); optionally BM25 fused with it and a reranker |
+
+- **Doctor advice.** Only that doctor's entries are candidates. General advice applies only when a drug or condition it is tagged with appears in the patient's document. A hit must score at least `GUIDANCE_FLOOR` (0.40) and within `GUIDANCE_MARGIN` (0.05) of the best; at most 6 are kept. The model gets the rule, the doctor's exact words and the full reply, and follows the exact words.
+- **Library.** Only allowlisted sources and the approved labels of the patient's own drugs are searched (see [Library search](#library-search)).
+- **The interview** uses the same similarity to find the doctor's most similar past cases and asks the questions the doctor asked in them, word for word.
+- **Decision memory** uses it to show a doctor their similar past cases and what they decided (similarity 0.40 or more, at most 5).
+- **Against made-up answers:** a statement without a source is not delivered; "not covered" is a fixed sentence and the question goes to the doctor; an answer under the confidence threshold goes to the doctor; an answer that names a drug the patient is not prescribed is blocked.
+
+Similarity, keyword matching and the filters run on the server. Only the embedding and chat calls leave it, and both go through de-identification.
+
+### External APIs
+
+| Service | Provider | Used for | Patient data sent |
+|---------|----------|----------|-------------------|
+| OpenAI API | OpenAI | Chat, embeddings, dictation | Yes, de-identified |
+| RxNav (RxNorm) | U.S. National Library of Medicine | The drug-name lexicon (ingredients and brands), and RxCUI lookup for a patient's medications | Drug names only |
+| DailyMed | U.S. National Library of Medicine | FDA drug labels, searchable only after a doctor approves them | Drug identifiers only |
+| FoodData Central | U.S. Department of Agriculture | Nutrients in the food table, built ahead of time | None |
+| Hugging Face | | Download of the reranker model | None |
+
+### Data
+
+- **PortalPal** (`eval/portalpal/syppm.csv`): PortalPal-AI/Patient-Message-Response-Drafting (Seegmiller et al., 2026, CC BY-NC 4.0, non-commercial). 100 rows, each a semi-synthetic patient message, a de-identified EHR summary and one primary care physician's reply. Split 60 / 15 / 25 into memory, tune and test. The demo doctor "Dr. Helen Okafor" (`dr.portal`) is built from the 60 memory rows: her advice, her question, warning and closing habits, and the 60 history cases of decision memory.
+- **Education library** (`knowledge/manifest.json`): 49 allowlisted pages from MedlinePlus, NIDDK, CDC, DailyMed, the National Kidney Foundation and the UChicago kidney stone program. A page is indexed only after a person has reviewed its snapshot.
+- **Food table** (`data/foods.json`): FoodData Central nutrients, plus oxalate categories copied with their source rows from the UChicago oxalate table.
+- **Drug names** (`data/drug_names.json`): every RxNorm ingredient and brand name, less a hand-kept list of names that are also everyday words.
+- **Demo patients**: fictional, and their documents say so ("FICTIONAL - FOR DEMO").
+- **Simulated patients**: the interview was tried on ten patients played by a model, each with its own facts and way of talking.
+
+No real patient data is used. Results reported in this README come from semi-synthetic data, a scripted evaluation set and simulated patients.
+
 ## Run the website
 
 1. Install Python 3.10+. MySQL 8+ is only needed for the production setup; for a quick local run use SQLite (below).
@@ -86,7 +152,7 @@ All settings live in `.env` and are read by `backend/config.py`.
 | `EMBEDDING_API_KEY` | `LLM_API_KEY` | Embeddings key |
 | `RAG_DB_PATH` | `knowledge/index.sqlite3` | Education library index |
 | `RAG_MIN_SIMILARITY` | 0.25 | Minimum cosine similarity for a passage |
-| `INTERVIEW_PROCEDURE` | on | The clone's interview follows five fixed stages to the end and shows the patient a summary to confirm; `0` keeps the shorter habit-only interview |
+| `INTERVIEW_PROCEDURE` | on | The clone's interview follows fixed stages to the end (safety, the problem, the doctor's follow-ups, medicines) and shows the patient a summary to confirm, see [The interview and decision memory](#the-interview-and-decision-memory); `0` keeps the shorter habit-only interview |
 | `PRIVACY_MASKING` | on | Names, phone numbers and other identifiers are replaced by placeholders before any text is sent to the model, see [docs/privacy.md](docs/privacy.md); `0` turns it off |
 | `RERANK_ENABLED`, `RERANK_MODEL`, `RAG_MIN_RERANK` | off, `ms-marco-MiniLM-L-6-v2`, -6.5 | Library reranker, see [Library search](#library-search) |
 | `GUIDANCE_FLOOR`, `GUIDANCE_MARGIN`, `GUIDANCE_TOP_K` | 0.40, 0.05, 6 | Doctor guidance retrieval, see [Doctor clone](#doctor-clone). `GUIDANCE_MIN_SIMILARITY` is the floor's old name and is read when `GUIDANCE_FLOOR` is unset |
@@ -294,9 +360,9 @@ To see a conflict: log in as `dr.ting`, answer the open question with "General a
 
 For patients and doctors, in short (design: `docs/superpowers/specs/2026-11-15-clone-habits-design.md`):
 
-- **Emergencies first.** Every message goes through the emergency backstop before anything else. An emergency gets the fixed "call 911" answer and banner; it never waits on the model, the doctor's memory or the confidence gate. This holds for replies to the clone's questions too: the backstop does not read negation, so a reply such as "No fever and no chest pain." also gets the emergency answer and goes to the doctor (a relaxation for plain denials was tried and reverted, see the design spec, section 8).
+- **Emergencies first.** Every message goes through the emergency backstop before anything else. An emergency gets the fixed "call 911" answer and banner; it never waits on the model, the doctor's memory or the confidence gate. In a reply to the clone's questions a plain denial ("No fever.", "No chest pain or fainting") is not an emergency, and a reply that may deny a danger sign in other words gets a two-button check instead of a guess (see [The interview and decision memory](#the-interview-and-decision-memory)).
 - **Habits.** The clone knows the doctor's habits (questions they ask, how they close, signs they want to hear about) from the doctor's own answers, and uses only the doctor's own words for them. Habits carry no medical content: no number other than 911, no drug name, no medication change, no person's name and no diagnosis.
-- **Ask-first turns.** When a patient reports a symptom or problem and the doctor's ask habits apply, the clone first asks those questions, word for word (at most 4, one round per question, never on an emergency). The patient answers in the same chat.
+- **Ask-first turns.** When a patient reports a symptom or problem, the clone first asks its questions, one at a time, the doctor's own word for word wherever the doctor has one (never on an emergency). The patient answers in the same chat.
 - **The "Clone is asking" list.** While the clone waits for the patient's answers, the case shows in the doctor's inbox under "Clone is asking", apart from open work. If the patient's first message already named a warning sign, the card says so ("Warning sign in first message: ..."): such a case can never be closed by the clone. A case the patient has not answered in `CLARIFY_TIMEOUT_HOURS` (default 24) becomes an open question for the doctor ("Patient did not answer the clone's questions"); a late answer then fills that same card instead of adding a second one.
 - **Close or hand off.** After the patient answers, the clone closes the case itself (in the doctor's own closing words, copied from a close habit or a cited document paragraph) only when all five conditions hold, and otherwise hands it to the doctor with the original question, the clone's questions, the patient's answer and what stopped the close:
   1. no emergency term in the answer;
@@ -306,6 +372,26 @@ For patients and doctors, in short (design: `docs/superpowers/specs/2026-11-15-c
   5. the confidence gate passes, when it is on.
 - **Drug names.** No answer, question, close, emergency or out-of-scope reply may name a drug unless the patient is prescribed it, a cited paragraph of their own document names it, or the patient named it in this message (or, when answering the clone's questions, in their first message), with brand and ingredient names counted as the same drug. The check uses a drug lexicon built from RxNorm (`data/drug_names.json`).
 - **Retrieval.** Advice is found by similarity: the top `GUIDANCE_TOP_K` rules scoring at least `GUIDANCE_FLOOR` and within `GUIDANCE_MARGIN` of the best (see above). Habits are not retrieved; the clone sees all of them (up to 30) on every turn.
+
+### The interview and decision memory
+
+**The interview** (design: `docs/superpowers/specs/2026-11-19-interview-procedure-design.md`, with its amendments). A reported symptom starts an interview of fixed stages, always in this order:
+
+1. **Safety**: the danger signs that matter for this complaint.
+2. **The problem**: how long, how bad, getting better or worse.
+3. **The doctor's follow-ups**: at most 3, taken from the doctor's most similar past cases.
+4. **Medicines**: for a complaint that has to do with the discharge document, whether its medicines are taken as directed and what else was taken; for an unrelated one (a runny nose in a patient treated for gout), one question, "What medicines are you taking right now?".
+
+Each reply is stored as the answer to its question, word for word. A reply that does not answer the question and raises something else is handled as a question of its own, and the open question is asked again. A reply that names a danger sign and may be denying it gets one question with two buttons, "Yes, I am" and "No, I am not"; Yes, or anything typed instead, is the emergency answer. At the end the patient confirms a summary, and the clone closes the case in the doctor's own closing words or hands it to the doctor with the summary. It never composes advice of its own from what the patient said.
+
+**Decision memory** (design: `docs/superpowers/specs/2026-11-20-decision-memory-design.md`, section 9). When a doctor answers a case, the clone reads what was decided (emergency care now, be seen soon, book a visit, self-care, follow the document, contact the clinic, only asks more, other) and keeps it with the patient's situation. An answered card shows the decision and the doctor can correct it; an open card lists the doctor's similar past cases with what was decided in each, as a record, not a recommendation.
+
+No decision is proposed yet. On Dr. Okafor's 60 history cases the nearest cases named her decision 30 times, against 28 for always naming her most common one, so the cases do not yet tell when she decides what. The script below reads a doctor's earlier advice into cases and prints that replay; proposing waits until it is clearly above the baseline.
+
+```bash
+.venv/bin/python scripts/decision_memory.py dr.portal --backfill   # read the history (one small model call per entry), then the replay
+.venv/bin/python scripts/decision_memory.py dr.portal              # the replay only, no model call
+```
 
 ### Clone drafts
 
@@ -469,13 +555,16 @@ FFmpeg; the frontend lifecycle checks use Node.js 18+ when available.
 README.md  pytest.ini  .env.example
 backend/     FastAPI app: app.py (create_app), config.py, auth.py, models.py, db.py,
              documents.py, extraction.py, checklist.py, agent.py, foods.py, safety.py,
-             knowledge.py, manage_knowledge.py, llm.py, routes_*.py, requirements.txt
+             knowledge.py, manage_knowledge.py, llm.py, routes_*.py, requirements.txt;
+             the doctor clone: guidance.py, rules.py, interview.py, closing.py,
+             confidence.py, drafts.py, decisions.py, privacy.py
 frontend/    index.html + login.js (login), app.html + app.css + api.js (shell),
              review.js, today.js, ask.js, careteam.js (tabs)
 knowledge/   manifest.json, sources/*.json (index.sqlite3 is built locally)
 data/        foods.json, oxalate.json, build_foods.py
 demo/        generate_demo.py, cases/*.json, out/ (generated .txt and .pdf)
-scripts/     seed_demo.py, eval_library.py (library search evaluation), calibrate_clone.py (clone calibration)
+scripts/     seed_demo.py, eval_library.py (library search evaluation), calibrate_clone.py (clone calibration),
+             eval_portalpal.py, decision_memory.py (history and replay of decision memory)
 eval/        library_questions.json, clone_questions.json, clone_guidance.json
 sql/         schema.sql (MySQL)
 tests/       unit tests and the fake LLM
