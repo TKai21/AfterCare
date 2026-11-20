@@ -412,6 +412,50 @@ async def test_a_side_question_is_answered_and_the_interview_goes_on(client, fak
     assert body["answer"] == SEVERITY_Q and body["interview"]["round"] == 3
 
 
+async def test_a_new_symptom_typed_in_place_of_an_answer_is_not_filed_as_the_answer(
+        client, fake_llm):
+    # The judge calls it a reply (it is about the patient's health) but reads
+    # that it does not answer the question asked and raises something else.
+    replying = judged(signs=absent("fever"))
+    other = {**judged(concerns=True), "answers_question": False}
+    h, doctor_id, talk, body = await begin(client, fake_llm, judges=[replying, other, replying])
+    body = (await post_ask(client, h, ROUNDS[0][2], doctor_id=doctor_id)).json()
+    assert body["answer"] == REDNESS_Q
+    fake_llm.script(final("not_covered", "x", []),
+                    {"content": json.dumps({"reports_symptom": True, "ask": []})})
+    body = (await post_ask(client, h, "My knee is swollen now.", doctor_id=doctor_id)).json()
+    # The same question again, nothing filed, and the new symptom is the doctor's.
+    assert body["aside"]["kind"] == "not_covered"
+    assert body["questions"] == [{"text": REDNESS_Q, "doctor": True}]
+    assert body["interview"]["round"] == 2
+    assert [i["label"] for i in body["interview"]["so_far"]] == ["fever"]
+    waiting, handed = await all_questions(client)
+    assert waiting.status == "waiting_on_patient" and waiting.intake["side"] == 1
+    assert waiting.intake["rounds"][-1]["reply"] is None
+    assert (handed.status, handed.question) == ("open", "My knee is swollen now.")
+    body = (await post_ask(client, h, ROUNDS[1][2], doctor_id=doctor_id)).json()
+    assert body["answer"] == SEVERITY_Q
+    assert [(i["label"], i["quote"]) for i in body["interview"]["so_far"]][1:] == [
+        ("how long it has lasted", "About two days.")]
+
+
+@pytest.mark.parametrize("reading", [
+    {**judged(concerns=True), "answers_question": True},   # an answer with something added
+    {**judged(concerns=False), "answers_question": False},  # a short answer misread
+    judged(concerns=True),                                  # the judge did not say
+    {**judged(concerns=True), "answers_question": "no"},
+])
+async def test_a_reply_stays_the_answer_unless_both_readings_say_otherwise(
+        client, fake_llm, reading):
+    h, doctor_id, talk, body = await begin(
+        client, fake_llm, judges=[judged(signs=absent("fever")), reading])
+    await post_ask(client, h, ROUNDS[0][2], doctor_id=doctor_id)
+    body = (await post_ask(client, h, "About two days. Also my knee aches.",
+                           doctor_id=doctor_id)).json()
+    assert "aside" not in body and body["answer"] == SEVERITY_Q
+    assert body["interview"]["so_far"][1]["quote"] == "About two days. Also my knee aches."
+
+
 async def test_a_fourth_side_question_ends_the_interview(client, fake_llm):
     asking = judged(replies=False)
     h, doctor_id, _talk, body = await begin(

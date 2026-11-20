@@ -524,6 +524,14 @@ async def read_interview_reply(llm, iv: Interview, original: str, reply: str,
     # only with a "?" or the judge's other_concerns; else a normal round.
     if not judged.replies and not denied and ("?" in reply or judged.concerns):
         return InterviewStep(new_question=True)
+    # In the procedure a reply is filed as the answer to its question, so one
+    # that says nothing about that question and brings up something else ("My
+    # toe still hurts" to "What medicines are you taking?") must not be: it is
+    # handled as a question of its own, and the open question is asked again.
+    # Both readings are needed: a short answer the judge misreads stays an answer.
+    if (is_procedure(iv) and not denied and not by_button
+            and judged.answers is False and judged.concerns):
+        return InterviewStep(new_question=True)
     # Absent counts only for the safety item just asked or one the reply names:
     # the judge calls a term nobody mentioned "absent" too.
     named = {_term_key(t) for t in named_terms}

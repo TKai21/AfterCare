@@ -316,3 +316,29 @@ questions were not seen end to end with the real model.
 
 Calls made by Claude: the wording of the one question; "not related" as the
 fallback; the doctor reads the list instead of the clone comparing it.
+
+### Fifth amendment (2026-11-21): a new symptom is not an answer
+
+Since the first amendment a reply is filed as the answer to its question, word
+for word, when the judge reads it as a reply. The judge calls anything about
+the patient's health a reply, so "My toe still hurts a lot after four days."
+typed at "What medicines are you taking right now?" became the answer to the
+medicine question and the interview went on to the summary.
+
+- The reply judge returns one more field, `answers_question`: whether the
+  newest message gives what the last round's questions ask for.
+- In the procedure a reply the judge reads as not answering its question and
+  as raising something else is handled as a side question (4.3): the agent
+  answers it from the document or hands it to the doctor as a question of its
+  own, nothing is filed, and the open question is asked again. The cap of
+  three side questions applies.
+- Both readings are needed. A short answer the judge misreads as "does not
+  answer", an answer with something added ("Only colchicine. Also my toe hurts
+  again."), and a judge that does not return the field all stay answers, as
+  before.
+
+Checked with the real model: twelve replies at the medicine question in the
+app and sixteen question and reply pairs from the other steps on the judge
+alone were all read as intended, with no real answer turned away. Before the
+change two of the twelve replies were filed as the medicine answer.
+
