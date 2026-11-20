@@ -2378,6 +2378,23 @@ textarea.composer-input:focus { box-shadow: none; }
   animation: rise 360ms var(--ease-out) both;
 }
 .doctor-context-body p + p { margin-top: var(--space-1); }
+.similar-tally { color: var(--text); font-weight: 650; }
+.similar-body { display: flex; flex-direction: column; gap: var(--space-2); }
+.similar-body p + p { margin-top: 0; }
+.similar-note { color: var(--text-subtle); font-size: 13px; }
+.similar-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.similar-case { display: flex; flex-direction: column; gap: 4px; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.similar-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.decision-tag { padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 650; }
+.similar-source { color: var(--text-subtle); font-size: 12.5px; }
+.similar-complaint { color: var(--text); overflow-wrap: anywhere; }
+.similar-facts { color: var(--text-muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.similar-reply { color: var(--text-muted); overflow-wrap: anywhere; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+.similar-case:hover .similar-reply, .similar-case:focus-within .similar-reply { -webkit-line-clamp: unset; line-clamp: unset; }
+.doctor-decision { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.doctor-decision-label { color: var(--text); font-size: 13.5px; font-weight: 650; }
+.doctor-decision-select { width: auto; max-width: 100%; min-height: 40px; padding-top: 6px; padding-bottom: 6px; font-size: 14.5px; }
+.doctor-decision-note { color: var(--text-subtle); font-size: 12.5px; }
 .doctor-context-list { list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
 .doctor-context-cat { color: var(--text-subtle); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-right: 6px; }
 .doctor-answer-box { min-height: 120px; max-height: 420px; field-sizing: content; }

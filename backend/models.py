@@ -299,6 +299,41 @@ class AnswerDraft(Base):
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class CaseDecision(Base):
+    """One settled case as a pair: the patient's situation and what the doctor
+    decided (decisions.py). `question_id` is the case it settles; a row read
+    from the doctor's earlier advice has `guidance_id` and made "history"."""
+    __tablename__ = "case_decisions"
+    __table_args__ = (UniqueConstraint("question_id", name="uq_case_decisions_question"),
+                      UniqueConstraint("guidance_id", name="uq_case_decisions_guidance"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("care_team_questions.id", ondelete="CASCADE"), nullable=True
+    )
+    guidance_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("doctor_guidance.id", ondelete="CASCADE"), nullable=True
+    )
+    # The situation: what the patient reported, and what the interview found out.
+    complaint: Mapped[str] = mapped_column(Text)
+    facts: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Whether the patient confirmed the interview's summary; None with no summary.
+    confirmed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    # The decision. `kind` is one of decisions.KINDS, or NULL when it could not be read.
+    reply: Mapped[str] = mapped_column(Text)
+    kind: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    asks: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    medication: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # True once the doctor set the kind by hand: it is never read again.
+    kind_by_doctor: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # How the reply was made: draft (the clone's, unchanged) | edited | written | history
+    made: Mapped[str] = mapped_column(String(20))
+    embedding: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class DrugLabel(Base):
     """One FDA label per ingredient, shared by all patients. A doctor approves it
     before the library may use it (see the drug label design spec, section 6)."""

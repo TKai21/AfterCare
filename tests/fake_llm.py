@@ -4,6 +4,7 @@ import math
 import re
 
 import agent
+import decisions
 import drafts
 import rules
 
@@ -28,7 +29,8 @@ class FakeLLM:
         self.routes: dict = {agent.SECOND_LOOK_PROMPT: no_paragraphs,
                              rules.RULES_PROMPT: sentence_rules,
                              rules.CONFLICT_PROMPT: no_conflicts,
-                             drafts.SUPPORT_PROMPT: all_supported}
+                             drafts.SUPPORT_PROMPT: all_supported,
+                             decisions.KIND_PROMPT: other_decision}
         self.routed_calls: list[tuple] = []
         self._embedding_model = embedding_model
         # Scripted transcripts for transcribe(): a string, or an exception to raise.
@@ -76,6 +78,11 @@ class FakeLLM:
         if norm == 0:
             values[0], norm = 1.0, 1.0
         return [v / norm for v in values]
+
+
+def other_decision(messages):
+    """Default decision reader: the reply is of no named kind."""
+    return {"content": json.dumps({"kind": "other", "asks": False, "medication": False})}
 
 
 def sentence_rules(messages):

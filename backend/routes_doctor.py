@@ -21,6 +21,7 @@ from llm import LLMError
 from models import (
     AnswerDraft,
     CareTeamQuestion,
+    CaseDecision,
     ChatMessage,
     DischargeDocument,
     DoctorGuidance,
@@ -29,6 +30,7 @@ from models import (
     User,
 )
 from closing import doctor_warning_terms
+from decisions import KINDS, decision_view, record_decision, similar_cases
 from routes_agent import NOT_ANSWERED, recent_history
 from routes_care_team import mergeable, normalize_question, question_view
 from routes_documents import load_items
@@ -39,6 +41,7 @@ from voice import voice_views
 router = APIRouter()
 
 ANSWERED_LIMIT = 50
+SIMILAR_CACHE_MAX = 2000
 
 MAX_TEXT_CHARS = 4000
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_TEXT_CHARS)]
@@ -51,6 +54,10 @@ class AnswerBody(BaseModel):
     drug_tags: list[str] = Field(default_factory=list, max_length=20)
     condition_tags: list[str] = Field(default_factory=list, max_length=20)
     draft_id: Optional[int] = None  # the clone draft the answer started from
+
+
+class KindBody(BaseModel):
+    kind: Literal[KINDS]  # type: ignore[valid-type]
 
 
 class SuggestBody(BaseModel):
@@ -209,6 +216,16 @@ async def list_questions(
         )
     } if open_rows else {}
 
+    # The pairs of decision memory: each answered case's decision, and for each
+    # open case this doctor's similar past cases.
+    llm = _llm(request)
+    similar = await similar_cases(session, llm, _similar_cache(request), user.id,
+                                  open_rows) if llm is not None else {}
+    decided = {d.question_id: d for d in await session.scalars(
+        select(CaseDecision).where(
+            CaseDecision.question_id.in_([q.id for q in answered_rows]),
+            CaseDecision.doctor_id == user.id))} if answered_rows else {}
+
     def item(q: CareTeamQuestion) -> dict:
         patient = patients[q.user_id]
         view = question_view(q, names, voices)
@@ -218,6 +235,9 @@ async def list_questions(
             and q.asked is not None)
         if q.answer is None and q.status == "open":
             view["draft"] = draft_view(drafts.get(q.id))
+            view["similar"] = similar.get(q.id)
+        if q.id in decided:
+            view["decision"] = decision_view(decided[q.id])
         view["patient"] = {"id": patient.id, "username": patient.username}
         view["first_warning"] = first_warnings.get(q.id, [])
         view["context"] = contexts[(q.document_id, q.doctor_id)]
@@ -444,11 +464,13 @@ async def answer_question(
             )
             .execution_options(synchronize_session=False)
         )
+    made = "written"
     if body.draft_id is not None:
         draft = await session.get(AnswerDraft, body.draft_id)
         if (draft is not None and draft.question_id == q.id and draft.doctor_id == doctor.id
                 and draft.sent_answer is None):
             record_send(draft, body.answer, utcnow())
+            made = "draft" if draft.sent_unchanged else "edited"
     if legacy_clip:
         await session.commit()
         await session.refresh(q)
@@ -469,11 +491,41 @@ async def answer_question(
     if llm is not None:
         await index_entry(session, llm, request.app.state.store, entry)
     await session.refresh(q)
+    # The case as a pair, situation and decision (decision memory). Kept after
+    # the answer is sent and learned: it never blocks or fails the send.
+    decision = await record_decision(session, llm, q, doctor.id, body.answer, made)
+    await session.refresh(q)
     await session.refresh(entry)
-    return {
-        "question": question_view(q, await doctor_names(session, [q])),
-        "guidance": await guidance_view(session, llm, entry),
-    }
+    view = question_view(q, await doctor_names(session, [q]))
+    if decision is not None:
+        view["decision"] = decision_view(decision)
+    return {"question": view, "guidance": await guidance_view(session, llm, entry)}
+
+
+def _similar_cache(request: Request) -> dict:
+    """Embeddings of the open cases' situations, kept for the app's lifetime."""
+    cache = getattr(request.app.state, "similar_cache", None)
+    if cache is None:
+        cache = request.app.state.similar_cache = {}
+    if len(cache) > SIMILAR_CACHE_MAX:
+        cache.clear()
+    return cache
+
+
+@router.patch("/api/doctor/decisions/{decision_id}")
+async def set_decision_kind(
+    decision_id: int, body: KindBody, doctor: User = Depends(current_doctor),
+    session: AsyncSession = Depends(get_session),
+):
+    """The doctor names what they decided in a case: their word replaces the
+    reader's, and the case counts as evidence from then on."""
+    row = await session.get(CaseDecision, decision_id)
+    if row is None or row.doctor_id != doctor.id:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    row.kind, row.kind_by_doctor = body.kind, True
+    await session.commit()
+    await session.refresh(row)
+    return decision_view(row)
 
 
 SUGGEST_PROMPT = """You help a doctor tag a piece of medical advice so it is only reused for patients it applies to.

@@ -125,7 +125,67 @@ function contextHtml(q) {
       <ul class="doctor-context-body doctor-context-list">${convo.map(m =>
         `<li><span class="doctor-context-cat">${m.role === 'user' ? 'Patient' : 'Your AI clone'}</span> ${esc(m.content)}</li>`).join('')}</ul></details>`);
   }
+  const similar = q.similar;
+  if (similar && similar.cases.length) {
+    // Decision memory: what this doctor decided in similar past cases. A
+    // record, not a recommendation (no single decision is put forward).
+    const tally = similar.counts.map(c => `${c.count} ${esc(c.label.toLowerCase())}`).join(', ');
+    panels.push(`<details class="doctor-context" data-key="${q.id}:similar" ${isOpen(q.id, 'similar')}><summary>Your similar past cases (${similar.cases.length})</summary>
+      <div class="doctor-context-body similar-body">
+        <p class="similar-tally">You decided: ${tally}</p>
+        <p class="similar-note">What you decided before in cases like this one. A record, not a recommendation.</p>
+        <ul class="similar-list">${similar.cases.map(c => `
+          <li class="similar-case">
+            <p class="similar-head"><span class="decision-tag">${esc(c.label)}</span>${c.history ? '<span class="similar-source">from your earlier advice</span>' : ''}</p>
+            <p class="similar-complaint">${esc(c.complaint)}</p>
+            ${c.facts ? `<p class="similar-facts">${esc(c.facts.split('\n').join(' \u00b7 '))}</p>` : ''}
+            <p class="similar-reply"><span class="doctor-context-cat">You replied</span> ${esc(c.reply)}</p>
+          </li>`).join('')}</ul>
+      </div></details>`);
+  }
   return panels.join('');
+}
+
+// The kinds of decision (backend decisions.KINDS), most urgent first.
+const DECISION_KINDS = [
+  ['urgent', 'Emergency care now'], ['seen soon', 'Be seen as soon as possible'],
+  ['book a visit', 'Book a visit'], ['watch', 'Self-care, come back if not better'],
+  ['follow document', 'Follow the discharge document'],
+  ['contact clinic', 'Call or message the clinic'], ['ask more', 'Only asks the patient more'],
+  ['other', 'Other'],
+];
+
+// What the doctor decided in an answered case, as the clone read it; the
+// doctor's own choice replaces the reading.
+function decisionHtml(q) {
+  const d = q.decision;
+  if (!d) return '';
+  const options = (d.kind ? '' : '<option value="" selected disabled>Not read: choose one</option>')
+    + DECISION_KINDS.map(([kind, label]) =>
+      `<option value="${esc(kind)}" ${kind === d.kind ? 'selected' : ''}>${esc(label)}</option>`).join('');
+  return `<div class="doctor-decision">
+      <label class="doctor-decision-label" for="decision-${d.id}">Your decision</label>
+      <select id="decision-${d.id}" class="doctor-decision-select" data-decision="${d.id}">${options}</select>
+      <span class="doctor-decision-note" role="status">${esc(d.note || (d.by_doctor ? 'Set by you' : d.kind ? 'Read by your clone' : ''))}</span>
+    </div>`;
+}
+
+async function setDecision(select) {
+  const id = Number(select.dataset.decision);
+  const q = state.answered.find(x => x.decision && x.decision.id === id);
+  if (!q) return;
+  const before = q.decision;
+  select.disabled = true;
+  try {
+    q.decision = await api(`/api/doctor/decisions/${id}`, {method: 'PATCH', json: {kind: select.value}});
+  } catch (error) {
+    q.decision = {...before, note: error.message || 'Could not save. Try again.'};
+  }
+  const slot = select.closest('.doctor-decision');
+  if (slot) {
+    slot.outerHTML = decisionHtml(q);
+    document.getElementById(`decision-${id}`)?.focus();
+  }
 }
 
 function suggestStatusHtml(d) {
@@ -293,6 +353,7 @@ function answeredCardHtml(q) {
       ${voicePlayerHtml(q.voice?.question, 'patient question')}
       ${q.asked ? threadHtml(q, {note: false}) : ''}
       <p class="doctor-reason"><span class="doctor-reason-label">${q.closed_by_clone ? 'Closed by your clone' : esc(q.answered_by_name || 'Doctor') + ' answered'} ${esc(formatDate(q.answered_at))}:</span> ${esc(q.answer)}</p>
+      ${decisionHtml(q)}
       ${voicePlayerHtml(q.voice?.answer, 'your reply')}
     </li>`;
 }
@@ -565,6 +626,7 @@ function bindQuestions() {
     }
   });
   main.addEventListener('change', event => {
+    if (event.target.classList.contains('doctor-decision-select')) { setDecision(event.target); return; }
     if (!event.target.classList.contains('doctor-general-check')) return;
     const id = Number(event.target.closest('.doctor-card').dataset.id);
     const q = state.open.find(x => x.id === id);

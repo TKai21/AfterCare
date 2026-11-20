@@ -1,6 +1,7 @@
 # Decision memory - design
 
-Date: 2026-11-20. Status: draft, waiting for the team's approval.
+Date: 2026-11-20. Status: first version built on 2026-11-21, reduced after the replay: see
+section 9, which replaces 4.2, 4.4 and 4.6 where they differ.
 
 ## 1. Intent
 
@@ -162,3 +163,67 @@ patient's side; fail closed (no proposal rather than a guess).
 Case memory rather than written rules; the kinds; three unchanged approvals
 before acting alone, and never for medication; history counts as evidence but
 not toward acting alone.
+
+## 9. First version as built (2026-11-21)
+
+### 9.1 The replay came first, and changed the plan
+
+Section 5's replay was run on Dr. Okafor's 60 imported replies before anything
+was built on it. No way of proposing her decision beat always naming her most
+common one:
+
+| Method | Right, of 60 |
+|---|---|
+| Always the most common decision (baseline) | 28 |
+| Nearest past cases (the chosen approach of section 3) | 27 |
+| Nearest past cases, the patient's chart added | 23 |
+| A model shown her nearest cases | 21 |
+| A model shown her nearest cases and the charts | 23 |
+| A model alone | 18 |
+
+Why: the history holds the same patient message, word for word, answered with
+different decisions (the patients differ); the chart is a long problem list
+that 60 cases cannot be learned from; and nine of ten replies are a first
+response that asks the patient questions, so the decision was made before the
+answers that decide it. The reader of decisions is not the cause: it agreed
+with a plain wording rule on 56 of 60 replies.
+
+The team then chose (2026-11-21) to make the first version collect what the
+history lacks, and to propose nothing until the replay is clearly above its
+baseline.
+
+### 9.2 What was built
+
+- **Kinds** (replaces 4.2). "come in" hid her judgement: three quarters of her
+  replies ask for a visit, and what differs is how soon. One kind per reply,
+  most urgent first: urgent, seen soon, book a visit, watch (self-care, a
+  visit only if it does not get better), follow document, contact clinic, ask
+  more (only asks), other; and two flags, "asks" and "medication". A safety
+  net ("if it worsens, call 911") is not the decision.
+- **Stored** (`case_decisions`, `decisions.record_decision`): when a doctor
+  sends an answer, one small call reads the kind and one embedding is made.
+  The row keeps the complaint, the interview's facts, whether the patient
+  confirmed the summary, the reply, the kind and how the reply was made. It
+  never blocks or fails the send; a reply that cannot be read is kept with no
+  kind and is not evidence.
+- **The doctor's word wins.** Every answered card shows "Your decision" as a
+  list the doctor can change; a kind set by hand is marked and counts as
+  evidence.
+- **Similar past cases** (replaces 4.4). An open card lists this doctor's
+  nearest past cases (at most 5, similarity 0.40 or more) with what was
+  decided in each and the reply, under "A record, not a recommendation". No
+  single decision is put forward. Cases are compared on the complaint alone:
+  the interview's denials ("no shortness of breath") and the chart both
+  pulled in the wrong cases.
+- **History** (4.7): `scripts/decision_memory.py USERNAME --backfill` reads
+  the doctor's earlier advice into rows marked "history".
+- **The gauge**: the same script prints the replay with no model call, next to
+  the baseline, and says "clearly above" only beyond two standard deviations
+  of guessing at the baseline's rate. On the history: 30 of 60 against 28.
+- **Not built**: a proposed decision, the draft given past cases as examples
+  (4.4 step 3), and acting alone (4.6). They wait for the gauge.
+
+Calls made by Claude: the split of "come in" by how soon; comparing on the
+complaint alone; the floor of 0.40; the two-standard-deviation rule; kinds set
+after sending, not before, to save a model call while the doctor types.
+
